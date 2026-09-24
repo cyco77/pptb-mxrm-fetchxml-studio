@@ -65,7 +65,6 @@ interface AttributeRow {
 	logicalName: string;
 	displayName: string;
 	dataType: string;
-	isSelected: boolean;
 }
 
 interface SelectAttributesDialogProps {
@@ -90,14 +89,15 @@ export function SelectAttributesDialog({
 	const styles = useStyles();
 	const [searchQuery, setSearchQuery] = useState("");
 	const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set(selectedAttributeNames));
+	const selectedAttributeNamesKey = JSON.stringify(selectedAttributeNames);
 
 	// Reset selected rows when dialog opens with new data
 	useEffect(() => {
 		if (open) {
-			setSelectedRows(new Set(selectedAttributeNames));
+			setSelectedRows(new Set(JSON.parse(selectedAttributeNamesKey) as string[]));
 			setSearchQuery("");
 		}
-	}, [open, selectedAttributeNames]);
+	}, [open, nodeId, selectedAttributeNamesKey]);
 
 	// Transform attributes to rows
 	const allRows = useMemo<AttributeRow[]>(() => {
@@ -107,10 +107,9 @@ export function SelectAttributesDialog({
 				logicalName: attr.LogicalName,
 				displayName: attr.DisplayName?.UserLocalizedLabel?.Label || attr.LogicalName,
 				dataType: attr.AttributeType || "Unknown",
-				isSelected: selectedAttributeNames.includes(attr.LogicalName),
 			}))
 			.sort((a, b) => a.displayName.localeCompare(b.displayName));
-	}, [attributes, selectedAttributeNames]);
+	}, [attributes]);
 
 	// Filter rows based on search query
 	const filteredRows = useMemo(() => {
@@ -158,7 +157,7 @@ export function SelectAttributesDialog({
 
 	const handleSelectionChange: DataGridProps["onSelectionChange"] = useCallback(
 		(_e: unknown, data: { selectedItems: Iterable<unknown> }) => {
-			setSelectedRows(data.selectedItems as Set<string>);
+			setSelectedRows(new Set(data.selectedItems as Iterable<string>));
 		},
 		[]
 	);

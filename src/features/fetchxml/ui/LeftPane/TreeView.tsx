@@ -3,7 +3,7 @@
  * Displays hierarchical structure: Entity -> Attributes, Orders, Filters, Link-Entities
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type MouseEvent } from "react";
 import {
 	Tree,
 	TreeItem,
@@ -15,6 +15,7 @@ import {
 	MenuPopover,
 	MenuList,
 	MenuItem,
+	MenuDivider,
 	tokens,
 	type TreeOpenChangeData,
 } from "@fluentui/react-components";
@@ -82,6 +83,13 @@ const useStyles = makeStyles({
 			backgroundColor: tokens.colorNeutralBackground1Hover,
 		},
 	},
+	selectedTreeItem: {
+		backgroundColor: tokens.colorNeutralBackground1Selected,
+		color: tokens.colorNeutralForeground1Selected,
+		"&:hover": {
+			backgroundColor: tokens.colorNeutralBackground1Selected,
+		},
+	},
 	actions: {
 		display: "flex",
 		gap: "4px",
@@ -128,6 +136,20 @@ export function TreeView({
 	onUpdateAttributes,
 }: TreeViewProps) {
 	const styles = useStyles();
+	const getTreeItemLayoutClassName = (nodeId: NodeId) =>
+		selectedNodeId === nodeId ? styles.selectedTreeItem : undefined;
+	const handleNodeSelect = (nodeId: NodeId) => (event: MouseEvent) => {
+		if (
+			event.target instanceof Element &&
+			event.target.closest(".fui-TreeItemLayout__expandIcon")
+		) {
+			return;
+		}
+
+		event.preventDefault();
+		onNodeSelect(nodeId);
+	};
+	const stopMenuEventPropagation = (event: MouseEvent) => event.stopPropagation();
 
 	// Dialog state
 	const [selectAttrsDialogOpen, setSelectAttrsDialogOpen] = useState(false);
@@ -177,6 +199,12 @@ export function TreeView({
 			// Search in nested entity
 			if (n.entity && findInNode(n.entity, target)) {
 				// Found in entity, add current to path
+				path.unshift(currentId);
+				return true;
+			}
+
+			// All Attributes is a nested node, not part of the child arrays above
+			if (n.allAttributes && findInNode(n.allAttributes, target)) {
 				path.unshift(currentId);
 				return true;
 			}
@@ -301,7 +329,11 @@ export function TreeView({
 				value={fetch.id}
 				className={styles.treeItemWithActions}
 			>
-				<TreeItemLayout iconBefore={<Table20Regular />} onClick={() => onNodeSelect(fetch.id)}>
+				<TreeItemLayout
+					className={getTreeItemLayoutClassName(fetch.id)}
+					iconBefore={<Table20Regular />}
+					onClick={handleNodeSelect(fetch.id)}
+				>
 					Fetch Query
 				</TreeItemLayout>
 
@@ -313,6 +345,8 @@ export function TreeView({
 	const renderEntityNode = (entity: EntityNode, isRootEntity: boolean = true) => {
 		// Only allow one top-level filter per entity
 		const hasFilter = entity.filters.length > 0;
+		const hasAllAttributes = entity.allAttributes?.enabled ?? false;
+		const hasAttributes = entity.attributes.length > 0;
 
 		return (
 			<TreeItem
@@ -321,49 +355,94 @@ export function TreeView({
 				value={entity.id}
 				className={styles.treeItemWithActions}
 			>
-				<TreeItemLayout
-					iconBefore={<Table20Regular />}
-					actions={
-						<div className="actions">
-							<Menu>
-								<MenuTrigger disableButtonEnhancement>
-									<Button appearance="subtle" size="small" icon={<Add20Regular />} title="Add..." />
-								</MenuTrigger>
-								<MenuPopover>
-									<MenuList>
-										<MenuItem onClick={() => onAddAllAttributes(entity.id)}>
-											All Attributes
-										</MenuItem>
-										<MenuItem onClick={() => onAddAttribute(entity.id)}>Attribute</MenuItem>
-										<MenuItem onClick={() => handleOpenSelectAttributes(entity)}>
-											Select Attributes
-										</MenuItem>
-										<MenuItem onClick={() => onAddOrder(entity.id)}>Order By</MenuItem>
-										<MenuItem onClick={() => onAddFilter(entity.id)} disabled={hasFilter}>
-											Filter
-										</MenuItem>
-										<MenuItem onClick={() => onAddLinkEntity(entity.id)}>Link-Entity</MenuItem>
-									</MenuList>
-								</MenuPopover>
-							</Menu>
+				<Menu openOnContext>
+					<MenuTrigger disableButtonEnhancement>
+						<TreeItemLayout
+							className={getTreeItemLayoutClassName(entity.id)}
+							iconBefore={<Table20Regular />}
+							actions={
+								<div className="actions">
+									<Menu>
+										<MenuTrigger disableButtonEnhancement>
+											<Button
+												appearance="subtle"
+												size="small"
+												icon={<Add20Regular />}
+												title="Add..."
+											/>
+										</MenuTrigger>
+		<MenuPopover onClick={stopMenuEventPropagation} onContextMenu={stopMenuEventPropagation}>
+							<MenuList>
+								<MenuItem
+									onClick={() => onAddAllAttributes(entity.id)}
+									disabled={hasAllAttributes || hasAttributes}
+								>
+										All Attributes
+									</MenuItem>
+								<MenuItem onClick={() => onAddAttribute(entity.id)} disabled={hasAllAttributes}>
+									Attribute
+								</MenuItem>
+								<MenuItem
+									onClick={() => handleOpenSelectAttributes(entity)}
+									disabled={hasAllAttributes}
+								>
+										Select Attributes
+											</MenuItem>
+												<MenuItem onClick={() => onAddOrder(entity.id)}>Order By</MenuItem>
+												<MenuItem onClick={() => onAddFilter(entity.id)} disabled={hasFilter}>
+													Filter
+												</MenuItem>
+												<MenuItem onClick={() => onAddLinkEntity(entity.id)}>Link-Entity</MenuItem>
+											</MenuList>
+										</MenuPopover>
+									</Menu>
+									{!isRootEntity && (
+										<Button
+											appearance="subtle"
+											size="small"
+											icon={<Delete20Regular />}
+											onClick={(e) => {
+												e.stopPropagation();
+												onRemoveNode(entity.id);
+											}}
+											title="Remove"
+										/>
+									)}
+								</div>
+							}
+							onClick={handleNodeSelect(entity.id)}
+						>
+							{entity.name}
+						</TreeItemLayout>
+					</MenuTrigger>
+					<MenuPopover onClick={stopMenuEventPropagation} onContextMenu={stopMenuEventPropagation}>
+						<MenuList>
+							<MenuItem
+								onClick={() => onAddAllAttributes(entity.id)}
+								disabled={hasAllAttributes || hasAttributes}
+							>
+								All Attributes
+							</MenuItem>
+							<MenuItem onClick={() => onAddAttribute(entity.id)} disabled={hasAllAttributes}>
+								Attribute
+							</MenuItem>
+							<MenuItem onClick={() => handleOpenSelectAttributes(entity)} disabled={hasAllAttributes}>
+								Select Attributes
+							</MenuItem>
+							<MenuItem onClick={() => onAddOrder(entity.id)}>Order By</MenuItem>
+							<MenuItem onClick={() => onAddFilter(entity.id)} disabled={hasFilter}>
+								Filter
+							</MenuItem>
+							<MenuItem onClick={() => onAddLinkEntity(entity.id)}>Link-Entity</MenuItem>
 							{!isRootEntity && (
-								<Button
-									appearance="subtle"
-									size="small"
-									icon={<Delete20Regular />}
-									onClick={(e) => {
-										e.stopPropagation();
-										onRemoveNode(entity.id);
-									}}
-									title="Remove"
-								/>
+								<>
+									<MenuDivider />
+									<MenuItem onClick={() => onRemoveNode(entity.id)}>Remove</MenuItem>
+								</>
 							)}
-						</div>
-					}
-					onClick={() => onNodeSelect(entity.id)}
-				>
-					{entity.name}
-				</TreeItemLayout>
+						</MenuList>
+					</MenuPopover>
+				</Menu>
 
 				<Tree>
 					{/* All Attributes */}
@@ -387,25 +466,40 @@ export function TreeView({
 
 	const renderAllAttributesNode = (node: AllAttributesNode) => {
 		return (
-			<TreeItem key={node.id} itemType="leaf" value={node.id} className={styles.treeItem}>
-				<TreeItemLayout
-					iconBefore={<Column20Regular />}
-					actions={
-						<Button
-							appearance="subtle"
-							size="small"
-							icon={<Delete20Regular />}
-							onClick={(e) => {
-								e.stopPropagation();
-								onRemoveNode(node.id);
-							}}
-							title="Remove"
-						/>
-					}
-					onClick={() => onNodeSelect(node.id)}
-				>
-					All Attributes
-				</TreeItemLayout>
+			<TreeItem
+				key={node.id}
+				itemType="leaf"
+				value={node.id}
+				className={styles.treeItem}
+			>
+				<Menu openOnContext>
+					<MenuTrigger disableButtonEnhancement>
+						<TreeItemLayout
+							className={getTreeItemLayoutClassName(node.id)}
+							iconBefore={<Column20Regular />}
+							actions={
+								<Button
+									appearance="subtle"
+									size="small"
+									icon={<Delete20Regular />}
+									onClick={(e) => {
+										e.stopPropagation();
+										onRemoveNode(node.id);
+									}}
+									title="Remove"
+								/>
+							}
+							onClick={handleNodeSelect(node.id)}
+						>
+							All Attributes
+						</TreeItemLayout>
+					</MenuTrigger>
+					<MenuPopover onClick={stopMenuEventPropagation} onContextMenu={stopMenuEventPropagation}>
+						<MenuList>
+							<MenuItem onClick={() => onRemoveNode(node.id)}>Remove</MenuItem>
+						</MenuList>
+					</MenuPopover>
+				</Menu>
 			</TreeItem>
 		);
 	};
@@ -421,27 +515,37 @@ export function TreeView({
 				value={attr.id}
 				className={styles.treeItemWithActions}
 			>
-				<TreeItemLayout
-					iconBefore={<Column20Regular />}
-					actions={
-						<div className="actions">
-							<Button
-								appearance="subtle"
-								size="small"
-								icon={<Delete20Regular />}
-								onClick={(e) => {
-									e.stopPropagation();
-									onRemoveNode(attr.id);
-								}}
-								title="Remove Attribute"
-							/>
-						</div>
-					}
-					onClick={() => onNodeSelect(attr.id)}
-				>
-					{label}
-					{suffix}
-				</TreeItemLayout>
+				<Menu openOnContext>
+					<MenuTrigger disableButtonEnhancement>
+						<TreeItemLayout
+							className={getTreeItemLayoutClassName(attr.id)}
+							iconBefore={<Column20Regular />}
+							actions={
+								<div className="actions">
+									<Button
+										appearance="subtle"
+										size="small"
+										icon={<Delete20Regular />}
+										onClick={(e) => {
+											e.stopPropagation();
+											onRemoveNode(attr.id);
+										}}
+										title="Remove Attribute"
+									/>
+								</div>
+							}
+							onClick={handleNodeSelect(attr.id)}
+						>
+							{label}
+							{suffix}
+						</TreeItemLayout>
+					</MenuTrigger>
+					<MenuPopover onClick={stopMenuEventPropagation} onContextMenu={stopMenuEventPropagation}>
+						<MenuList>
+							<MenuItem onClick={() => onRemoveNode(attr.id)}>Remove Attribute</MenuItem>
+						</MenuList>
+					</MenuPopover>
+				</Menu>
 			</TreeItem>
 		);
 	};
@@ -459,26 +563,36 @@ export function TreeView({
 				value={order.id}
 				className={styles.treeItemWithActions}
 			>
-				<TreeItemLayout
-					iconBefore={<ArrowSort20Regular />}
-					actions={
-						<div className="actions">
-							<Button
-								appearance="subtle"
-								size="small"
-								icon={<Delete20Regular />}
-								onClick={(e) => {
-									e.stopPropagation();
-									onRemoveNode(order.id);
-								}}
-								title="Remove Order"
-							/>
-						</div>
-					}
-					onClick={() => onNodeSelect(order.id)}
-				>
-					{displayName} {direction}
-				</TreeItemLayout>
+				<Menu openOnContext>
+					<MenuTrigger disableButtonEnhancement>
+						<TreeItemLayout
+							className={getTreeItemLayoutClassName(order.id)}
+							iconBefore={<ArrowSort20Regular />}
+							actions={
+								<div className="actions">
+									<Button
+										appearance="subtle"
+										size="small"
+										icon={<Delete20Regular />}
+										onClick={(e) => {
+											e.stopPropagation();
+											onRemoveNode(order.id);
+										}}
+										title="Remove Order"
+									/>
+								</div>
+							}
+							onClick={handleNodeSelect(order.id)}
+						>
+							{displayName} {direction}
+						</TreeItemLayout>
+					</MenuTrigger>
+					<MenuPopover onClick={stopMenuEventPropagation} onContextMenu={stopMenuEventPropagation}>
+						<MenuList>
+							<MenuItem onClick={() => onRemoveNode(order.id)}>Remove Order</MenuItem>
+						</MenuList>
+					</MenuPopover>
+				</Menu>
 			</TreeItem>
 		);
 	};
@@ -491,40 +605,59 @@ export function TreeView({
 				value={filter.id}
 				className={styles.treeItemWithActions}
 			>
-				<TreeItemLayout
-					iconBefore={<Filter20Regular />}
-					actions={
-						<div className="actions">
-							<Menu>
-								<MenuTrigger disableButtonEnhancement>
-									<Button appearance="subtle" size="small" icon={<Add20Regular />} title="Add..." />
-								</MenuTrigger>
-								<MenuPopover>
-									<MenuList>
-										<MenuItem onClick={() => onAddCondition(filter.id)}>Condition</MenuItem>
-										<MenuItem onClick={() => onAddSubfilter(filter.id)}>Sub-Filter</MenuItem>
-										<MenuItem onClick={() => onAddLinkEntity(filter.id)}>
-											Link-Entity (any/not any/all)
-										</MenuItem>
-									</MenuList>
-								</MenuPopover>
-							</Menu>
-							<Button
-								appearance="subtle"
-								size="small"
-								icon={<Delete20Regular />}
-								onClick={(e) => {
-									e.stopPropagation();
-									onRemoveNode(filter.id);
-								}}
-								title="Remove Filter"
-							/>
-						</div>
-					}
-					onClick={() => onNodeSelect(filter.id)}
-				>
-					Filter ({filter.conjunction})
-				</TreeItemLayout>
+				<Menu openOnContext>
+					<MenuTrigger disableButtonEnhancement>
+						<TreeItemLayout
+							className={getTreeItemLayoutClassName(filter.id)}
+							iconBefore={<Filter20Regular />}
+							actions={
+								<div className="actions">
+									<Menu>
+										<MenuTrigger disableButtonEnhancement>
+											<Button appearance="subtle" size="small" icon={<Add20Regular />} title="Add..." />
+										</MenuTrigger>
+										<MenuPopover
+											onClick={stopMenuEventPropagation}
+											onContextMenu={stopMenuEventPropagation}
+										>
+											<MenuList>
+												<MenuItem onClick={() => onAddCondition(filter.id)}>Condition</MenuItem>
+												<MenuItem onClick={() => onAddSubfilter(filter.id)}>Sub-Filter</MenuItem>
+												<MenuItem onClick={() => onAddLinkEntity(filter.id)}>
+													Link-Entity (any/not any/all)
+												</MenuItem>
+											</MenuList>
+										</MenuPopover>
+									</Menu>
+									<Button
+										appearance="subtle"
+										size="small"
+										icon={<Delete20Regular />}
+										onClick={(e) => {
+											e.stopPropagation();
+											onRemoveNode(filter.id);
+										}}
+										title="Remove Filter"
+									/>
+								</div>
+							}
+							onClick={handleNodeSelect(filter.id)}
+						>
+							Filter ({filter.conjunction})
+						</TreeItemLayout>
+					</MenuTrigger>
+					<MenuPopover onClick={stopMenuEventPropagation} onContextMenu={stopMenuEventPropagation}>
+						<MenuList>
+							<MenuItem onClick={() => onAddCondition(filter.id)}>Condition</MenuItem>
+							<MenuItem onClick={() => onAddSubfilter(filter.id)}>Sub-Filter</MenuItem>
+							<MenuItem onClick={() => onAddLinkEntity(filter.id)}>
+								Link-Entity (any/not any/all)
+							</MenuItem>
+							<MenuDivider />
+							<MenuItem onClick={() => onRemoveNode(filter.id)}>Remove Filter</MenuItem>
+						</MenuList>
+					</MenuPopover>
+				</Menu>
 
 				<Tree>
 					{filter.conditions.map((cond) => renderConditionNode(cond))}
@@ -556,25 +689,35 @@ export function TreeView({
 				value={condition.id}
 				className={styles.treeItemWithActions}
 			>
-				<TreeItemLayout
-					actions={
-						<div className="actions">
-							<Button
-								appearance="subtle"
-								size="small"
-								icon={<Delete20Regular />}
-								onClick={(e) => {
-									e.stopPropagation();
-									onRemoveNode(condition.id);
-								}}
-								title="Remove Condition"
-							/>
-						</div>
-					}
-					onClick={() => onNodeSelect(condition.id)}
-				>
-					{displayText}
-				</TreeItemLayout>
+				<Menu openOnContext>
+					<MenuTrigger disableButtonEnhancement>
+						<TreeItemLayout
+							className={getTreeItemLayoutClassName(condition.id)}
+							actions={
+								<div className="actions">
+									<Button
+										appearance="subtle"
+										size="small"
+										icon={<Delete20Regular />}
+										onClick={(e) => {
+											e.stopPropagation();
+											onRemoveNode(condition.id);
+										}}
+										title="Remove Condition"
+									/>
+								</div>
+							}
+							onClick={handleNodeSelect(condition.id)}
+						>
+							{displayText}
+						</TreeItemLayout>
+					</MenuTrigger>
+					<MenuPopover onClick={stopMenuEventPropagation} onContextMenu={stopMenuEventPropagation}>
+						<MenuList>
+							<MenuItem onClick={() => onRemoveNode(condition.id)}>Remove Condition</MenuItem>
+						</MenuList>
+					</MenuPopover>
+				</Menu>
 			</TreeItem>
 		);
 	};
@@ -584,6 +727,8 @@ export function TreeView({
 		const canHaveAttributes = link.linkType !== "not any" && link.linkType !== "not all";
 		// Only allow one top-level filter per link-entity
 		const hasFilter = link.filters.length > 0;
+		const hasAllAttributes = link.allAttributes?.enabled ?? false;
+		const hasAttributes = link.attributes.length > 0;
 
 		return (
 			<TreeItem
@@ -592,55 +737,95 @@ export function TreeView({
 				value={link.id}
 				className={styles.treeItemWithActions}
 			>
-				<TreeItemLayout
-					iconBefore={<Link20Regular />}
-					actions={
-						<div className="actions">
-							<Menu>
-								<MenuTrigger disableButtonEnhancement>
-									<Button appearance="subtle" size="small" icon={<Add20Regular />} title="Add..." />
-								</MenuTrigger>
-								<MenuPopover>
-									<MenuList>
-										<MenuItem
-											onClick={() => onAddAllAttributes(link.id)}
-											disabled={!canHaveAttributes}
+				<Menu openOnContext>
+					<MenuTrigger disableButtonEnhancement>
+						<TreeItemLayout
+							className={getTreeItemLayoutClassName(link.id)}
+							iconBefore={<Link20Regular />}
+							actions={
+								<div className="actions">
+									<Menu>
+										<MenuTrigger disableButtonEnhancement>
+											<Button appearance="subtle" size="small" icon={<Add20Regular />} title="Add..." />
+										</MenuTrigger>
+										<MenuPopover
+											onClick={stopMenuEventPropagation}
+											onContextMenu={stopMenuEventPropagation}
 										>
-											All Attributes
-										</MenuItem>
-										<MenuItem onClick={() => onAddAttribute(link.id)} disabled={!canHaveAttributes}>
-											Attribute
-										</MenuItem>
-										<MenuItem
-											onClick={() => handleOpenSelectAttributes(link)}
-											disabled={!canHaveAttributes}
-										>
-											Select Attributes
-										</MenuItem>
-										<MenuItem onClick={() => onAddOrder(link.id)}>Order By</MenuItem>
-										<MenuItem onClick={() => onAddFilter(link.id)} disabled={hasFilter}>
-											Filter
-										</MenuItem>
-										<MenuItem onClick={() => onAddLinkEntity(link.id)}>Link-Entity</MenuItem>
-									</MenuList>
-								</MenuPopover>
-							</Menu>
-							<Button
-								appearance="subtle"
-								size="small"
-								icon={<Delete20Regular />}
-								onClick={(e) => {
-									e.stopPropagation();
-									onRemoveNode(link.id);
-								}}
-								title="Remove Link"
-							/>
-						</div>
-					}
-					onClick={() => onNodeSelect(link.id)}
-				>
-					{link.alias || link.name} ({link.linkType})
-				</TreeItemLayout>
+							<MenuList>
+								<MenuItem
+									onClick={() => onAddAllAttributes(link.id)}
+									disabled={!canHaveAttributes || hasAllAttributes || hasAttributes}
+								>
+									All Attributes
+								</MenuItem>
+												<MenuItem
+													onClick={() => onAddAttribute(link.id)}
+													disabled={!canHaveAttributes || hasAllAttributes}
+												>
+													Attribute
+												</MenuItem>
+								<MenuItem
+									onClick={() => handleOpenSelectAttributes(link)}
+									disabled={!canHaveAttributes || hasAllAttributes}
+								>
+									Select Attributes
+								</MenuItem>
+												<MenuItem onClick={() => onAddOrder(link.id)}>Order By</MenuItem>
+												<MenuItem onClick={() => onAddFilter(link.id)} disabled={hasFilter}>
+													Filter
+												</MenuItem>
+												<MenuItem onClick={() => onAddLinkEntity(link.id)}>Link-Entity</MenuItem>
+											</MenuList>
+										</MenuPopover>
+									</Menu>
+									<Button
+										appearance="subtle"
+										size="small"
+										icon={<Delete20Regular />}
+										onClick={(e) => {
+											e.stopPropagation();
+											onRemoveNode(link.id);
+										}}
+										title="Remove Link"
+									/>
+								</div>
+							}
+							onClick={handleNodeSelect(link.id)}
+						>
+							{link.alias || link.name} ({link.linkType})
+						</TreeItemLayout>
+					</MenuTrigger>
+					<MenuPopover onClick={stopMenuEventPropagation} onContextMenu={stopMenuEventPropagation}>
+						<MenuList>
+							<MenuItem
+								onClick={() => onAddAllAttributes(link.id)}
+								disabled={!canHaveAttributes || hasAllAttributes || hasAttributes}
+							>
+								All Attributes
+							</MenuItem>
+							<MenuItem
+								onClick={() => onAddAttribute(link.id)}
+								disabled={!canHaveAttributes || hasAllAttributes}
+							>
+								Attribute
+							</MenuItem>
+							<MenuItem
+								onClick={() => handleOpenSelectAttributes(link)}
+								disabled={!canHaveAttributes || hasAllAttributes}
+							>
+								Select Attributes
+							</MenuItem>
+							<MenuItem onClick={() => onAddOrder(link.id)}>Order By</MenuItem>
+							<MenuItem onClick={() => onAddFilter(link.id)} disabled={hasFilter}>
+								Filter
+							</MenuItem>
+							<MenuItem onClick={() => onAddLinkEntity(link.id)}>Link-Entity</MenuItem>
+							<MenuDivider />
+							<MenuItem onClick={() => onRemoveNode(link.id)}>Remove Link</MenuItem>
+						</MenuList>
+					</MenuPopover>
+				</Menu>
 
 				<Tree>
 					{link.allAttributes?.enabled && renderAllAttributesNode(link.allAttributes)}

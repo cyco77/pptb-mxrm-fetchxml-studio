@@ -33,16 +33,43 @@ const useStyles = makeStyles({
 		flexDirection: "column",
 		gap: tokens.spacingVerticalM,
 		padding: tokens.spacingVerticalM,
+		containerType: "inline-size",
 	},
 	section: {
 		display: "flex",
 		flexDirection: "column",
 		gap: tokens.spacingVerticalS,
 	},
+	queryOptions: {
+		display: "grid",
+		gridTemplateColumns: "minmax(0, 1fr)",
+		columnGap: tokens.spacingHorizontalL,
+		rowGap: tokens.spacingVerticalS,
+		"@container (min-width: 600px)": {
+			gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+		},
+	},
+	pagingOptions: {
+		display: "grid",
+		gridTemplateColumns: "minmax(0, 1fr)",
+		columnGap: tokens.spacingHorizontalL,
+		rowGap: tokens.spacingVerticalS,
+		"@container (min-width: 600px)": {
+			gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+		},
+	},
+	wideField: {
+		gridColumn: "1 / -1",
+	},
 	fieldWithTooltip: {
 		display: "flex",
 		alignItems: "center",
 		gap: tokens.spacingHorizontalXS,
+		minWidth: 0,
+	},
+	flexibleInput: {
+		flex: 1,
+		minWidth: 0,
 	},
 	tooltipIcon: {
 		color: tokens.colorNeutralForeground3,
@@ -135,131 +162,142 @@ export function FetchOptionsEditor({ node, onUpdate }: FetchOptionsEditorProps) 
 			<div className={styles.section}>
 				<Label weight="semibold">Query Options</Label>
 
-				<Field>
-					<div className={styles.fieldWithTooltip}>
-						<Checkbox
-							checked={options.aggregate ?? false}
-							onChange={handleCheckboxChange("aggregate")}
-							label="Aggregate Query"
-						/>
-						<Tooltip
-							content="Enable for grouping and aggregation (SUM, COUNT, AVG, MIN, MAX). Requires grouped or aggregated attributes."
-							relationship="description"
-						>
-							<Info16Regular className={styles.tooltipIcon} />
-						</Tooltip>
-					</div>
-				</Field>
+				<div className={styles.queryOptions}>
+					<Field>
+						<div className={styles.fieldWithTooltip}>
+							<Checkbox
+								checked={options.aggregate ?? false}
+								onChange={handleCheckboxChange("aggregate")}
+								label="Aggregate Query"
+							/>
+							<Tooltip
+								content="Enable for grouping and aggregation (SUM, COUNT, AVG, MIN, MAX). Requires grouped or aggregated attributes."
+								relationship="description"
+							>
+								<Info16Regular className={styles.tooltipIcon} />
+							</Tooltip>
+						</div>
+					</Field>
 
-				<Field>
-					<div className={styles.fieldWithTooltip}>
-						<Checkbox
-							checked={options.distinct ?? false}
-							onChange={handleCheckboxChange("distinct")}
-							label="Distinct Rows"
-						/>
-						<Tooltip
-							content="Return only unique rows. Useful to eliminate duplicates from joins or multi-value fields."
-							relationship="description"
-						>
-							<Info16Regular className={styles.tooltipIcon} />
-						</Tooltip>
-					</div>
-				</Field>
+					<Field>
+						<div className={styles.fieldWithTooltip}>
+							<Checkbox
+								checked={options.distinct ?? false}
+								onChange={handleCheckboxChange("distinct")}
+								label="Distinct Rows"
+							/>
+							<Tooltip
+								content="Return only unique rows. Useful to eliminate duplicates from joins or multi-value fields."
+								relationship="description"
+							>
+								<Info16Regular className={styles.tooltipIcon} />
+							</Tooltip>
+						</div>
+					</Field>
 
-				<Field>
-					<div className={styles.fieldWithTooltip}>
-						<Checkbox
-							checked={options.returnTotalRecordCount ?? false}
-							onChange={handleCheckboxChange("returnTotalRecordCount")}
-							label="Return Total Record Count"
-						/>
-						<Tooltip
-							content="Include total count of records matching query (ignoring paging). May impact performance."
-							relationship="description"
-						>
-							<Info16Regular className={styles.tooltipIcon} />
-						</Tooltip>
-					</div>
-				</Field>
+					<Field>
+						<div className={styles.fieldWithTooltip}>
+							<Checkbox
+								checked={options.returnTotalRecordCount ?? false}
+								onChange={handleCheckboxChange("returnTotalRecordCount")}
+								label="Return Total Record Count"
+							/>
+							<Tooltip
+								content="Include total count of records matching query (ignoring paging). May impact performance."
+								relationship="description"
+							>
+								<Info16Regular className={styles.tooltipIcon} />
+							</Tooltip>
+						</div>
+					</Field>
 
-				<Field>
-					<div className={styles.fieldWithTooltip}>
-						<Checkbox
-							checked={options.noLock ?? false}
-							onChange={handleCheckboxChange("noLock")}
-							label="No Lock (Read Uncommitted)"
-						/>
-						<Tooltip
-							content="Use NOLOCK hint for better read performance. May return uncommitted data. Use cautiously."
-							relationship="description"
-						>
-							<Info16Regular className={styles.tooltipIcon} />
-						</Tooltip>
-					</div>
-				</Field>
+					<Field>
+						<div className={styles.fieldWithTooltip}>
+							<Checkbox
+								checked={options.noLock ?? false}
+								onChange={handleCheckboxChange("noLock")}
+								label="No Lock (Read Uncommitted)"
+							/>
+							<Tooltip
+								content="Use NOLOCK hint for better read performance. May return uncommitted data. Use cautiously."
+								relationship="description"
+							>
+								<Info16Regular className={styles.tooltipIcon} />
+							</Tooltip>
+						</div>
+					</Field>
+				</div>
 			</div>
 
 			{/* Paging Section */}
 			<div className={styles.section}>
 				<Label weight="semibold">Paging & Limits</Label>
 
-				<Field label="Max Records (Top)">
-					<div className={styles.fieldWithTooltip}>
-						<Input
-							type="number"
-							min={1}
-							value={options.top?.toString() ?? ""}
-							onChange={handleNumberChange("top", 1)}
-							placeholder="No limit"
-						/>
-						<Tooltip
-							content="Maximum records to return (LIMIT clause). Leave empty for all records."
-							relationship="description"
-						>
-							<Info16Regular className={styles.tooltipIcon} />
-						</Tooltip>
-					</div>
-				</Field>
+				<div className={styles.pagingOptions}>
+					<Field label="Max Records (Top)">
+						<div className={styles.fieldWithTooltip}>
+							<Input
+								className={styles.flexibleInput}
+								type="number"
+								min={1}
+								value={options.top?.toString() ?? ""}
+								onChange={handleNumberChange("top", 1)}
+								placeholder="No limit"
+							/>
+							<Tooltip
+								content="Maximum records to return (LIMIT clause). Leave empty for all records."
+								relationship="description"
+							>
+								<Info16Regular className={styles.tooltipIcon} />
+							</Tooltip>
+						</div>
+					</Field>
 
-				<Field label="Page Size (Count)">
-					<div className={styles.fieldWithTooltip}>
-						<Input
-							type="number"
-							min={1}
-							max={5000}
-							value={options.count?.toString() ?? ""}
-							onChange={handleNumberChange("count", 1, 5000)}
-							placeholder="Default: 5000"
-						/>
-						<Tooltip
-							content="Records per page for pagination. Max 5000. Used with Page Number."
-							relationship="description"
-						>
-							<Info16Regular className={styles.tooltipIcon} />
-						</Tooltip>
-					</div>
-				</Field>
+					<Field label="Page Size (Count)">
+						<div className={styles.fieldWithTooltip}>
+							<Input
+								className={styles.flexibleInput}
+								type="number"
+								min={1}
+								max={5000}
+								value={options.count?.toString() ?? ""}
+								onChange={handleNumberChange("count", 1, 5000)}
+								placeholder="Default: 5000"
+							/>
+							<Tooltip
+								content="Records per page for pagination. Max 5000. Used with Page Number."
+								relationship="description"
+							>
+								<Info16Regular className={styles.tooltipIcon} />
+							</Tooltip>
+						</div>
+					</Field>
 
-				<Field label="Page Number">
-					<div className={styles.fieldWithTooltip}>
-						<Input
-							type="number"
-							min={1}
-							value={options.page?.toString() ?? ""}
-							onChange={handleNumberChange("page", 1)}
-							placeholder="1"
-						/>
-						<Tooltip
-							content="Which page to retrieve. Starts at 1. Used with Page Size."
-							relationship="description"
-						>
-							<Info16Regular className={styles.tooltipIcon} />
-						</Tooltip>
-					</div>
-				</Field>
+					<Field label="Page Number">
+						<div className={styles.fieldWithTooltip}>
+							<Input
+								className={styles.flexibleInput}
+								type="number"
+								min={1}
+								value={options.page?.toString() ?? ""}
+								onChange={handleNumberChange("page", 1)}
+								placeholder="1"
+							/>
+							<Tooltip
+								content="Which page to retrieve. Starts at 1. Used with Page Size."
+								relationship="description"
+							>
+								<Info16Regular className={styles.tooltipIcon} />
+							</Tooltip>
+						</div>
+					</Field>
 
-				<Field label="Paging Cookie" hint="Copy from previous query results for efficient paging">
+				</div>
+				<Field
+					className={styles.wideField}
+					label="Paging Cookie"
+					hint="Copy from previous query results for efficient paging"
+				>
 					<Input
 						value={options.pagingCookie ?? ""}
 						onChange={handleTextChange("pagingCookie")}

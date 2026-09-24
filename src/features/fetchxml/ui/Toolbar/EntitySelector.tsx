@@ -42,27 +42,35 @@ const useStyles = makeStyles({
 		containerType: "inline-size",
 	},
 	filtersRow: {
-		display: "flex",
-		gap: "12px",
-		alignItems: "flex-end",
-		flexWrap: "wrap",
-		// Stack vertically when container is narrow (< 520px)
-		"@container (max-width: 519px)": {
-			flexDirection: "column",
-			alignItems: "stretch",
+		display: "grid",
+		gridTemplateColumns: "minmax(0, 1fr)",
+		gap: "8px 12px",
+		minWidth: 0,
+		"@container (min-width: 600px)": {
+			gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
 		},
 	},
 	entityRow: {
 		display: "flex",
 		alignItems: "flex-end",
 		gap: "12px",
+		minWidth: 0,
 	},
 	field: {
 		display: "flex",
 		flexDirection: "column",
 		gap: "4px",
-		flex: 1,
 		minWidth: 0,
+		width: "100%",
+	},
+	entityField: {
+		flex: "1 1 0",
+		minWidth: 0,
+	},
+	entityCombobox: {
+		width: "100%",
+		minWidth: 0,
+		boxSizing: "border-box",
 	},
 	label: {
 		fontSize: "14px",
@@ -96,6 +104,7 @@ const useStyles = makeStyles({
 		display: "flex",
 		gap: "12px",
 		alignItems: "flex-end",
+		minWidth: 0,
 	},
 });
 
@@ -536,6 +545,7 @@ export function EntitySelector({
 							Publishers
 						</label>
 						<Combobox
+							className={styles.entityCombobox}
 							aria-labelledby={publisherComboId}
 							placeholder={publisherPlaceholder}
 							multiselect
@@ -566,6 +576,7 @@ export function EntitySelector({
 							Solutions
 						</label>
 						<Combobox
+							className={styles.entityCombobox}
 							aria-labelledby={solutionComboId}
 							placeholder={solutionPlaceholder}
 							multiselect
@@ -636,6 +647,7 @@ export function EntitySelector({
 							</label>
 						</Tooltip>
 						<Combobox
+							className={styles.entityCombobox}
 							aria-labelledby={publisherComboId}
 							placeholder="No access to publishers"
 							disabled
@@ -650,6 +662,7 @@ export function EntitySelector({
 							Solutions
 						</label>
 						<Combobox
+							className={styles.entityCombobox}
 							aria-labelledby={solutionComboId}
 							placeholder={solutionPlaceholder}
 							multiselect
@@ -711,11 +724,12 @@ export function EntitySelector({
 
 			{/* Entity selector (all modes) */}
 			<div className={styles.entityRow}>
-				<div className={styles.field}>
+				<div className={`${styles.field} ${styles.entityField}`}>
 					<label id={entityComboId} className={styles.label}>
 						Entity
 					</label>
 					<Combobox
+						className={styles.entityCombobox}
 						aria-labelledby={entityComboId}
 						placeholder={entityLoading ? "Loading entities..." : "Select an entity..."}
 						value={entityQuery}

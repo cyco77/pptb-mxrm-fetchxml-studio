@@ -605,10 +605,13 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
 					attributes: updatedAttributes,
 				};
 			});
+			const selectedAttribute = updatedAttributes[updatedAttributes.length - 1] ?? null;
 
 			return {
 				...state,
 				fetchQuery: updatedFetchForBulk,
+				selectedNodeId: selectedAttribute?.id ?? null,
+				selectedNode: selectedAttribute,
 				loadedView: null, // Clear view info - query modified
 				layoutNeedsSync: true, // Attributes changed - layout needs update
 			};
