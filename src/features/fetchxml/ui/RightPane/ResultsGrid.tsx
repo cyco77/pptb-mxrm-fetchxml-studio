@@ -28,9 +28,9 @@ import { useScrollbarWidth, useFluent } from "@fluentui/react-components";
 import type { SortDirection } from "@fluentui/react-components";
 import { ArrowSortUp16Regular, ArrowSortDown16Regular } from "@fluentui/react-icons";
 import type { AttributeMetadata } from "../../api/pptbClient";
-import { getCellRenderer } from "./DataGridCellRenderers";
+import { getCellRenderer } from "./getCellRenderer";
 import { getFormattedValue, filterDisplayableColumns } from "./FormattedValueUtils";
-import type { FetchNode, AttributeNode, OrderNode } from "../../model/nodes";
+import type { FetchNode, AttributeNode, OrderNode, LinkEntityNode } from "../../model/nodes";
 import type { LayoutXmlConfig } from "../../model/layoutxml";
 import type { DisplaySettings } from "../../model/displaySettings";
 import { metadataCache } from "../../state/cache";
@@ -330,7 +330,7 @@ export function ResultsGrid({
 		}
 
 		// Collect from link-entities recursively
-		const collectFromLinks = (links: Array<any>, linkAlias?: string) => {
+		const collectFromLinks = (links: LinkEntityNode[], linkAlias?: string) => {
 			links.forEach((link) => {
 				const currentAlias = link.alias || linkAlias;
 				if (link.attributes) {
@@ -998,7 +998,7 @@ export function ResultsGrid({
 						onSelectionChange={handleSelectionChange}
 						getRowId={getRowId}
 					>
-						<DataGridHeader ref={headerRef as any} style={{ paddingRight: scrollbarWidth }}>
+						<DataGridHeader ref={headerRef} style={{ paddingRight: scrollbarWidth }}>
 							<DataGridRow style={{ minHeight: "43px", maxHeight: "43px" }}>
 								{({ renderHeaderCell }) => (
 									<DataGridHeaderCell className={styles.headerCell}>

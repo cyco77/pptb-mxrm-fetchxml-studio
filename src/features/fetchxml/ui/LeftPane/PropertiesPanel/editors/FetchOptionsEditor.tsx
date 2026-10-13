@@ -22,7 +22,7 @@ import {
 } from "@fluentui/react-components";
 import { Info16Regular } from "@fluentui/react-icons";
 import type { FetchNode } from "../../../../model/nodes";
-import { useBuilder } from "../../../../state/builderStore";
+import { useBuilder } from "../../../../state/builderContext";
 
 // Track if the teaching popover has been shown this session
 let hasShownRetrieveAllPopover = false;

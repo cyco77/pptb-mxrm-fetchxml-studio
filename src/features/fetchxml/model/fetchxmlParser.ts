@@ -337,7 +337,6 @@ function parseEntity(entityElement: Element, warnings: ParseWarning[]): EntityNo
  * Parse all-attributes element
  * Note: Parameters reserved for future use (potential warnings for deprecated usage)
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function parseAllAttributes(_element: Element, _warnings: ParseWarning[]): AllAttributesNode {
 	return {
 		id: generateParseId(),

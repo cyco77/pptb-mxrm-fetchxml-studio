@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🏗️ Technical
+
+- **Unit test baseline (#64).** Added Vitest (`npm test`, `npm run test:watch`, `npm run coverage`) with jsdom, plus 52 characterization tests for the FetchXML serializer, parser (including a parse → generate → parse round-trip of the #54 query), paging-attribute rewriting, alias utilities and the operator catalogue.
+- **Lint cleanup, part 1 (#65).** ESLint errors reduced to zero with no behaviour change:
+  - `useBuilder` / `BuilderContext` moved to `state/builderContext.ts`;
+  - `useTheme` / `ThemeContext` moved to `shared/contexts/useTheme.ts`;
+  - `getCellRenderer` moved to `RightPane/getCellRenderer.tsx` (React Fast Refresh: component modules export only components);
+  - removed two `any` types in `ResultsGrid.tsx`;
+  - `_`-prefixed bindings are now allowed as intentionally unused.
+  - The remaining `react-hooks/exhaustive-deps` warnings can affect runtime behaviour and are handled separately.
+
 ## [1.4.0] - 2026-07-01
 
 ### ✨ Added
