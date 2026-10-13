@@ -32,7 +32,7 @@ import {
 	TreeDeciduous24Regular,
 	Dismiss24Regular,
 } from "@fluentui/react-icons";
-import { useTheme } from "../../../../shared/contexts/ThemeContext";
+import { useTheme } from "../../../../shared/contexts/useTheme";
 import { parseFetchXml, validateFetchXmlSyntax } from "../../model/fetchxmlParser";
 import type { ParseResult, ParseWarning, ParseError } from "../../model/fetchxmlParser";
 import {

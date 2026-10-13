@@ -24,7 +24,7 @@ import {
 	tokens,
 } from "@fluentui/react-components";
 import { Copy20Regular, Info20Regular } from "@fluentui/react-icons";
-import { useTheme } from "../../../../shared/contexts/ThemeContext";
+import { useTheme } from "../../../../shared/contexts/useTheme";
 import { usePptbContext } from "../../../../shared/hooks/usePptbContext";
 import {
 	generateFxsSyncCode,
