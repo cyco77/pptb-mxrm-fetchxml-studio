@@ -37,13 +37,15 @@ function formatValueForFetchXml(val: unknown): string {
 }
 
 /**
- * Generate complete FetchXML from FetchNode
- * @param primaryIdAttribute - The entity's real primary key attribute name from Dataverse metadata
- *   (e.g. "activityid" for activity entities like email/task, "accountid" for account).
- *   When provided, it is injected into the query so row selection and paging work correctly.
- *   When omitted, no primary key injection occurs — callers must supply this from entity metadata.
+ * Generate complete FetchXML from FetchNode.
+ *
+ * The output reflects exactly what is in the tree — no attributes are added. Dataverse already
+ * returns the root table's primary key for non-aggregate, non-distinct queries, and adding it
+ * would break aggregate queries and defeat distinct (#54, #59).
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/select-columns
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/page-results#ordering-and-paging
  */
-export function generateFetchXml(fetchNode: FetchNode, primaryIdAttribute?: string): string {
+export function generateFetchXml(fetchNode: FetchNode): string {
 	const lines: string[] = [];
 
 	// Build fetch element with options
@@ -64,7 +66,7 @@ export function generateFetchXml(fetchNode: FetchNode, primaryIdAttribute?: stri
 	lines.push(`<fetch${fetchAttrStr}>`);
 
 	// Generate entity
-	lines.push(...generateEntity(fetchNode.entity, 1, primaryIdAttribute));
+	lines.push(...generateEntity(fetchNode.entity, 1));
 
 	lines.push("</fetch>");
 
@@ -73,9 +75,8 @@ export function generateFetchXml(fetchNode: FetchNode, primaryIdAttribute?: stri
 
 /**
  * Generate entity element
- * @param primaryIdAttribute - Primary key attribute name from metadata; injected when absent from attributes.
  */
-function generateEntity(entity: EntityNode, indent: number, primaryIdAttribute?: string): string[] {
+function generateEntity(entity: EntityNode, indent: number): string[] {
 	const lines: string[] = [];
 	const spaces = "  ".repeat(indent);
 
@@ -84,19 +85,6 @@ function generateEntity(entity: EntityNode, indent: number, primaryIdAttribute?:
 	// All-attributes (single node, not array)
 	if (entity.allAttributes?.enabled) {
 		lines.push(...generateAllAttributes(entity.allAttributes, indent + 1));
-	}
-
-	// Inject the primary key attribute when not already present, so row selection and paging work.
-	// We rely exclusively on the PrimaryIdAttribute from Dataverse entity metadata — no guessing.
-	if (primaryIdAttribute) {
-		const hasPrimaryId =
-			entity.attributes.some((attr) => attr.name === primaryIdAttribute) ||
-			entity.allAttributes?.enabled;
-
-		if (!hasPrimaryId) {
-			const primaryIdSpaces = "  ".repeat(indent + 1);
-			lines.push(`${primaryIdSpaces}<attribute name="${primaryIdAttribute}" />`);
-		}
 	}
 
 	// Attributes

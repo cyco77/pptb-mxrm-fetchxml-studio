@@ -21,13 +21,14 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **Virtualized DataGrid** — Handle large result sets with smooth scrolling (powered by react-window)
 - **Rich cell rendering** — Power Apps-style display for lookups, option sets, dates, currency, and more
 - **Multi-column sorting** — Click headers to sort; Shift+click for multi-column sort
-- **Row selection** — Select single or multiple records for bulk operations
+- **Row selection** — Select single or multiple records for bulk operations. Record actions use the table's primary key, which Dataverse returns automatically for regular queries; for aggregate and distinct queries (which return no record IDs) record actions are disabled with an explanation
 - **Resizable & reorderable columns** — Customize your view with drag-and-drop columns
 - **Formatted values** — Display OData formatted values or raw values (configurable)
 
 ### 📝 FetchXML Editor
 - **Monaco editor** — Full-featured XML editor with XML syntax highlighting and line numbers
 - **Bi-directional editing** — Edit XML directly and parse back to the visual builder
+- **What you build is what runs** — The generated FetchXML contains exactly what is in the tree; nothing is injected, so what you copy, save as a view, or send to another tool matches what executes
 - **Copy to clipboard** — One-click copy of generated FetchXML, available in both read-only and editor modes
 - **Alias validation** — Invalid alias characters are sanitized in real time in the property editors; the parser auto-corrects aliases on Parse to Tree with a clear description of each correction
 - **LayoutXML preview** — See the column layout configuration

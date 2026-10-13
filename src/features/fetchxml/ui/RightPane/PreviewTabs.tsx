@@ -261,6 +261,8 @@ interface PreviewTabsProps {
 	isAggregateQuery?: boolean;
 	/** Whether the query has 1-N or N-N relationships that cause row duplication */
 	hasOneToManyRelationship?: boolean;
+	/** When set, results have no record IDs and all record actions are disabled with this explanation */
+	recordActionsDisabledReason?: string;
 	/** Callback when selection changes in ResultsGrid */
 	onSelectionChange?: (recordIds: string[]) => void;
 	/** Callback to get currently selected record IDs */
@@ -322,6 +324,7 @@ export function PreviewTabs({
 	onFetchWorkflows,
 	isAggregateQuery,
 	hasOneToManyRelationship,
+	recordActionsDisabledReason,
 	onSelectionChange,
 	getSelectedRecordIds,
 	onOpenSettings,
@@ -617,6 +620,7 @@ export function PreviewTabs({
 								}}
 								canRunWorkflow={canRunWorkflow}
 								workflowDisabled={isAggregateQuery || hasOneToManyRelationship}
+								recordActionsDisabledReason={recordActionsDisabledReason}
 								onFetchWorkflows={onFetchWorkflows}
 								onExport={onExport || (() => console.log("Export not yet implemented"))}
 								onExportLocal={onExportLocal}
