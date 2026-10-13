@@ -202,6 +202,35 @@ describe("generateFetchXml", () => {
 	});
 });
 
+describe("generateFetchXml never adds attributes (#54, #59)", () => {
+	const attributeNames = (xml: string) => [...xml.matchAll(/<attribute name="([^"]+)"/g)].map((m) => m[1]);
+
+	it.each([
+		["plain", {}],
+		["aggregate", { aggregate: true }],
+		["distinct", { distinct: true }],
+	] as const)("%s query contains only the tree's attributes", (_label, options) => {
+		const xml = generateFetchXml(
+			fetch(
+				entity("account", {
+					attributes: [{ id: nid(), type: "attribute", name: "name" }],
+					links: [
+						link({
+							name: "contact",
+							from: "parentcustomerid",
+							to: "accountid",
+							alias: "c",
+							attributes: [{ id: nid(), type: "attribute", name: "fullname" }],
+						}),
+					],
+				}),
+				options,
+			),
+		);
+		expect(attributeNames(xml)).toEqual(["name", "fullname"]);
+	});
+});
+
 describe("addPagingToFetchXml", () => {
 	const base = '<fetch count="50">\n  <entity name="account" />\n</fetch>';
 

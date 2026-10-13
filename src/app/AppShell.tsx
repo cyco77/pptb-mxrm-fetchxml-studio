@@ -61,6 +61,7 @@ import type {
 	WorkflowBatchProgress,
 } from "../features/fetchxml/api/pptbClient";
 import { generateFetchXml, addPagingToFetchXml } from "../features/fetchxml/model/fetchxml";
+import { getQueryEntities } from "../features/fetchxml/model/treeUtils";
 import { generateLayoutXml } from "../features/fetchxml/model/layoutxml";
 import { collectAttributesFromFetchXml } from "../features/fetchxml/model/layoutxml";
 import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid";
@@ -209,35 +210,6 @@ export function AppShell() {
 	);
 }
 
-/**
- * Collect all unique entity logical names from a FetchXML query
- * Includes root entity and all link-entities (recursively)
- */
-function collectEntitiesFromFetchQuery(
-	fetchQuery: import("../features/fetchxml/model/nodes").FetchNode | null,
-): string[] {
-	if (!fetchQuery?.entity?.name) return [];
-
-	const entities = new Set<string>();
-	entities.add(fetchQuery.entity.name);
-
-	const collectFromLinks = (
-		links: import("../features/fetchxml/model/nodes").LinkEntityNode[] | undefined,
-	) => {
-		links?.forEach((link) => {
-			if (link.name) {
-				entities.add(link.name);
-			}
-			if (link.links) {
-				collectFromLinks(link.links);
-			}
-		});
-	};
-
-	collectFromLinks(fetchQuery.entity.links);
-
-	return Array.from(entities);
-}
 
 function AppContent() {
 	const styles = useStyles();
@@ -297,7 +269,7 @@ function AppContent() {
 		Map<string, Map<string, AttributeMetadata>>
 	>(new Map());
 	// State for entity metadata (for layoutxml generation)
-	const [entityMetadata, setEntityMetadata] = useState<EntityMetadata | null>(null);
+	const [loadedEntityMetadata, setLoadedEntityMetadata] = useState<EntityMetadata | null>(null);
 	// State for lookup relationships (many-to-one) and one-to-many relationships
 	const [lookupRelationships, setLookupRelationships] = useState<RelationshipMetadata[]>([]);
 	const [oneToManyRelationships, setOneToManyRelationships] = useState<RelationshipMetadata[]>([]);
@@ -561,28 +533,34 @@ function AppContent() {
 		checkRecordPrivileges();
 	}, [entityLogicalName]);
 
-	// Collect entities from FetchXML and memoize to avoid unnecessary reloads
-	const entitiesInQuery = useMemo(() => {
-		return collectEntitiesFromFetchQuery(builder.fetchQuery);
-	}, [builder.fetchQuery]);
+	// Root entity + all link-entity names. The root always comes from the query's <entity>
+	// element, never from a position in a sorted list (#54).
+	const queryEntities = useMemo(() => getQueryEntities(builder.fetchQuery), [builder.fetchQuery]);
+	const rootEntityName = queryEntities.rootEntityName;
 
-	// Create a stable key for the entities list to minimize effect re-runs
-	const entitiesKey = useMemo(() => entitiesInQuery.sort().join(","), [entitiesInQuery]);
+	// Only trust root metadata that belongs to the current root entity. While a new root's
+	// metadata is loading (or after a stale response), this is null rather than another table's.
+	const entityMetadata =
+		loadedEntityMetadata && loadedEntityMetadata.LogicalName === rootEntityName
+			? loadedEntityMetadata
+			: null;
 
 	// Load attribute metadata for all entities in the FetchXML query
 	// This includes the root entity and all link-entities
 	useEffect(() => {
-		if (entitiesInQuery.length === 0) {
+		const { rootEntityName, entityNames } = queryEntities;
+		if (!rootEntityName) {
 			setAttributeMetadata(new Map());
-			setEntityMetadata(null);
+			setLoadedEntityMetadata(null);
 			return;
 		}
 
-		const rootEntityName = entitiesInQuery[0];
+		// Ignore responses that arrive after the query's entities have changed.
+		let cancelled = false;
 
 		// Load attributes for all entities in the query
 		Promise.all(
-			entitiesInQuery.map(async (entityName) => {
+			entityNames.map(async (entityName) => {
 				try {
 					const attributes = await loadAttributes(entityName);
 					const attrMap = new Map<string, AttributeMetadata>();
@@ -596,6 +574,7 @@ function AppContent() {
 				}
 			}),
 		).then((results) => {
+			if (cancelled) return;
 			const multiEntityMap = new Map<string, Map<string, AttributeMetadata>>();
 			results.forEach(({ entityName, attrMap }) => {
 				multiEntityMap.set(entityName, attrMap);
@@ -603,20 +582,21 @@ function AppContent() {
 			setAttributeMetadata(multiEntityMap);
 		});
 
-		// Load entity metadata (for ObjectTypeCode and PrimaryIdAttribute)
+		// Load root entity metadata (ObjectTypeCode, PrimaryIdAttribute, EntitySetName, ...)
 		loadEntityMetadata(rootEntityName)
 			.then((entity) => {
-				setEntityMetadata(entity);
+				if (!cancelled) setLoadedEntityMetadata(entity);
 			})
 			.catch((error) => {
 				console.error("Failed to load entity metadata:", error);
-				setEntityMetadata(null);
+				if (!cancelled) setLoadedEntityMetadata(null);
 			});
 
 		// Load relationships (many-to-one and one-to-many) for the Add Columns panel
 		setIsLoadingRelationships(true);
 		loadRelationships(rootEntityName)
 			.then((relationships) => {
+				if (cancelled) return;
 				// Store lookup relationships (many-to-one)
 				setLookupRelationships(relationships.manyToOne);
 				// Store one-to-many relationships for 1-N column support
@@ -624,14 +604,20 @@ function AppContent() {
 			})
 			.catch((error) => {
 				console.error("Failed to load relationships:", error);
+				if (cancelled) return;
 				setLookupRelationships([]);
 				setOneToManyRelationships([]);
 			})
 			.finally(() => {
-				setIsLoadingRelationships(false);
+				if (!cancelled) setIsLoadingRelationships(false);
 			});
+
+		return () => {
+			cancelled = true;
+		};
+		// queryEntities.key changes whenever the root or the set of entities changes.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [entitiesKey, loadAttributes, loadEntityMetadata, loadRelationships]);
+	}, [queryEntities.key, loadAttributes, loadEntityMetadata, loadRelationships]);
 
 	// Clear query results when the fetch query structure changes (entity change, view clear, etc.)
 	// We use the entity node id as a proxy - it changes when entity is re-selected or view is cleared
@@ -666,11 +652,8 @@ function AppContent() {
 		entityMetadata,
 	]);
 
-	// Generate FetchXML from builder state, injecting the real primary key from entity metadata.
-	// When entityMetadata is not yet loaded, no primary key is injected (no guessing).
-	const fetchXml = builder.fetchQuery
-		? generateFetchXml(builder.fetchQuery, entityMetadata?.PrimaryIdAttribute)
-		: "";
+	// Generate FetchXML from builder state — exactly what the user built, nothing injected (#59).
+	const fetchXml = builder.fetchQuery ? generateFetchXml(builder.fetchQuery) : "";
 
 	// Check if current query is an aggregate query (disables delete/workflow buttons)
 	const isAggregateQuery = builder.fetchQuery?.options?.aggregate === true;
@@ -697,6 +680,24 @@ function AppContent() {
 		return checkLinks(builder.fetchQuery.entity.links);
 	}, [builder.fetchQuery]);
 
+	// Record actions need the root table's primary key in the results. Dataverse returns it for
+	// normal queries even when not selected; aggregate and distinct results don't include it (#59).
+	// Decide from the rows actually returned rather than from the query shape.
+	const primaryIdAttribute = entityMetadata?.PrimaryIdAttribute;
+	const isDistinctQuery = builder.fetchQuery?.options?.distinct === true;
+	const recordActionsDisabledReason = useMemo(() => {
+		const rows = queryResult?.rows;
+		if (!rows || rows.length === 0 || !primaryIdAttribute) return undefined;
+		if (rows.some((row) => typeof row[primaryIdAttribute] === "string")) return undefined;
+		if (isAggregateQuery) {
+			return "Aggregate query results don't contain record IDs, so record actions aren't available.";
+		}
+		if (isDistinctQuery) {
+			return "Distinct query results don't contain record IDs (Dataverse doesn't return the primary key for distinct queries), so record actions aren't available.";
+		}
+		return "These results don't include the table's primary key, so record actions aren't available.";
+	}, [queryResult, primaryIdAttribute, isAggregateQuery, isDistinctQuery]);
+
 	// Generate LayoutXML from column config for saving
 	const layoutXml = useMemo(() => {
 		if (!builder.columnConfig || !entityMetadata) {
@@ -716,15 +717,13 @@ function AppContent() {
 		viewName: string,
 	) => {
 		// Update the builder's loaded view state so subsequent saves overwrite the same view.
-		// The caller (AppShell) has entity metadata, so we generate originalFetchXml here with the
-		// real PrimaryIdAttribute — the store never guesses the primary key itself.
 		if (entityMetadata && builder.fetchQuery) {
 			builder.setLoadedView({
 				id: viewId,
 				type: viewType,
 				entitySetName: entityMetadata.EntitySetName,
 				name: viewName,
-				originalFetchXml: generateFetchXml(builder.fetchQuery, entityMetadata.PrimaryIdAttribute),
+				originalFetchXml: generateFetchXml(builder.fetchQuery),
 			});
 		}
 		console.log(`✅ View saved: ${viewName} (${viewType}) - ${viewId}`);
@@ -1409,10 +1408,7 @@ function AppContent() {
 				if (!builder.fetchQuery) {
 					throw new Error("No FetchXML query available");
 				}
-				const currentFetchXml = generateFetchXml(
-					builder.fetchQuery,
-					entityMetadata.PrimaryIdAttribute,
-				);
+				const currentFetchXml = generateFetchXml(builder.fetchQuery);
 				const result = await submitBulkDeleteFromFetchXml(currentFetchXml, jobName);
 				console.log(`📤 Bulk delete job (all records) submitted: ${result.asyncOperationId}`);
 				return result;
@@ -1780,6 +1776,7 @@ function AppContent() {
 					onFetchWorkflows={handleFetchWorkflows}
 					isAggregateQuery={isAggregateQuery}
 					hasOneToManyRelationship={hasOneToManyRelationship}
+					recordActionsDisabledReason={recordActionsDisabledReason}
 					onSelectionChange={handleSelectionChange}
 					getSelectedRecordIds={getSelectedRecordIds}
 					onOpenSettings={() => setSettingsDrawerOpen(true)}

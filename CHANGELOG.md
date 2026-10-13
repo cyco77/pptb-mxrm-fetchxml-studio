@@ -7,8 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.1] - 2026-10-12
+
+### 🔧 Fixed
+
+- **Wrong attribute injected into the root entity (#54).** The root table was taken from the first entry of an alphabetically sorted list of the query's tables. That list was sorted *in place*, so a link-entity whose name sorts first (e.g. `bookableresource` before `msdyn_timeentry`) was treated as the root. Its primary key (`bookableresourceid`) was injected into the root `<entity>`, and its metadata also drove relationships, the layout and bulk delete.
+  - The root now always comes from the query's `<entity>` element.
+  - Metadata responses that arrive after the query changed are discarded.
+  - Root metadata is only used when its `LogicalName` matches the current root.
+- **FetchXML is no longer modified (#59).** The primary key used to be injected into the generated FetchXML. That broke aggregate queries (`0x8004111e: An attribute can not be requested when an aggregate operation has been specified…`), silently defeated `distinct`, and the injected attribute never appeared in the tree.
+  - Validated on a live org through the PPTB `dataverseAPI` request path: Dataverse returns the root primary key for every non-aggregate, non-distinct query without it being selected ([Select columns](https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/select-columns?tabs=webapi)). Distinct queries return none ([Ordering and paging](https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/page-results?tabs=webapi#ordering-and-paging)).
+  - What you see in the FetchXML pane, copy, save as a view, send to another tool or generate code from is now exactly what you built.
+- **Record actions use real record IDs only.**
+  - Record actions (Open, Copy URL, Delete, Bulk Delete, Run Workflow) are enabled only when the results contain the table's primary key.
+  - For aggregate and distinct results they are disabled, and a "Record actions unavailable" indicator explains why. Previously, Open/Copy URL could be clicked for an aggregate row and used a random ID.
+  - Grid row IDs are now unique and stable even when a 1:N join repeats a record. Synthetic row IDs are never passed to record actions.
+
 ### 🏗️ Technical
 
+- `generateFetchXml(fetchNode)` no longer takes a `primaryIdAttribute` parameter.
+- New `getQueryEntities()` (`model/treeUtils.ts`) and `buildRowIdentity()` (`ui/RightPane/rowIdentity.ts`), with unit tests: 65 tests in total.
 - **Unit test baseline (#64).** Added Vitest (`npm test`, `npm run test:watch`, `npm run coverage`) with jsdom, plus 52 characterization tests for the FetchXML serializer, parser (including a parse → generate → parse round-trip of the #54 query), paging-attribute rewriting, alias utilities and the operator catalogue.
 - **Lint cleanup, part 1 (#65).** ESLint errors reduced to zero with no behaviour change:
   - `useBuilder` / `BuilderContext` moved to `state/builderContext.ts`;

@@ -28,6 +28,7 @@ import {
 	ColumnTriple20Regular,
 	Play20Regular,
 	DocumentBulletList20Regular,
+	Info20Regular,
 } from "@fluentui/react-icons";
 import { ExcelIcon } from "../../../../shared/components/ExcelIcon";
 import { EditColumnsPanel } from "./EditColumnsPanel";
@@ -70,6 +71,11 @@ export interface CommandBarProps {
 	canRunWorkflow?: boolean;
 	/** Whether workflow action is disabled (e.g., aggregate query or 1-N relationship) */
 	workflowDisabled?: boolean;
+	/**
+	 * When set, the results have no record IDs (e.g. aggregate or distinct queries), so all record
+	 * actions are disabled and this text explains why.
+	 */
+	recordActionsDisabledReason?: string;
 	/** Fetch available workflows for the entity */
 	onFetchWorkflows?: () => Promise<WorkflowInfo[]>;
 	/** Export to Excel via Dataverse ExportToExcel API (requires saved view) */
@@ -126,6 +132,7 @@ export function ResultsCommandBar({
 	onRunSpecificWorkflow,
 	canRunWorkflow = false,
 	workflowDisabled = false,
+	recordActionsDisabledReason,
 	onFetchWorkflows,
 	onExport,
 	onExportLocal,
@@ -150,6 +157,9 @@ export function ResultsCommandBar({
 	const styles = useStyles();
 	const hasSelection = selectedCount > 0;
 	const singleSelection = selectedCount === 1;
+	const recordActionsUnavailable = !!recordActionsDisabledReason;
+	const isDeleteDisabled = deleteDisabled || recordActionsUnavailable;
+	const isWorkflowDisabled = workflowDisabled || recordActionsUnavailable;
 	const [editPanelOpen, setEditPanelOpen] = useState(false);
 	const [addPanelOpen, setAddPanelOpen] = useState(false);
 
@@ -229,7 +239,7 @@ export function ResultsCommandBar({
 				<ToolbarButton
 					appearance="subtle"
 					icon={<Open20Regular />}
-					disabled={!singleSelection}
+					disabled={!singleSelection || recordActionsUnavailable}
 					onClick={onOpen}
 					aria-label="Open record"
 				>
@@ -239,12 +249,23 @@ export function ResultsCommandBar({
 				<ToolbarButton
 					appearance="subtle"
 					icon={<Link20Regular />}
-					disabled={!singleSelection}
+					disabled={!singleSelection || recordActionsUnavailable}
 					onClick={onCopyUrl}
 					aria-label="Copy record URL"
 				>
 					Copy URL
 				</ToolbarButton>
+
+				{recordActionsDisabledReason && (
+					<Tooltip content={recordActionsDisabledReason} relationship="description" withArrow>
+						<ToolbarButton
+							appearance="transparent"
+							icon={<Info20Regular />}
+						>
+							Record actions unavailable
+						</ToolbarButton>
+					</Tooltip>
+				)}
 
 				<ToolbarDivider />
 
@@ -280,9 +301,9 @@ export function ResultsCommandBar({
 									menuButton={triggerProps}
 									primaryActionButton={{
 										onClick: onDelete,
-										disabled: deleteDisabled,
+										disabled: isDeleteDisabled,
 									}}
-									disabled={deleteDisabled}
+									disabled={isDeleteDisabled}
 									icon={<Delete20Regular />}
 									aria-label={
 										hasSelection ? "Delete selected records" : "Delete all records from view"
@@ -294,14 +315,14 @@ export function ResultsCommandBar({
 						</MenuTrigger>
 						<MenuPopover>
 							<MenuList>
-								<MenuItem icon={<Delete20Regular />} onClick={onDelete} disabled={deleteDisabled}>
+								<MenuItem icon={<Delete20Regular />} onClick={onDelete} disabled={isDeleteDisabled}>
 									Delete{hasSelection ? ` (${selectedCount})` : " All"}
 								</MenuItem>
 								{canBulkDelete && (
 									<MenuItem
 										icon={<DocumentBulletList20Regular />}
 										onClick={onBulkDelete}
-										disabled={deleteDisabled}
+										disabled={isDeleteDisabled}
 									>
 										Bulk Delete (Job)
 									</MenuItem>
@@ -320,7 +341,7 @@ export function ResultsCommandBar({
 							<MenuButton
 								appearance="subtle"
 								icon={<Play20Regular />}
-								disabled={!hasSelection || workflowDisabled}
+								disabled={!hasSelection || isWorkflowDisabled}
 								aria-label="Run workflow on selected records"
 							>
 								Run Workflow

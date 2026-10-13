@@ -29,6 +29,7 @@ import type { SortDirection } from "@fluentui/react-components";
 import { ArrowSortUp16Regular, ArrowSortDown16Regular } from "@fluentui/react-icons";
 import type { AttributeMetadata } from "../../api/pptbClient";
 import { getCellRenderer } from "./getCellRenderer";
+import { buildRowIdentity } from "./rowIdentity";
 import { getFormattedValue, filterDisplayableColumns } from "./FormattedValueUtils";
 import type { FetchNode, AttributeNode, OrderNode, LinkEntityNode } from "../../model/nodes";
 import type { LayoutXmlConfig } from "../../model/layoutxml";
@@ -289,25 +290,12 @@ export function ResultsGrid({
 		return map;
 	}, [fetchQuery]);
 
-	// Generate stable row IDs using primary key GUID
-	// primaryIdAttribute comes from Dataverse entity metadata via props — no name-guessing here.
-	const getRowId = useCallback(
-		(item: Record<string, unknown>) => {
-			// CRITICAL: Use the GUID from the primary ID column for stable row identity
-			if (primaryIdAttribute && item[primaryIdAttribute]) {
-				const id = item[primaryIdAttribute];
-				// Ensure it's a valid GUID string (format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
-				if (typeof id === "string" && id.length > 0) {
-					return id;
-				}
-			}
-			// Fallback: this should NOT happen if FetchXML includes the primary ID
-			// Use index as last resort (will break selection if data changes)
-			console.warn("Row without primary ID found - selection may not work correctly");
-			return `row_${Math.random()}`;
-		},
-		[primaryIdAttribute],
+	// Unique, stable row IDs; selection is translated back to real record IDs (#59).
+	const rowIdentity = useMemo(
+		() => buildRowIdentity(result?.rows ?? [], primaryIdAttribute),
+		[result?.rows, primaryIdAttribute],
 	);
+	const getRowId = rowIdentity.getRowId;
 
 	// Build set of requested attributes from FetchXML query
 	const requestedAttributes = useMemo(() => {
@@ -778,11 +766,10 @@ export function ResultsGrid({
 		(_e: unknown, data: { selectedItems: Set<string | number> }) => {
 			setSelectedItems(data.selectedItems);
 			onSelectedCountChange?.(data.selectedItems.size);
-			// Convert Set to array of string IDs for the callback
-			const recordIds = Array.from(data.selectedItems).map(String);
-			onSelectionChange?.(recordIds);
+			// Record actions receive primary key values only — never synthetic row IDs.
+			onSelectionChange?.(rowIdentity.toRecordIds(data.selectedItems));
 		},
-		[onSelectedCountChange, onSelectionChange],
+		[onSelectedCountChange, onSelectionChange, rowIdentity],
 	);
 
 	// Sort change handler: notifies parent to update FetchXML orders

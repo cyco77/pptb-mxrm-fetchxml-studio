@@ -172,3 +172,44 @@ export function findParentEntityForNode(
 
 	return findInEntity(fetchNode.entity, nodeId, fetchNode.entity.name);
 }
+
+/**
+ * Entities referenced by a query, used to drive metadata loading.
+ */
+export interface QueryEntities {
+	/** Logical name of the root <entity>, or null when there is no query. */
+	rootEntityName: string | null;
+	/** Unique entity logical names: the root first, then link-entities in document order. */
+	entityNames: string[];
+	/**
+	 * Stable key for effect dependencies. Includes the root explicitly, so swapping which table
+	 * is the root (with the same set of tables) still changes the key.
+	 */
+	key: string;
+}
+
+/**
+ * Collect the root entity and all link-entity names (recursively) from a query.
+ *
+ * The root is always taken from `fetchQuery.entity.name`, never from the position in a sorted
+ * list. The returned arrays are fresh copies, so callers may sort them without side effects (#54).
+ */
+export function getQueryEntities(fetchQuery: FetchNode | null): QueryEntities {
+	const rootEntityName = fetchQuery?.entity?.name || null;
+	if (!fetchQuery || !rootEntityName) {
+		return { rootEntityName: null, entityNames: [], key: "" };
+	}
+
+	const names = new Set<string>([rootEntityName]);
+	const collectFromLinks = (links: LinkEntityNode[] | undefined) => {
+		links?.forEach((link) => {
+			if (link.name) names.add(link.name);
+			collectFromLinks(link.links);
+		});
+	};
+	collectFromLinks(fetchQuery.entity.links);
+
+	const entityNames = Array.from(names);
+	const key = `${rootEntityName}|${[...entityNames].sort().join(",")}`;
+	return { rootEntityName, entityNames, key };
+}
