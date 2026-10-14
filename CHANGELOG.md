@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.3] - 2026-10-13
+
+### 🔧 Fixed
+
+- **Parse to Tree is now lossless (#90a).** Previously the tree model couldn't hold several documented FetchXML attributes, so Parse to Tree (and editing in tree mode) silently dropped them or changed the query's meaning. Measured on all 60 FetchXML examples in the Microsoft Learn FetchXML articles: 25 of them changed after Parse to Tree. Now all 60 round-trip without loss.
+  - **`<fetch>`:** `aggregatelimit`, `datasource`, `latematerialize` (was parsed but never written), `options` (query hints, kept exactly as written) and `useraworderby`.
+  - **`<attribute>`:** `distinct` (for `countcolumn`) and `rowaggregate="CountChildren"`.
+  - **`<order>`:** `alias`, which aggregate queries require.
+  - **`<filter>`:** `isquickfindfields`, `overridequickfindrecordlimitenabled` and `overridequickfindrecordlimitdisabled`.
+  - **`<entity>`:** `enableprefiltering` and `prefilterparametername` were read but never written.
+  - **`<link-entity>`:** empty `from` / `to` are now omitted instead of being written as `from="" to=""`, which made Dataverse silently return no rows. The documented "let Dataverse choose" join for system many-to-many relationships now works after Parse to Tree.
+  - **Everything else that works is kept verbatim:** unknown attributes, namespaced attributes, namespace declarations (`xmlns:generator`) and legacy attributes (`version`, `output-format`, `mapping`, `uiname`, `uitype`). A default `xmlns`, which Dataverse rejects, is still removed.
+- **New validation, verified against a live Dataverse environment:**
+  - `aggregatelimit` must be 1–50,000;
+  - `datasource` must be `retained` (documented) or `bin` (accepted by Dataverse);
+  - `aggregate="rowaggregate"` is an error (use `rowaggregate="CountChildren"`);
+  - aggregate queries must order by `alias` (`0x80041131`), and non-aggregate queries by `attribute` (`0x80041132`);
+  - query hint names that aren't documented get a note, because Dataverse silently ignores them.
+
+### 🏗️ Technical
+
+- Model: `FetchNode.options` gained `aggregateLimit`, `dataSource`, `useRawOrderBy` and `queryHints` (replacing an unused `hints` object). `AttributeNode` gained `distinct` and `rowAggregate`. `OrderNode.attribute` is now optional, alongside a new `alias`. `FilterNode` gained the quick find flags. Every node gained `extraAttributes` for verbatim pass-through.
+- New round-trip suite (`fetchxmlRoundTrip.test.ts`) over all Learn examples, committed as MIT-licensed fixtures with source URLs (`__fixtures__/learnFetchXml.ts`), plus real-world FetchXML (Advanced Find, saved views, SQL 4 CDS, report prefiltering). 194 unit tests.
+- Live replay: every Learn example executed as written and as regenerated, through the PPTB `dataverseAPI` request path, with identical results for all 53 full queries.
+- Small display fallbacks for alias-only orders: the tree label shows `alias (alias)`, and the grid shows sort arrows on aggregate columns ordered by alias. The full UI controls for the new attributes follow in #90b.
+
 ## [1.4.1-beta.2] - 2026-10-13
 
 ### 🔧 Fixed

@@ -35,7 +35,8 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
   - **errors** block execution — only for FetchXML Dataverse is known to reject;
   - **warnings** offer **Execute anyway** — only where it can't be determined in the client (e.g. a link-entity without `from`/`to`, which is valid only for system many-to-many relationships);
   - **notes** never block (e.g. `xmlns:*` from other tools, which Dataverse ignores).
-- **No silent changes** — Before Parse to Tree removes or rewrites anything the visual builder can't represent yet (for example `datasource`, `<order alias>`, `useraworderby`), a confirmation dialog lists every change
+- **Lossless Parse to Tree** — Every attribute in the FetchXML reference is kept, including `datasource`, `aggregatelimit`, `useraworderby`, query hints (`options`), `latematerialize`, `<order alias>`, `distinct` counts, `rowaggregate` and quick find flags. So are unknown, namespaced and legacy attributes (e.g. `xmlns:generator` from SQL 4 CDS, `version`/`mapping` from Advanced Find, `uiname`/`uitype` from saved views). Every FetchXML example in the Microsoft Learn FetchXML articles round-trips without loss.
+- **No silent changes** — If Parse to Tree must correct something Dataverse would reject (for example an invalid alias), a confirmation dialog lists every change first
 - **LayoutXML preview** — See the column layout configuration
 
 ### 📥 Load & Save Views

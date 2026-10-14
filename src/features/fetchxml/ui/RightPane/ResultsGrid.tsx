@@ -247,6 +247,12 @@ export function ResultsGrid({
 		// Orders with entityname refer to link-entity attributes
 		fetchQuery.entity.orders?.forEach((order: OrderNode) => {
 			const direction: SortDirection = order.descending ? "descending" : "ascending";
+			// Aggregate queries sort by alias; the result column id is the alias itself
+			if (order.alias) {
+				map.set(order.alias, { direction });
+				return;
+			}
+			if (!order.attribute) return;
 			if (order.entityname) {
 				// This order references a link-entity attribute
 				// The column in results might be: alias.attributeName or _attributeName_value for lookups
@@ -274,6 +280,7 @@ export function ResultsGrid({
 			links?.forEach((link) => {
 				const alias = link.alias || link.name;
 				link.orders?.forEach((order: OrderNode) => {
+					if (!order.attribute) return;
 					const direction: SortDirection = order.descending ? "descending" : "ascending";
 					// Link-entity attribute columns appear as alias.attributeName or entityname.attributeName
 					map.set(`${alias}.${order.attribute}`, { direction, entityName: alias });

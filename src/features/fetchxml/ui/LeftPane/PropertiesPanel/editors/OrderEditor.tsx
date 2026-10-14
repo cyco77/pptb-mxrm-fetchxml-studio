@@ -131,7 +131,7 @@ export function OrderEditor({ node, entityName, fetchQuery, onUpdate }: OrderEdi
 					<div className={styles.fieldWithTooltip}>
 						<AttributePicker
 							entityLogicalName={attributeEntityName}
-							value={node.attribute}
+							value={node.attribute ?? ""}
 							onChange={(logicalName) => onUpdate({ attribute: logicalName })}
 							placeholder="Select or type attribute name"
 						/>
