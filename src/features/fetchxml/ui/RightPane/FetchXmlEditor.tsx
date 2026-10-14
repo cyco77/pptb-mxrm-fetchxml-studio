@@ -22,6 +22,14 @@ import {
 	MessageBarTitle,
 	MessageBarActions,
 	MessageBarGroup,
+	Dialog,
+	DialogSurface,
+	DialogBody,
+	DialogTitle,
+	DialogContent,
+	DialogActions,
+	Body1,
+	Body1Strong,
 } from "@fluentui/react-components";
 import {
 	Copy24Regular,
@@ -33,8 +41,15 @@ import {
 	Dismiss24Regular,
 } from "@fluentui/react-icons";
 import { useTheme } from "../../../../shared/contexts/useTheme";
-import { parseFetchXml, validateFetchXmlSyntax } from "../../model/fetchxmlParser";
-import type { ParseResult, ParseWarning, ParseError } from "../../model/fetchxmlParser";
+import {
+	parseFetchXml,
+	validateFetchXmlSyntax,
+	getBlockingWarnings,
+	getExecutionErrors,
+	getParseToTreeChanges,
+} from "../../model/fetchxmlParser";
+import type { ParseResult, ParseWarning } from "../../model/fetchxmlParser";
+import { ParseIssueList, type ParseIssueItem } from "./ParseIssueList";
 import {
 	registerFetchXmlIntellisense,
 	registerFetchXmlHoverProvider,
@@ -89,14 +104,23 @@ const useStyles = makeStyles({
 		fontSize: tokens.fontSizeBase200,
 		fontWeight: tokens.fontWeightSemibold,
 	},
+	dialogContent: {
+		display: "flex",
+		flexDirection: "column",
+		gap: tokens.spacingVerticalM,
+	},
 });
 
 interface Message {
 	id: number;
 	intent: "success" | "warning" | "error" | "info";
 	title: string;
-	body: string;
+	/** Text, or a list of findings rendered as bullets */
+	body: string | ParseIssueItem[];
 }
+
+const INVALID_TITLE = "Invalid FetchXML";
+const MIGHT_REJECT_TITLE = "Dataverse might reject this query";
 
 interface FetchXmlEditorProps {
 	xml: string;
@@ -120,20 +144,28 @@ export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: Fetc
 	const [isEditorMode, setIsEditorMode] = useState(false);
 	const [editedXml, setEditedXml] = useState("");
 	const [messages, setMessages] = useState<Message[]>([]);
+	// Parse to Tree awaiting confirmation because it would change the query (#89)
+	const [pendingParse, setPendingParse] = useState<{
+		xml: string;
+		changes: ParseWarning[];
+	} | null>(null);
 
 	// Get current XML value based on mode
 	const currentXml = isEditorMode ? editedXml : xml;
 
 	// Add a message
-	const addMessage = useCallback((intent: Message["intent"], title: string, body: string) => {
+	const addMessage = useCallback(
+		(intent: Message["intent"], title: string, body: Message["body"]) => {
 		const newMessage: Message = {
 			id: messageIdRef.current++,
 			intent,
 			title,
 			body,
 		};
-		setMessages((prev) => [newMessage, ...prev].slice(0, 5)); // Keep max 5 messages
-	}, []);
+			setMessages((prev) => [newMessage, ...prev].slice(0, 5)); // Keep max 5 messages
+		},
+		[],
+	);
 
 	// Dismiss a message
 	const dismissMessage = useCallback((id: number) => {
@@ -233,55 +265,85 @@ export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: Fetc
 			return;
 		}
 
-		// Then do a full parse to get warnings
+		// Then do a full parse to classify findings
 		const parseResult = parseFetchXml(editedXml);
 		if (!parseResult.success) {
-			parseResult.errors.forEach((err: ParseError) => {
-				addMessage("error", "Parse Error", err.message);
-			});
+			addMessage("error", INVALID_TITLE, parseResult.errors);
 			return;
 		}
 
-		// Warnings indicate problems that must be fixed before executing
-		if (parseResult.warnings.length > 0) {
-			parseResult.warnings.forEach((warn: ParseWarning) => {
-				const prefix = warn.element ? `<${warn.element}>: ` : "";
-				addMessage("warning", "Warning", `${prefix}${warn.message}`);
-			});
-			addMessage(
-				"warning",
-				"Action required",
-				"Fix the warnings above before executing, or use 'Parse to Tree' to auto-correct.",
-			);
-			return; // Do not show 'Valid' alongside warnings
+		// One bar per level. Messages are prepended, so add the least severe first.
+		const notes = parseResult.warnings.filter((w) => w.severity === "info");
+		const blocking = getBlockingWarnings(parseResult);
+		const executionErrors = getExecutionErrors(parseResult);
+		if (notes.length > 0) addMessage("info", "Notes", notes);
+		if (blocking.length > 0) addMessage("warning", MIGHT_REJECT_TITLE, blocking);
+		if (executionErrors.length > 0) addMessage("error", INVALID_TITLE, executionErrors);
+		if (blocking.length === 0 && executionErrors.length === 0) {
+			addMessage("success", "Valid", "Dataverse should accept this FetchXML.");
 		}
-
-		addMessage("success", "Valid", "FetchXML is valid and free of issues.");
 	}, [editedXml, clearMessages, addMessage]);
 
-	// Parse to tree
-	const handleParseToTree = useCallback(() => {
-		if (!onParseToTree) return;
+	// Load XML into the tree. `changesConfirmed` is true when the user already reviewed the
+	// changes in the confirmation dialog, so they aren't repeated as notes.
+	const commitParseToTree = useCallback(
+		(xmlToParse: string, changesConfirmed: boolean) => {
+			if (!onParseToTree) return;
 
-		clearMessages();
-		const result = onParseToTree(editedXml);
+			clearMessages();
+			const result = onParseToTree(xmlToParse);
 
-		if (result.success) {
-			// Show auto-corrections as informational (not blocking warnings)
-			result.warnings.forEach((warn: ParseWarning) => {
-				const prefix = warn.element ? `<${warn.element}>: ` : "";
-				addMessage("info", "Auto-corrected", `${prefix}${warn.message}`);
-			});
-			addMessage("success", "Parsed", "FetchXML loaded into tree builder");
+			if (!result.success) {
+				addMessage("error", INVALID_TITLE, result.errors);
+				return;
+			}
+
+			const changes = new Set(getParseToTreeChanges(result));
+			// Kept as written by Parse to Tree, so still a problem in the tree
+			const stillInvalid = result.warnings.filter((w) => w.kind === "invalid");
+			const stillErrors = stillInvalid.filter((w) => w.severity === "error");
+			const stillWarnings = stillInvalid.filter((w) => w.severity === "warning");
+			const notes = result.warnings.filter(
+				(w) => w.severity === "info" && !(changesConfirmed && changes.has(w)),
+			);
+			if (notes.length > 0) addMessage("info", "Notes", notes);
+			if (stillWarnings.length > 0) addMessage("warning", MIGHT_REJECT_TITLE, stillWarnings);
+			if (stillErrors.length > 0) addMessage("error", INVALID_TITLE, stillErrors);
+			addMessage("success", "Parsed into the tree", "The FetchXML was loaded into the tree builder.");
+
 			// Exit editor mode after successful parse
 			onEditorStateChange?.(false, "");
 			setIsEditorMode(false);
-		} else {
-			result.errors.forEach((err: ParseError) => {
-				addMessage("error", "Parse Error", err.message);
-			});
+		},
+		[onParseToTree, clearMessages, addMessage, onEditorStateChange],
+	);
+
+	// Parse to tree — confirm first when the tree would change the query
+	const handleParseToTree = useCallback(() => {
+		if (!onParseToTree) return;
+
+		const preview = parseFetchXml(editedXml);
+		if (!preview.success) {
+			clearMessages();
+			addMessage("error", INVALID_TITLE, preview.errors);
+			return;
 		}
-	}, [editedXml, onParseToTree, clearMessages, addMessage, onEditorStateChange]);
+
+		const changes = getParseToTreeChanges(preview);
+		if (changes.length > 0) {
+			setPendingParse({ xml: editedXml, changes });
+			return;
+		}
+
+		commitParseToTree(editedXml, false);
+	}, [editedXml, onParseToTree, clearMessages, addMessage, commitParseToTree]);
+
+	const handleConfirmParseToTree = useCallback(() => {
+		if (!pendingParse) return;
+		const { xml: xmlToParse } = pendingParse;
+		setPendingParse(null);
+		commitParseToTree(xmlToParse, true);
+	}, [pendingParse, commitParseToTree]);
 
 	// Handle editor mount
 	const handleEditorMount = useCallback(
@@ -404,10 +466,15 @@ export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: Fetc
 				<div className={styles.messageBarContainer}>
 					<MessageBarGroup animate="both">
 						{messages.map((msg) => (
-							<MessageBar key={msg.id} intent={msg.intent} shape="rounded">
+							<MessageBar
+								key={msg.id}
+								intent={msg.intent}
+								shape="rounded"
+								layout={typeof msg.body === "string" ? "auto" : "multiline"}
+							>
 								<MessageBarBody>
 									<MessageBarTitle>{msg.title}</MessageBarTitle>
-									{msg.body}
+									{typeof msg.body === "string" ? msg.body : <ParseIssueList items={msg.body} />}
 								</MessageBarBody>
 								<MessageBarActions
 									containerAction={
@@ -425,6 +492,59 @@ export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: Fetc
 					</MessageBarGroup>
 				</div>
 			)}
+
+			{/* Parse to Tree confirmation (#89) */}
+			<Dialog
+				modalType="alert"
+				open={pendingParse !== null}
+				onOpenChange={(_, data) => {
+					if (!data.open) setPendingParse(null);
+				}}
+			>
+				<DialogSurface>
+					<DialogBody>
+						<DialogTitle>Parse to Tree will change this query</DialogTitle>
+						<DialogContent className={styles.dialogContent}>
+							<Body1>
+								The tree can't represent everything in this FetchXML. Parsing will make these
+								changes:
+							</Body1>
+							{pendingParse && <ParseChangesGroups changes={pendingParse.changes} />}
+							<Body1>If you cancel, the editor keeps your FetchXML unchanged.</Body1>
+						</DialogContent>
+						<DialogActions>
+							<Button appearance="secondary" onClick={() => setPendingParse(null)}>
+								Cancel
+							</Button>
+							<Button appearance="primary" onClick={handleConfirmParseToTree}>
+								Parse anyway
+							</Button>
+						</DialogActions>
+					</DialogBody>
+				</DialogSurface>
+			</Dialog>
 		</div>
+	);
+}
+
+/** "Removed" and "Corrected" groups for the Parse to Tree confirmation dialog. */
+function ParseChangesGroups({ changes }: { changes: ParseWarning[] }) {
+	const removed = changes.filter((c) => c.kind === "dropped");
+	const corrected = changes.filter((c) => c.kind === "corrected");
+	return (
+		<>
+			{removed.length > 0 && (
+				<div>
+					<Body1Strong>Removed</Body1Strong>
+					<ParseIssueList items={removed} />
+				</div>
+			)}
+			{corrected.length > 0 && (
+				<div>
+					<Body1Strong>Corrected</Body1Strong>
+					<ParseIssueList items={corrected} />
+				</div>
+			)}
+		</>
 	);
 }

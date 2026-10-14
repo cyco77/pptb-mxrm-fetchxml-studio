@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.2] - 2026-10-13
+
+### 🔧 Fixed
+
+- **Valid FetchXML is no longer blocked in the editor (#89, #48).** Previously *any* parser warning blocked Validate and Execute. That refused FetchXML Dataverse accepts, such as `<fetch xmlns:generator="MarkMpn.SQL4CDS">` from SQL 4 CDS, `useraworderby`, `aggregatelimit` and `<order alias>`.
+  - **Principle:** everything the [FetchXML reference](https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/reference/) documents is supported. Undocumented behaviour verified to work is supported too. Only what is known not to work is blocked.
+  - Every classification was checked against a live Dataverse environment through the PPTB `dataverseAPI` request path: 33 probes, 0 mismatches.
+  - **Errors** (Execute is blocked) are things Dataverse is known to reject:
+    - invalid attribute alias characters;
+    - an unknown child element;
+    - non-integer `top` / `count` / `page`;
+    - `top` combined with `count`, `page` or `returntotalrecordcount`;
+    - an unknown `link-type`;
+    - an invalid filter `type`, aggregate or date grouping;
+    - a missing `name` / `attribute` / `operator`;
+    - an order with neither attribute nor alias;
+    - a default `xmlns`.
+
+    Parse to Tree can still build the tree and lists what it corrects or removes. Malformed XML, a missing `<entity>`, and a link-entity with empty `from=""` and `to=""` (Dataverse silently returns no rows) can't be parsed at all.
+  - **Warnings** (with **Execute anyway**) are only for what can't be determined in the client: a link-entity without `from` / `to` (valid only for system many-to-many relationships), and an operator that isn't in the documented list.
+  - **Notes** never block:
+    - namespace declarations, namespaced attributes and unknown attributes (Dataverse ignores them);
+    - documented attributes the visual builder doesn't support yet, including `datasource`;
+    - `top` / `count` above 5,000 (Dataverse returns at most 5,000 rows);
+    - the deprecated `neq` operator (works like `ne`);
+    - extra `<entity>` elements (Dataverse uses the first).
+
+    Common legacy attributes from Advanced Find and saved views (`version`, `output-format`, `mapping`, `uiname`, `uitype`) are accepted silently.
+- **`link-type="natural"` is supported.** It's undocumented, but Dataverse accepts it; it's listed in Dataverse's own link-type error and was verified against a live org. It's preserved through Parse to Tree.
+- **Parse to Tree no longer changes queries silently.** When it would remove or rewrite something, a confirmation dialog lists the changes under **Removed** and **Corrected**. Examples: `datasource="retained"`, which would otherwise read live data; `<order alias>`; an invalid alias.
+  - Order elements that the tree can't represent are now dropped, with a note, instead of being rewritten as the invalid `<order attribute="" />`.
+  - The misleading "Auto-corrected" label is gone.
+- **Validate** shows at most one bar per level (Invalid FetchXML / "Dataverse might reject this query" / Notes) instead of one bar per finding. Lists are bulleted.
+
+### 🏗️ Technical
+
+- `ParseWarning` gained `severity` (`error` | `warning` | `info`) and `kind` (`invalid` | `ignored` | `dropped` | `corrected` | `advice`).
+- New helpers: `getExecutionErrors()`, `getBlockingWarnings()` and `getParseToTreeChanges()`.
+- Unknown-attribute checks now cover every element, using per-element attribute lists from the reference.
+- New `ParseIssueList` component. The Parse to Tree confirmation uses a Fluent UI v9 `Dialog` (`modalType="alert"`, Cancel focused first).
+- 44 new unit tests, 109 in total.
+
 ## [1.4.1-beta.1] - 2026-10-12
 
 ### 🔧 Fixed
