@@ -12,6 +12,7 @@ import type {
 	FilterNode,
 	ConditionNode,
 	LinkEntityNode,
+	ExtraAttributes,
 } from "./nodes";
 import { operatorRequiresValue } from "./operators";
 
@@ -34,6 +35,11 @@ function formatValueForFetchXml(val: unknown): string {
 		}
 	}
 	return String(val);
+}
+
+/** Attributes kept verbatim from parsed FetchXML (#90): unknown, namespaced, legacy. */
+function extraAttrs(extra: ExtraAttributes | undefined): string[] {
+	return extra ? Object.entries(extra).map(([name, value]) => `${name}="${escapeXml(value)}"`) : [];
 }
 
 /**
@@ -61,6 +67,15 @@ export function generateFetchXml(fetchNode: FetchNode): string {
 		fetchAttrs.push(`utc-offset="${fetchNode.options.utcOffset}"`);
 	if (fetchNode.options.pagingCookie)
 		fetchAttrs.push(`paging-cookie="${escapeXml(fetchNode.options.pagingCookie)}"`);
+	if (fetchNode.options.aggregateLimit !== undefined)
+		fetchAttrs.push(`aggregatelimit="${fetchNode.options.aggregateLimit}"`);
+	if (fetchNode.options.dataSource)
+		fetchAttrs.push(`datasource="${escapeXml(fetchNode.options.dataSource)}"`);
+	if (fetchNode.options.latematerialize) fetchAttrs.push('latematerialize="true"');
+	if (fetchNode.options.useRawOrderBy) fetchAttrs.push('useraworderby="true"');
+	if (fetchNode.options.queryHints?.length)
+		fetchAttrs.push(`options="${escapeXml(fetchNode.options.queryHints.join(","))}"`);
+	fetchAttrs.push(...extraAttrs(fetchNode.extraAttributes));
 
 	const fetchAttrStr = fetchAttrs.length > 0 ? " " + fetchAttrs.join(" ") : "";
 	lines.push(`<fetch${fetchAttrStr}>`);
@@ -80,7 +95,12 @@ function generateEntity(entity: EntityNode, indent: number): string[] {
 	const lines: string[] = [];
 	const spaces = "  ".repeat(indent);
 
-	lines.push(`${spaces}<entity name="${entity.name}">`);
+	const entityAttrs: string[] = [`name="${entity.name}"`];
+	if (entity.enablePrefiltering) entityAttrs.push('enableprefiltering="true"');
+	if (entity.prefilterParameterName)
+		entityAttrs.push(`prefilterparametername="${escapeXml(entity.prefilterParameterName)}"`);
+	entityAttrs.push(...extraAttrs(entity.extraAttributes));
+	lines.push(`${spaces}<entity ${entityAttrs.join(" ")}>`);
 
 	// All-attributes (single node, not array)
 	if (entity.allAttributes?.enabled) {
@@ -132,6 +152,9 @@ function generateAttribute(attr: AttributeNode, indent: number): string[] {
 	if (attr.groupby) attrs.push('groupby="true"');
 	if (attr.dategrouping) attrs.push(`dategrouping="${attr.dategrouping}"`);
 	if (attr.usertimezone !== undefined) attrs.push(`usertimezone="${attr.usertimezone}"`);
+	if (attr.distinct) attrs.push('distinct="true"');
+	if (attr.rowAggregate) attrs.push(`rowaggregate="${escapeXml(attr.rowAggregate)}"`);
+	attrs.push(...extraAttrs(attr.extraAttributes));
 
 	return [`${spaces}<attribute ${attrs.join(" ")} />`];
 }
@@ -141,10 +164,14 @@ function generateAttribute(attr: AttributeNode, indent: number): string[] {
  */
 function generateOrder(order: OrderNode, indent: number): string[] {
 	const spaces = "  ".repeat(indent);
-	const attrs: string[] = [`attribute="${order.attribute}"`];
+	// Non-aggregate queries order by attribute; aggregate queries order by alias (#90)
+	const attrs: string[] = [];
+	if (order.attribute) attrs.push(`attribute="${order.attribute}"`);
+	if (order.alias) attrs.push(`alias="${order.alias}"`);
 
 	if (order.descending) attrs.push('descending="true"');
 	if (order.entityname) attrs.push(`entityname="${order.entityname}"`);
+	attrs.push(...extraAttrs(order.extraAttributes));
 
 	return [`${spaces}<order ${attrs.join(" ")} />`];
 }
@@ -158,6 +185,11 @@ function generateFilter(filter: FilterNode, indent: number): string[] {
 
 	const attrs: string[] = [`type="${filter.conjunction}"`];
 	if (filter.hint) attrs.push(`hint="${filter.hint}"`);
+	// Quick find flags use the documented "1" form
+	if (filter.isQuickFindFields) attrs.push('isquickfindfields="1"');
+	if (filter.overrideQuickFindRecordLimitEnabled) attrs.push('overridequickfindrecordlimitenabled="1"');
+	if (filter.overrideQuickFindRecordLimitDisabled) attrs.push('overridequickfindrecordlimitdisabled="1"');
+	attrs.push(...extraAttrs(filter.extraAttributes));
 
 	lines.push(`${spaces}<filter ${attrs.join(" ")}>`);
 
@@ -197,6 +229,7 @@ function generateCondition(condition: ConditionNode, indent: number): string[] {
 	if (condition.aggregate) attrs.push(`aggregate="${condition.aggregate}"`);
 	// Note: ConditionNode doesn't have alias in our type definition
 	if (condition.valueof) attrs.push(`valueof="${condition.valueof}"`);
+	attrs.push(...extraAttrs(condition.extraAttributes));
 
 	// Use the centralized operator logic to determine if value is needed
 	const needsValue = operatorRequiresValue(condition.operator);
@@ -237,12 +270,17 @@ function generateLinkEntity(link: LinkEntityNode, indent: number): string[] {
 	const lines: string[] = [];
 	const spaces = "  ".repeat(indent);
 
-	const attrs: string[] = [`name="${link.name}"`, `from="${link.from}"`, `to="${link.to}"`];
+	// Empty from/to are omitted, not written as from="" (which silently returns no rows); Dataverse
+	// infers the join only for system many-to-many relationships.
+	const attrs: string[] = [`name="${link.name}"`];
+	if (link.from) attrs.push(`from="${link.from}"`);
+	if (link.to) attrs.push(`to="${link.to}"`);
 
 	if (link.alias) attrs.push(`alias="${link.alias}"`);
 	if (link.linkType !== "inner") attrs.push(`link-type="${link.linkType}"`);
 	if (link.intersect) attrs.push('intersect="true"');
 	if (link.visible !== undefined) attrs.push(`visible="${link.visible}"`);
+	attrs.push(...extraAttrs(link.extraAttributes));
 
 	lines.push(`${spaces}<link-entity ${attrs.join(" ")}>`);
 

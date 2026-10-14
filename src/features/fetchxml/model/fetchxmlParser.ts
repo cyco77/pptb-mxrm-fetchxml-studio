@@ -15,6 +15,7 @@ import type {
 	LinkType,
 	OperatorType,
 	NodeId,
+	ExtraAttributes,
 } from "./nodes";
 import { isValidAlias, sanitizeAlias } from "./aliasUtils";
 import { ALL_OPERATORS } from "./operators";
@@ -125,67 +126,86 @@ const SILENT_LEGACY_ATTRIBUTES: Record<string, ReadonlySet<string>> = {
 };
 
 /**
- * Per element: attributes the tree model reads and writes, and documented attributes it can't
- * hold yet (#90). Source: https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/reference/
+ * Per element: attributes with a dedicated field in the tree model. Every attribute in the FetchXML
+ * reference is modelled (#90); anything else is kept verbatim in `extraAttributes`.
+ * Source: https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/reference/
  */
-const ELEMENT_ATTRIBUTES: Record<
-	string,
-	{ modelled: ReadonlySet<string>; unmodelled: ReadonlySet<string> }
-> = {
-	fetch: {
-		modelled: new Set([
-			"aggregate",
-			"distinct",
-			"top",
-			"count",
-			"page",
-			"paging-cookie",
-			"returntotalrecordcount",
-			"no-lock",
-			"utc-offset",
-		]),
-		unmodelled: new Set(["aggregatelimit", "datasource", "latematerialize", "options", "useraworderby"]),
-	},
-	entity: {
-		modelled: new Set(["name"]),
-		unmodelled: new Set(["enableprefiltering", "prefilterparametername"]),
-	},
-	attribute: {
-		modelled: new Set(["name", "alias", "groupby", "aggregate", "dategrouping", "usertimezone"]),
-		unmodelled: new Set(["distinct", "rowaggregate"]),
-	},
-	order: {
-		modelled: new Set(["attribute", "descending", "entityname"]),
-		unmodelled: new Set(["alias"]),
-	},
-	filter: {
-		modelled: new Set(["type", "hint"]),
-		unmodelled: new Set([
-			"isquickfindfields",
-			"overridequickfindrecordlimitenabled",
-			"overridequickfindrecordlimitdisabled",
-		]),
-	},
-	condition: {
-		modelled: new Set(["attribute", "entityname", "operator", "value", "valueof", "aggregate"]),
-		unmodelled: new Set(),
-	},
-	"link-entity": {
-		modelled: new Set(["name", "from", "to", "alias", "link-type", "intersect", "visible"]),
-		unmodelled: new Set(),
-	},
+const MODELLED_ATTRIBUTES: Record<string, ReadonlySet<string>> = {
+	fetch: new Set([
+		"aggregate",
+		"aggregatelimit",
+		"count",
+		"datasource",
+		"distinct",
+		"latematerialize",
+		"no-lock",
+		"options",
+		"page",
+		"paging-cookie",
+		"returntotalrecordcount",
+		"top",
+		"useraworderby",
+		"utc-offset",
+	]),
+	entity: new Set(["name", "enableprefiltering", "prefilterparametername"]),
+	attribute: new Set([
+		"name",
+		"alias",
+		"aggregate",
+		"dategrouping",
+		"distinct",
+		"groupby",
+		"rowaggregate",
+		"usertimezone",
+	]),
+	order: new Set(["attribute", "alias", "descending", "entityname"]),
+	filter: new Set([
+		"type",
+		"hint",
+		"isquickfindfields",
+		"overridequickfindrecordlimitenabled",
+		"overridequickfindrecordlimitdisabled",
+	]),
+	condition: new Set(["attribute", "entityname", "operator", "value", "valueof", "aggregate"]),
+	"link-entity": new Set(["name", "from", "to", "alias", "link-type", "intersect", "visible"]),
 };
 
+/** Documented query hint names for the fetch `options` attribute (cc-query-options). */
+const DOCUMENTED_QUERY_HINTS = [
+	"ForceOrder",
+	"DisableRowGoal",
+	"EnableOptimizerHotfixes",
+	"LoopJoin",
+	"MergeJoin",
+	"HashJoin",
+	"NO_PERFORMANCE_SPOOL",
+	"ENABLE_HIST_AMENDMENT_FOR_ASC_KEYS",
+];
+
+/** Boolean attribute values accepted by Dataverse ("true"/"1", "false"/"0" — verified). */
+function parseBooleanAttr(value: string | null): boolean | undefined {
+	if (value === null) return undefined;
+	const v = value.trim().toLowerCase();
+	if (v === "true" || v === "1") return true;
+	if (v === "false" || v === "0") return false;
+	return undefined;
+}
+
 /**
- * Report attributes on an element that the tree won't keep: namespace declarations, namespaced
- * attributes, documented-but-unsupported attributes, and unknown attributes.
+ * Collect the attributes the tree has no dedicated field for, so they round-trip verbatim (#90):
+ * namespace declarations, namespaced attributes, legacy attributes and unknown attributes.
  * Live-validated: Dataverse ignores unknown and namespaced attributes, but rejects a default
- * namespace on <fetch> (0x80041102).
+ * namespace on <fetch> (0x80041102), so that one is reported as an error and not kept.
  */
-function reportElementAttributes(el: Element, elementName: string, issues: ParseIssue[]): void {
-	const lists = ELEMENT_ATTRIBUTES[elementName];
-	if (!lists) return;
+function collectElementAttributes(
+	el: Element,
+	elementName: string,
+	issues: ParseIssue[],
+): ExtraAttributes | undefined {
+	const modelled = MODELLED_ATTRIBUTES[elementName];
+	if (!modelled) return undefined;
 	const silent = SILENT_LEGACY_ATTRIBUTES[elementName];
+	const extras: ExtraAttributes = {};
 
 	for (const attr of Array.from(el.attributes)) {
 		const name = attr.name;
@@ -201,50 +221,26 @@ function reportElementAttributes(el: Element, elementName: string, issues: Parse
 			});
 			continue;
 		}
-		if (attr.namespaceURI === XMLNS_NAMESPACE || lower.startsWith("xmlns:")) {
-			issues.push({
-				message: `Namespace declaration '${name}' is ignored by Dataverse.`,
-				element: elementName,
-				attribute: name,
-				severity: "info",
-				kind: "ignored",
-			});
-			continue;
-		}
-		if (attr.namespaceURI) {
-			issues.push({
-				message: `Namespaced attribute '${name}' is ignored by Dataverse; Parse to Tree drops it.`,
-				element: elementName,
-				attribute: name,
-				severity: "info",
-				kind: "ignored",
-			});
-			continue;
-		}
-		if (lists.modelled.has(lower) || silent?.has(lower)) continue;
+		if (modelled.has(lower)) continue;
 
-		if (lists.unmodelled.has(lower)) {
-			const changesDataSource = elementName === "fetch" && lower === "datasource";
-			issues.push({
-				message: changesDataSource
-					? `'${name}="${attr.value}"' isn't supported in the tree yet; Parse to Tree drops it, so the query would read live data instead.`
-					: `'${name}' is supported by Dataverse but not by the tree yet; Parse to Tree drops it.`,
-				element: elementName,
-				attribute: name,
-				severity: "info",
-				kind: "dropped",
-			});
-			continue;
-		}
+		extras[name] = attr.value;
+		if (silent?.has(lower)) continue;
 
+		const isNamespaceDeclaration = attr.namespaceURI === XMLNS_NAMESPACE || lower.startsWith("xmlns:");
 		issues.push({
-			message: `Unknown attribute '${name}' is ignored by Dataverse; Parse to Tree drops it.`,
+			message: isNamespaceDeclaration
+				? `Namespace declaration '${name}' is ignored by Dataverse.`
+				: attr.namespaceURI
+					? `Namespaced attribute '${name}' is ignored by Dataverse.`
+					: `Unknown attribute '${name}' is ignored by Dataverse.`,
 			element: elementName,
 			attribute: name,
 			severity: "info",
 			kind: "ignored",
 		});
 	}
+
+	return Object.keys(extras).length > 0 ? extras : undefined;
 }
 
 /** Unknown child element (including namespaced ones): Dataverse rejects it (0x8004111c). */
@@ -348,8 +344,9 @@ export function parseFetchXml(xmlString: string): ParseResult {
 	}
 
 	try {
-		// Parse the fetch options
+		// Parse the fetch options and keep any other attributes verbatim
 		const options = parseFetchOptions(fetchElement, issues);
+		const fetchExtras = collectElementAttributes(fetchElement, "fetch", issues);
 
 		// Parse the entity tree
 		const entity = parseEntity(entityElement, issues);
@@ -359,7 +356,10 @@ export function parseFetchXml(xmlString: string): ParseResult {
 			type: "fetch",
 			entity,
 			options,
+			...(fetchExtras ? { extraAttributes: fetchExtras } : {}),
 		};
+
+		validateOrders(fetchNode, issues);
 
 		const errors: ParseError[] = issues
 			.filter((i) => i.severity === "fatal")
@@ -397,8 +397,65 @@ function parseFetchOptions(fetchElement: Element, issues: ParseIssue[]): FetchNo
 	if (fetchElement.getAttribute("no-lock") === "true") {
 		options.noLock = true;
 	}
-	if (fetchElement.getAttribute("latematerialize") === "true") {
+	if (parseBooleanAttr(fetchElement.getAttribute("latematerialize"))) {
 		options.latematerialize = true;
+	}
+	if (parseBooleanAttr(fetchElement.getAttribute("useraworderby"))) {
+		options.useRawOrderBy = true;
+	}
+
+	const aggregateLimit = fetchElement.getAttribute("aggregatelimit");
+	if (aggregateLimit !== null) {
+		const limit = Number(aggregateLimit);
+		if (Number.isInteger(limit) && limit >= 1 && limit <= 50000) {
+			options.aggregateLimit = limit;
+		} else {
+			// Dataverse: "Expected value between 1 and 50000 inclusive."
+			issues.push({
+				message: `'aggregatelimit' must be a whole number from 1 to 50,000 (Dataverse rejects '${aggregateLimit}'); Parse to Tree drops it.`,
+				element: "fetch",
+				attribute: "aggregatelimit",
+				severity: "error",
+				kind: "dropped",
+			});
+		}
+	}
+
+	const dataSource = fetchElement.getAttribute("datasource");
+	if (dataSource !== null) {
+		options.dataSource = dataSource;
+		// 'retained' is documented; 'bin' is listed as valid in Dataverse's own error message.
+		if (dataSource !== "retained" && dataSource !== "bin") {
+			issues.push({
+				message: `Invalid datasource '${dataSource}'; Dataverse accepts 'retained' (long-term retention) or 'bin'.`,
+				element: "fetch",
+				attribute: "datasource",
+				severity: "error",
+				kind: "invalid",
+			});
+		}
+	}
+
+	const optionsAttr = fetchElement.getAttribute("options");
+	if (optionsAttr !== null) {
+		const hints = optionsAttr
+			.split(",")
+			.map((h) => h.trim())
+			.filter(Boolean);
+		if (hints.length > 0) options.queryHints = hints;
+		const undocumented = hints.filter(
+			(h) => !DOCUMENTED_QUERY_HINTS.some((d) => d.toLowerCase() === h.toLowerCase()),
+		);
+		if (undocumented.length > 0) {
+			// Dataverse accepts (and ignores) unknown hint names, so a typo goes unnoticed
+			issues.push({
+				message: `Query hint ${undocumented.map((h) => `'${h}'`).join(", ")} isn't a documented option and may have no effect.`,
+				element: "fetch",
+				attribute: "options",
+				severity: "info",
+				kind: "advice",
+			});
+		}
 	}
 
 	// Numeric options
@@ -503,8 +560,6 @@ function parseFetchOptions(fetchElement: Element, issues: ParseIssue[]): FetchNo
 		options.pagingCookie = pagingCookie;
 	}
 
-	// Attributes the tree won't keep (namespaces, unsupported, unknown)
-	reportElementAttributes(fetchElement, "fetch", issues);
 
 	return options;
 }
@@ -534,7 +589,8 @@ function parseEntity(entityElement: Element, issues: ParseIssue[]): EntityNode {
 		entity.prefilterParameterName = prefilterParam;
 	}
 
-	reportElementAttributes(entityElement, "entity", issues);
+	const extraAttributes = collectElementAttributes(entityElement, "entity", issues);
+	if (extraAttributes) entity.extraAttributes = extraAttributes;
 
 	// Parse child elements
 	for (const child of entityElement.children) {
@@ -594,12 +650,13 @@ function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNo
 		});
 	}
 
-	reportElementAttributes(attrElement, "attribute", issues);
+	const extraAttributes = collectElementAttributes(attrElement, "attribute", issues);
 
 	const attr: AttributeNode = {
 		id: generateParseId(),
 		type: "attribute",
 		name,
+		...(extraAttributes ? { extraAttributes } : {}),
 	};
 
 	// Optional attributes
@@ -628,9 +685,18 @@ function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNo
 
 	const aggregate = attrElement.getAttribute("aggregate");
 	if (aggregate) {
-		const validAggregates = ["sum", "count", "countcolumn", "min", "max", "avg", "rowaggregate"];
+		const validAggregates = ["sum", "count", "countcolumn", "min", "max", "avg"];
 		if (validAggregates.includes(aggregate)) {
 			attr.aggregate = aggregate as AttributeNode["aggregate"];
+		} else if (aggregate === "rowaggregate") {
+			// Dataverse: 0x8004111a "The value 'rowaggregate' is not a valid aggregate operation"
+			issues.push({
+				message: `'rowaggregate' isn't an aggregate function; to count child records use rowaggregate="CountChildren" instead. Parse to Tree drops it.`,
+				element: "attribute",
+				attribute: "aggregate",
+				severity: "error",
+				kind: "dropped",
+			});
 		} else {
 			issues.push({
 				message: `Invalid aggregate value '${aggregate}'; Parse to Tree drops it.`,
@@ -670,6 +736,24 @@ function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNo
 		attr.usertimezone = attrElement.getAttribute("usertimezone") === "true";
 	}
 
+	if (parseBooleanAttr(attrElement.getAttribute("distinct"))) {
+		attr.distinct = true;
+	}
+
+	const rowAggregate = attrElement.getAttribute("rowaggregate");
+	if (rowAggregate !== null) {
+		attr.rowAggregate = rowAggregate;
+		if (rowAggregate.toLowerCase() !== "countchildren") {
+			issues.push({
+				message: `rowaggregate '${rowAggregate}' isn't documented (only 'CountChildren' is); Dataverse may reject it.`,
+				element: "attribute",
+				attribute: "rowaggregate",
+				severity: "warning",
+				kind: "invalid",
+			});
+		}
+	}
+
 	return attr;
 }
 
@@ -677,35 +761,26 @@ function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNo
  * Parse order element
  */
 function parseOrder(orderElement: Element, issues: ParseIssue[]): OrderNode | null {
-	const attribute = orderElement.getAttribute("attribute") || "";
+	const attribute = orderElement.getAttribute("attribute") || undefined;
+	const alias = orderElement.getAttribute("alias") || undefined;
 
-	if (!attribute) {
-		const alias = orderElement.getAttribute("alias");
-		issues.push(
-			alias
-				? {
-						message: `Order by alias '${alias}' is supported by Dataverse but not by the tree yet; Parse to Tree drops this order.`,
-						element: "order",
-						attribute: "alias",
-						severity: "info",
-						kind: "dropped",
-					}
-				: {
-						message: "Order element has neither 'attribute' nor 'alias' (Dataverse rejects it); Parse to Tree drops it.",
-						element: "order",
-						severity: "error",
-						kind: "dropped",
-					},
-		);
+	if (!attribute && !alias) {
+		issues.push({
+			message: "Order element has neither 'attribute' nor 'alias' (Dataverse rejects it); Parse to Tree drops it.",
+			element: "order",
+			severity: "error",
+			kind: "dropped",
+		});
 		return null;
 	}
 
-	reportElementAttributes(orderElement, "order", issues);
-
+	const extraAttributes = collectElementAttributes(orderElement, "order", issues);
 	const order: OrderNode = {
 		id: generateParseId(),
 		type: "order",
-		attribute,
+		...(attribute ? { attribute } : {}),
+		...(alias ? { alias } : {}),
+		...(extraAttributes ? { extraAttributes } : {}),
 	};
 
 	if (orderElement.getAttribute("descending") === "true") {
@@ -718,6 +793,38 @@ function parseOrder(orderElement: Element, issues: ParseIssue[]): OrderNode | nu
 	}
 
 	return order;
+}
+
+/**
+ * Order rules that depend on the whole query (verified against Dataverse):
+ *  - aggregate queries must order by alias (0x80041131 when 'attribute' is used)
+ *  - non-aggregate queries must order by attribute (0x80041132 when 'alias' is used)
+ */
+function validateOrders(fetchNode: FetchNode, issues: ParseIssue[]): void {
+	const aggregate = fetchNode.options.aggregate === true;
+	const visit = (orders: OrderNode[], links: LinkEntityNode[]) => {
+		for (const order of orders) {
+			if (aggregate && order.attribute) {
+				issues.push({
+					message: `In an aggregate query, order by the attribute's alias instead of attribute '${order.attribute}' (Dataverse rejects it).`,
+					element: "order",
+					attribute: "attribute",
+					severity: "error",
+					kind: "invalid",
+				});
+			} else if (!aggregate && order.alias) {
+				issues.push({
+					message: `Ordering by alias '${order.alias}' only works in aggregate queries; use 'attribute' instead (Dataverse rejects it).`,
+					element: "order",
+					attribute: "alias",
+					severity: "error",
+					kind: "invalid",
+				});
+			}
+		}
+		for (const link of links) visit(link.orders, link.links);
+	};
+	visit(fetchNode.entity.orders, fetchNode.entity.links);
 }
 
 /**
@@ -734,7 +841,7 @@ function parseFilter(filterElement: Element, issues: ParseIssue[]): FilterNode {
 			kind: "corrected",
 		});
 	}
-	reportElementAttributes(filterElement, "filter", issues);
+	const extraAttributes = collectElementAttributes(filterElement, "filter", issues);
 
 	const filter: FilterNode = {
 		id: generateParseId(),
@@ -748,6 +855,16 @@ function parseFilter(filterElement: Element, issues: ParseIssue[]): FilterNode {
 	const hint = filterElement.getAttribute("hint");
 	if (hint === "union") {
 		filter.hint = "union";
+	}
+	if (extraAttributes) filter.extraAttributes = extraAttributes;
+	if (parseBooleanAttr(filterElement.getAttribute("isquickfindfields"))) {
+		filter.isQuickFindFields = true;
+	}
+	if (parseBooleanAttr(filterElement.getAttribute("overridequickfindrecordlimitenabled"))) {
+		filter.overrideQuickFindRecordLimitEnabled = true;
+	}
+	if (parseBooleanAttr(filterElement.getAttribute("overridequickfindrecordlimitdisabled"))) {
+		filter.overrideQuickFindRecordLimitDisabled = true;
 	}
 
 	// Parse child elements
@@ -815,13 +932,14 @@ function parseCondition(condElement: Element, issues: ParseIssue[]): ConditionNo
 		});
 	}
 
-	reportElementAttributes(condElement, "condition", issues);
+	const extraAttributes = collectElementAttributes(condElement, "condition", issues);
 
 	const condition: ConditionNode = {
 		id: generateParseId(),
 		type: "condition",
 		attribute,
 		operator: operator as OperatorType,
+		...(extraAttributes ? { extraAttributes } : {}),
 	};
 
 	// Optional attributes
@@ -973,7 +1091,8 @@ function parseLinkEntity(linkElement: Element, issues: ParseIssue[]): LinkEntity
 		}
 	}
 
-	reportElementAttributes(linkElement, "link-entity", issues);
+	const extraAttributes = collectElementAttributes(linkElement, "link-entity", issues);
+	if (extraAttributes) link.extraAttributes = extraAttributes;
 
 	if (linkElement.getAttribute("intersect") === "true") {
 		link.intersect = true;

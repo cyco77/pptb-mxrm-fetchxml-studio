@@ -86,27 +86,32 @@ describe("supported: documented, or undocumented but verified to work", () => {
 		["aggregatelimit", ` aggregatelimit="1000"`],
 		["latematerialize", ` latematerialize="true"`],
 		["options", ` options="HashJoin"`],
-		["datasource", ` datasource="retained"`],
-	])("documented '%s' never blocks; Parse to Tree asks before dropping it", (attr, fetchAttrs) => {
+		["datasource (retained)", ` datasource="retained"`],
+		["datasource (bin, accepted by Dataverse)", ` datasource="bin"`],
+	])("documented '%s' is supported with no findings (#90)", (_label, fetchAttrs) => {
 		// Dataverse: ✅ accepts (datasource errors only where long-term retention isn't provisioned)
 		const f = findings(wrap("", fetchAttrs));
-		expect(f.only((w) => w.attribute === attr)).toEqual([
-			expect.objectContaining({ severity: "info", kind: "dropped" }),
-		]);
-		expect(f.errors).toEqual([]);
-		expect(f.warnings).toEqual([]);
-		expect(f.changes.map((w) => w.attribute)).toEqual([attr]);
+		expect(f.result.warnings).toEqual([]);
+		expect(f.changes).toEqual([]);
 	});
 
-	it("order by alias never blocks and isn't turned into an invalid order", () => {
+	it("order by alias in an aggregate query is supported and kept (#90)", () => {
 		// Dataverse: ✅ accepts <order alias> in aggregate queries
 		const f = findings(
 			`<fetch aggregate="true"><entity name="task"><attribute name="prioritycode" alias="p" groupby="true" /><attribute name="activityid" alias="n" aggregate="count" /><order alias="n" descending="true" /></entity></fetch>`,
 		);
-		expect(f.errors).toEqual([]);
-		expect(f.warnings).toEqual([]);
-		expect(f.changes).toEqual([expect.objectContaining({ element: "order", kind: "dropped" })]);
-		expect(f.result.fetchNode!.entity.orders).toEqual([]);
+		expect(f.result.warnings).toEqual([]);
+		expect(f.result.fetchNode!.entity.orders).toEqual([
+			expect.objectContaining({ alias: "n", descending: true }),
+		]);
+	});
+
+	it("undocumented query hint names get advice (Dataverse silently ignores them)", () => {
+		const f = findings(wrap("", ` options="HashJoin,HashJion"`));
+		expect(f.result.warnings).toEqual([
+			expect.objectContaining({ attribute: "options", severity: "info", kind: "advice", message: expect.stringContaining("HashJion") }),
+		]);
+		expect(f.result.fetchNode!.options.queryHints).toEqual(["HashJoin", "HashJion"]);
 	});
 
 	it("link-type 'natural' (undocumented, verified to work) is supported and preserved", () => {
@@ -190,6 +195,25 @@ describe("errors: known to be rejected by Dataverse (Execute blocked)", () => {
 		expect(f.errors).toEqual([expect.objectContaining({ attribute: "top", kind: "invalid" })]);
 	});
 
+	it.each([
+		["aggregatelimit above 50,000", `<fetch aggregate="true" aggregatelimit="60000"><entity name="task"><attribute name="activityid" alias="n" aggregate="count" /></entity></fetch>`, "aggregatelimit", "dropped"], // "Expected value between 1 and 50000 inclusive."
+		["aggregatelimit not a whole number", `<fetch aggregate="true" aggregatelimit="abc"><entity name="task"><attribute name="activityid" alias="n" aggregate="count" /></entity></fetch>`, "aggregatelimit", "dropped"],
+		["datasource other than retained/bin", wrap("", ` datasource="live"`), "datasource", "invalid"], // 0x80041108
+		["aggregate='rowaggregate' (use rowaggregate='CountChildren')", `<fetch aggregate="true"><entity name="account"><attribute name="accountid" alias="kids" aggregate="rowaggregate" /></entity></fetch>`, "aggregate", "dropped"], // 0x8004111a
+		["order by attribute in an aggregate query", `<fetch aggregate="true"><entity name="task"><attribute name="prioritycode" alias="p" groupby="true" /><attribute name="activityid" alias="n" aggregate="count" /><order attribute="prioritycode" /></entity></fetch>`, "attribute", "invalid"], // 0x80041131
+		["order by alias in a non-aggregate query", withAttribute('<attribute name="name" alias="nm" />').replace("</entity>", '<order alias="nm" /></entity>'), "alias", "invalid"], // 0x80041132
+	])("%s is an error", (_label, xml, attribute, kind) => {
+		const f = findings(xml);
+		expect(f.errors).toEqual(expect.arrayContaining([expect.objectContaining({ attribute, kind })]));
+	});
+
+	it("order rules apply inside link-entities too", () => {
+		const f = findings(
+			`<fetch aggregate="true"><entity name="contact"><attribute name="contactid" alias="n" aggregate="count" /><link-entity name="account" from="accountid" to="parentcustomerid" alias="a"><attribute name="name" alias="acct" groupby="true" /><order attribute="name" /></link-entity></entity></fetch>`,
+		);
+		expect(f.errors).toEqual([expect.objectContaining({ element: "order", attribute: "attribute" })]);
+	});
+
 	it("errors that Parse to Tree corrects or drops are listed as changes", () => {
 		const f = findings(withAttribute('<attribute name="name" alias="my name" />'));
 		expect(f.changes).toEqual([expect.objectContaining({ attribute: "alias", kind: "corrected" })]);
@@ -202,6 +226,11 @@ describe("warnings: can't be determined client-side (Execute anyway)", () => {
 		const f = findings(`<fetch top="1"><entity name="contact"><attribute name="fullname" /><link-entity name="account" alias="a" /></entity></fetch>`);
 		expect(f.errors).toEqual([]);
 		expect(f.warnings).toEqual([expect.objectContaining({ element: "link-entity", kind: "invalid" })]);
+	});
+
+	it("rowaggregate value other than the documented 'CountChildren'", () => {
+		const f = findings(withAttribute('<attribute name="accountid" alias="k" rowaggregate="CountParents" />'));
+		expect(f.warnings).toEqual([expect.objectContaining({ attribute: "rowaggregate" })]);
 	});
 
 	it("operator not in the documented list (Microsoft may add operators)", () => {

@@ -448,10 +448,9 @@ export function TreeView({
 
 	const renderOrderNode = (order: OrderNode) => {
 		const direction = order.descending ? "↓" : "↑";
-		// Show entityname prefix for link-entity orders
-		const displayName = order.entityname
-			? `${order.entityname}.${order.attribute}`
-			: order.attribute;
+		// Aggregate queries sort by alias (#90); show entityname prefix for link-entity orders
+		const target = order.alias ? `${order.alias} (alias)` : (order.attribute ?? "");
+		const displayName = order.entityname ? `${order.entityname}.${target}` : target;
 		return (
 			<TreeItem
 				key={order.id}
