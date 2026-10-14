@@ -836,7 +836,7 @@ function AppContent() {
 					xmlOverride
 						? "✏️ Executing editor FetchXML"
 						: loadedView
-							? `📝 View "${loadedView.name}" was modified - executing via fetchXmlQuery`
+							? `📝 View "${loadedView.name}" was modified - executing its FetchXML`
 							: "📡 Executing FetchXML query",
 				);
 				result = await executeFetchXml(xmlToExecute);

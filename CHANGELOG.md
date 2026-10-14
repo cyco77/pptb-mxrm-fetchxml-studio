@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.5] - 2026-10-13
+
+### 🔧 Fixed
+
+- **FetchXML now runs against the entity's real entity set name (#61).** Queries used to go through the host's `fetchXmlQuery`, which guesses the Web API entity set name with English plural rules. Measured on the sandbox org, the guess is wrong for **67 of 1,612** Advanced Find entities, so every query on them failed. Examples: `feedback` (host requested `feedbacks`) and `msdyn_conversationdata` (actual set `msdyn_conversationsdata`).
+  - Execution now uses `dataverseAPI.queryData(`${EntitySetName}?fetchXml=…`)` with the `EntitySetName` from entity metadata (cached). Microsoft requires the entity set name for the entity in the FetchXML's `entity` element ([Retrieve data with FetchXML](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/fetchxml/retrieve-data?tabs=webapi)).
+  - The request is otherwise identical: GET with `Prefer: odata.include-annotations="*"`. Results were the same as before across 1,047 audit queries on entities the host names correctly.
+  - The entity set comes from the FetchXML being executed, so editor-mode XML and paged requests (Load more, Retrieve all) use the right entity too.
+  - Two system entities (`archivecleanupinfo`, `delegatedauthorization`) report an `EntitySetName` the service doesn't route. When Dataverse answers "Resource not found for the segment", the query is retried once with the entity's `LogicalCollectionName`.
+  - `fetchXmlQuery` remains only as a fallback when entity metadata can't be loaded.
+- Record delete still goes through the host, which only accepts a logical name. The metadata-based fix needs PPTB 1.2.7's `executeBatch` and moves to the v1.5.0 upgrade (#82).
+
 ## [1.4.1-beta.4] - 2026-10-13
 
 ### 📦 Dependencies
