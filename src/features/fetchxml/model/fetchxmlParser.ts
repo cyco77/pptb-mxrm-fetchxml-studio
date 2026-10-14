@@ -47,14 +47,17 @@ export interface ParseError {
 }
 
 /**
- * How serious a parser finding is (#89):
- *  - "warning": Dataverse is expected to reject the query as written (verified against a live org);
- *    the editor shows it and offers "Execute anyway".
- *  - "info": never blocks — Dataverse ignores or accepts it, but the user should know (e.g. what
- *    Parse to Tree will drop).
- * Problems that make the query unusable are reported in `errors` instead.
+ * How serious a parser finding is (#89). Principle: what the FetchXML reference documents is
+ * supported; undocumented behaviour verified to work is supported too; only what is known not to
+ * work is blocked. Every classification was validated against a live Dataverse org.
+ *  - "error":   known to be rejected by Dataverse — Execute is blocked. Parse to Tree can still
+ *               build the tree, correcting or dropping the item where possible.
+ *  - "warning": can't be determined client-side (e.g. a link-entity without from/to is valid only
+ *               for system many-to-many relationships) — the editor offers "Execute anyway".
+ *  - "info":    never blocks — accepted or ignored by Dataverse, but worth knowing.
+ * Problems that prevent building a tree at all are reported in `errors` instead.
  */
-export type ParseWarningSeverity = "warning" | "info";
+export type ParseWarningSeverity = "error" | "warning" | "info";
 
 /**
  * What happens to the finding:
@@ -62,8 +65,9 @@ export type ParseWarningSeverity = "warning" | "info";
  *  - "ignored":   Dataverse ignores it; Parse to Tree drops it with no change in results
  *  - "dropped":   meaningful, but the tree can't represent it yet — Parse to Tree removes it
  *  - "corrected": Parse to Tree changes it to a valid form (e.g. sanitized alias)
+ *  - "advice":    valid as written and kept as-is; a recommendation only
  */
-export type ParseWarningKind = "invalid" | "ignored" | "dropped" | "corrected";
+export type ParseWarningKind = "invalid" | "ignored" | "dropped" | "corrected" | "advice";
 
 export interface ParseWarning {
 	message: string;
@@ -73,10 +77,15 @@ export interface ParseWarning {
 	kind: ParseWarningKind;
 }
 
-/** Internal: a finding that may also be a hard error (moved to `errors` when parsing finishes). */
-type ParseIssue = Omit<ParseWarning, "severity"> & { severity: ParseWarningSeverity | "error" };
+/** Internal: "fatal" findings prevent building a tree and are moved to `errors`. */
+type ParseIssue = Omit<ParseWarning, "severity"> & { severity: ParseWarningSeverity | "fatal" };
 
-/** Warnings that Dataverse is expected to reject — the editor asks before executing. */
+/** Findings Dataverse is known to reject — Execute is blocked until they're fixed. */
+export function getExecutionErrors(result: Pick<ParseResult, "warnings">): ParseWarning[] {
+	return result.warnings.filter((w) => w.severity === "error");
+}
+
+/** Findings that can't be determined client-side — the editor offers "Execute anyway". */
 export function getBlockingWarnings(result: Pick<ParseResult, "warnings">): ParseWarning[] {
 	return result.warnings.filter((w) => w.severity === "warning");
 }
@@ -88,7 +97,7 @@ export function getBlockingWarnings(result: Pick<ParseResult, "warnings">): Pars
  */
 export function getParseToTreeChanges(result: Pick<ParseResult, "warnings">): ParseWarning[] {
 	return result.warnings.filter(
-		(w) => w.kind === "dropped" || (w.kind === "corrected" && w.severity === "warning"),
+		(w) => w.kind === "dropped" || (w.kind === "corrected" && w.severity !== "info"),
 	);
 }
 
@@ -187,7 +196,7 @@ function reportElementAttributes(el: Element, elementName: string, issues: Parse
 				message: `Default namespace (xmlns="${attr.value}") isn't supported by Dataverse; Parse to Tree removes it.`,
 				element: elementName,
 				attribute: name,
-				severity: "warning",
+				severity: "error",
 				kind: "corrected",
 			});
 			continue;
@@ -222,7 +231,7 @@ function reportElementAttributes(el: Element, elementName: string, issues: Parse
 					: `'${name}' is supported by Dataverse but not by the tree yet; Parse to Tree drops it.`,
 				element: elementName,
 				attribute: name,
-				severity: changesDataSource ? "warning" : "info",
+				severity: "info",
 				kind: "dropped",
 			});
 			continue;
@@ -243,7 +252,7 @@ function reportUnknownChild(child: Element, parentName: string, issues: ParseIss
 	issues.push({
 		message: `Unknown element <${child.nodeName}> inside <${parentName}> isn't valid FetchXML (Dataverse rejects it); Parse to Tree drops it.`,
 		element: child.nodeName,
-		severity: "warning",
+		severity: "error",
 		kind: "dropped",
 	});
 }
@@ -311,6 +320,15 @@ export function parseFetchXml(xmlString: string): ParseResult {
 
 	// Find the entity element (required)
 	const entityElement = fetchElement.querySelector(":scope > entity");
+	const extraEntities = fetchElement.querySelectorAll(":scope > entity").length - 1;
+	if (extraEntities > 0) {
+		issues.push({
+			message: `Only one <entity> is allowed; Dataverse uses the first and Parse to Tree drops the other ${extraEntities}.`,
+			element: "fetch",
+			severity: "info",
+			kind: "dropped",
+		});
+	}
 	if (!entityElement) {
 		return {
 			success: false,
@@ -344,9 +362,9 @@ export function parseFetchXml(xmlString: string): ParseResult {
 		};
 
 		const errors: ParseError[] = issues
-			.filter((i) => i.severity === "error")
+			.filter((i) => i.severity === "fatal")
 			.map((i) => ({ message: i.message }));
-		const warnings = issues.filter((i): i is ParseWarning => i.severity !== "error");
+		const warnings = issues.filter((i): i is ParseWarning => i.severity !== "fatal");
 
 		return errors.length > 0
 			? { success: false, errors, warnings }
@@ -355,7 +373,7 @@ export function parseFetchXml(xmlString: string): ParseResult {
 		return {
 			success: false,
 			errors: [{ message: `Parsing Error: ${e instanceof Error ? e.message : String(e)}` }],
-			warnings: issues.filter((i): i is ParseWarning => i.severity !== "error"),
+			warnings: issues.filter((i): i is ParseWarning => i.severity !== "fatal"),
 		};
 	}
 }
@@ -394,7 +412,7 @@ function parseFetchOptions(fetchElement: Element, issues: ParseIssue[]): FetchNo
 				message: `Invalid 'top' value '${top}' (Dataverse rejects it); Parse to Tree drops it.`,
 				element: "fetch",
 				attribute: "top",
-				severity: "warning",
+				severity: "error",
 				kind: "dropped",
 			});
 		}
@@ -410,7 +428,7 @@ function parseFetchOptions(fetchElement: Element, issues: ParseIssue[]): FetchNo
 				message: `Invalid 'count' value '${count}' (Dataverse rejects it); Parse to Tree drops it.`,
 				element: "fetch",
 				attribute: "count",
-				severity: "warning",
+				severity: "error",
 				kind: "dropped",
 			});
 		}
@@ -426,7 +444,7 @@ function parseFetchOptions(fetchElement: Element, issues: ParseIssue[]): FetchNo
 				message: `Invalid 'page' value '${page}' (Dataverse rejects it); Parse to Tree drops it.`,
 				element: "fetch",
 				attribute: "page",
-				severity: "warning",
+				severity: "error",
 				kind: "dropped",
 			});
 		}
@@ -439,11 +457,42 @@ function parseFetchOptions(fetchElement: Element, issues: ParseIssue[]): FetchNo
 			options.utcOffset = utcNum;
 		} else {
 			issues.push({
-				message: `Invalid 'utc-offset' value '${utcOffset}'; Parse to Tree drops it.`,
+				message: `Invalid 'utc-offset' value '${utcOffset}' is ignored by Dataverse; Parse to Tree drops it.`,
 				element: "fetch",
 				attribute: "utc-offset",
-				severity: "warning",
-				kind: "dropped",
+				severity: "info",
+				kind: "ignored",
+			});
+		}
+	}
+
+	if (options.top !== undefined) {
+		const conflicts = [
+			options.count !== undefined && "count",
+			options.page !== undefined && "page",
+			options.returnTotalRecordCount && "returntotalrecordcount",
+		].filter(Boolean);
+		if (conflicts.length > 0) {
+			issues.push({
+				message: `'top' can't be combined with ${conflicts.map((c) => `'${c}'`).join(", ")} (Dataverse rejects it).`,
+				element: "fetch",
+				attribute: "top",
+				severity: "error",
+				kind: "invalid",
+			});
+		}
+	}
+	for (const [name, value] of [
+		["top", options.top],
+		["count", options.count],
+	] as const) {
+		if (value !== undefined && value > 5000) {
+			issues.push({
+				message: `'${name}' is ${value}, but Dataverse returns at most 5,000 rows per request.`,
+				element: "fetch",
+				attribute: name,
+				severity: "info",
+				kind: "advice",
 			});
 		}
 	}
@@ -540,7 +589,7 @@ function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNo
 		issues.push({
 			message: "Attribute element missing 'name' (Dataverse rejects it).",
 			element: "attribute",
-			severity: "warning",
+			severity: "error",
 			kind: "invalid",
 		});
 	}
@@ -564,7 +613,7 @@ function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNo
 					: `Alias '${alias}' has no valid characters; Parse to Tree removes it.`,
 				element: "attribute",
 				attribute: "alias",
-				severity: "warning",
+				severity: "error",
 				kind: "corrected",
 			});
 			if (sanitized) attr.alias = sanitized;
@@ -587,7 +636,7 @@ function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNo
 				message: `Invalid aggregate value '${aggregate}'; Parse to Tree drops it.`,
 				element: "attribute",
 				attribute: "aggregate",
-				severity: "warning",
+				severity: "error",
 				kind: "dropped",
 			});
 		}
@@ -611,7 +660,7 @@ function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNo
 				message: `Invalid dategrouping value '${dategrouping}'; Parse to Tree drops it.`,
 				element: "attribute",
 				attribute: "dategrouping",
-				severity: "warning",
+				severity: "error",
 				kind: "dropped",
 			});
 		}
@@ -644,7 +693,7 @@ function parseOrder(orderElement: Element, issues: ParseIssue[]): OrderNode | nu
 				: {
 						message: "Order element has neither 'attribute' nor 'alias' (Dataverse rejects it); Parse to Tree drops it.",
 						element: "order",
-						severity: "warning",
+						severity: "error",
 						kind: "dropped",
 					},
 		);
@@ -678,10 +727,10 @@ function parseFilter(filterElement: Element, issues: ParseIssue[]): FilterNode {
 	const type = filterElement.getAttribute("type") || "and";
 	if (type !== "and" && type !== "or") {
 		issues.push({
-			message: `Invalid filter type '${type}'; Parse to Tree uses 'and'.`,
+			message: `Invalid filter type '${type}' (Dataverse rejects it); Parse to Tree uses 'and'.`,
 			element: "filter",
 			attribute: "type",
-			severity: "warning",
+			severity: "error",
 			kind: "corrected",
 		});
 	}
@@ -736,21 +785,29 @@ function parseCondition(condElement: Element, issues: ParseIssue[]): ConditionNo
 		issues.push({
 			message: "Condition element missing 'attribute' (Dataverse rejects it).",
 			element: "condition",
-			severity: "warning",
+			severity: "error",
 			kind: "invalid",
 		});
 	}
 	if (!operatorAttr) {
 		issues.push({
-			message: "Condition element missing 'operator'; Parse to Tree uses 'eq'.",
+			message: "Condition element missing 'operator' (Dataverse rejects it); Parse to Tree uses 'eq'.",
 			element: "condition",
 			attribute: "operator",
-			severity: "warning",
+			severity: "error",
 			kind: "corrected",
+		});
+	} else if (operatorAttr === "neq") {
+		issues.push({
+			message: "Operator 'neq' is deprecated; it works the same as 'ne'.",
+			element: "condition",
+			attribute: "operator",
+			severity: "info",
+			kind: "advice",
 		});
 	} else if (!KNOWN_OPERATORS.has(operatorAttr)) {
 		issues.push({
-			message: `Unknown condition operator '${operatorAttr}' (Dataverse rejects it).`,
+			message: `Operator '${operatorAttr}' isn't a documented condition operator; Dataverse may reject it.`,
 			element: "condition",
 			attribute: "operator",
 			severity: "warning",
@@ -829,7 +886,7 @@ function parseLinkEntity(linkElement: Element, issues: ParseIssue[]): LinkEntity
 		issues.push({
 			message: "Link-entity element missing 'name' (Dataverse rejects it).",
 			element: "link-entity",
-			severity: "warning",
+			severity: "error",
 			kind: "invalid",
 		});
 	}
@@ -841,7 +898,7 @@ function parseLinkEntity(linkElement: Element, issues: ParseIssue[]): LinkEntity
 		issues.push({
 			message: `Link-entity '${name}' has empty 'from' and 'to' attributes; Dataverse returns no rows for this. Set both, or remove them for a system many-to-many relationship.`,
 			element: "link-entity",
-			severity: "error",
+			severity: "fatal",
 			kind: "invalid",
 		});
 	} else if (!from || !to) {
@@ -865,6 +922,9 @@ function parseLinkEntity(linkElement: Element, issues: ParseIssue[]): LinkEntity
 		"exists",
 		"in",
 		"matchfirstrowusingcrossapply",
+		// Undocumented, but accepted by Dataverse (listed in its own link-type error message;
+		// verified against a live org).
+		"natural",
 	];
 
 	let linkType: LinkType = "inner";
@@ -875,7 +935,7 @@ function parseLinkEntity(linkElement: Element, issues: ParseIssue[]): LinkEntity
 			message: `Invalid link-type '${linkTypeAttr}' (Dataverse rejects it); Parse to Tree uses 'inner'.`,
 			element: "link-entity",
 			attribute: "link-type",
-			severity: "warning",
+			severity: "error",
 			kind: "corrected",
 		});
 	}

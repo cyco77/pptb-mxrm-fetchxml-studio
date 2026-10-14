@@ -45,6 +45,7 @@ import {
 	parseFetchXml,
 	validateFetchXmlSyntax,
 	getBlockingWarnings,
+	getExecutionErrors,
 	getParseToTreeChanges,
 } from "../../model/fetchxmlParser";
 import type { ParseResult, ParseWarning } from "../../model/fetchxmlParser";
@@ -118,7 +119,8 @@ interface Message {
 	body: string | ParseIssueItem[];
 }
 
-const REJECT_TITLE = "Dataverse will likely reject this query";
+const INVALID_TITLE = "Invalid FetchXML";
+const MIGHT_REJECT_TITLE = "Dataverse might reject this query";
 
 interface FetchXmlEditorProps {
 	xml: string;
@@ -266,17 +268,18 @@ export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: Fetc
 		// Then do a full parse to classify findings
 		const parseResult = parseFetchXml(editedXml);
 		if (!parseResult.success) {
-			addMessage("error", "Invalid FetchXML", parseResult.errors);
+			addMessage("error", INVALID_TITLE, parseResult.errors);
 			return;
 		}
 
-		// One bar per level. Messages are prepended, so add notes first to show them last.
+		// One bar per level. Messages are prepended, so add the least severe first.
 		const notes = parseResult.warnings.filter((w) => w.severity === "info");
 		const blocking = getBlockingWarnings(parseResult);
+		const executionErrors = getExecutionErrors(parseResult);
 		if (notes.length > 0) addMessage("info", "Notes", notes);
-		if (blocking.length > 0) {
-			addMessage("warning", REJECT_TITLE, blocking);
-		} else {
+		if (blocking.length > 0) addMessage("warning", MIGHT_REJECT_TITLE, blocking);
+		if (executionErrors.length > 0) addMessage("error", INVALID_TITLE, executionErrors);
+		if (blocking.length === 0 && executionErrors.length === 0) {
 			addMessage("success", "Valid", "Dataverse should accept this FetchXML.");
 		}
 	}, [editedXml, clearMessages, addMessage]);
@@ -291,18 +294,21 @@ export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: Fetc
 			const result = onParseToTree(xmlToParse);
 
 			if (!result.success) {
-				addMessage("error", "Invalid FetchXML", result.errors);
+				addMessage("error", INVALID_TITLE, result.errors);
 				return;
 			}
 
 			const changes = new Set(getParseToTreeChanges(result));
-			// Still invalid after parsing (kept as written) — e.g. an unknown operator
+			// Kept as written by Parse to Tree, so still a problem in the tree
 			const stillInvalid = result.warnings.filter((w) => w.kind === "invalid");
+			const stillErrors = stillInvalid.filter((w) => w.severity === "error");
+			const stillWarnings = stillInvalid.filter((w) => w.severity === "warning");
 			const notes = result.warnings.filter(
 				(w) => w.severity === "info" && !(changesConfirmed && changes.has(w)),
 			);
 			if (notes.length > 0) addMessage("info", "Notes", notes);
-			if (stillInvalid.length > 0) addMessage("warning", REJECT_TITLE, stillInvalid);
+			if (stillWarnings.length > 0) addMessage("warning", MIGHT_REJECT_TITLE, stillWarnings);
+			if (stillErrors.length > 0) addMessage("error", INVALID_TITLE, stillErrors);
 			addMessage("success", "Parsed into the tree", "The FetchXML was loaded into the tree builder.");
 
 			// Exit editor mode after successful parse
@@ -319,7 +325,7 @@ export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: Fetc
 		const preview = parseFetchXml(editedXml);
 		if (!preview.success) {
 			clearMessages();
-			addMessage("error", "Invalid FetchXML", preview.errors);
+			addMessage("error", INVALID_TITLE, preview.errors);
 			return;
 		}
 

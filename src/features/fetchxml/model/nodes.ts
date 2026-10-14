@@ -147,7 +147,8 @@ export type LinkType =
 	| "not all" // NOT ALL records match
 	| "exists" // EXISTS (semi-join)
 	| "in" // IN (similar to exists)
-	| "matchfirstrowusingcrossapply"; // CROSS APPLY for first match
+	| "matchfirstrowusingcrossapply" // CROSS APPLY for first match
+	| "natural"; // Undocumented, but accepted by Dataverse (verified)
 
 /**
  * FetchXML operators (60+ supported)

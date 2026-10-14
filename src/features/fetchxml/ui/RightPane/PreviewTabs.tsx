@@ -42,6 +42,7 @@ import {
 	validateFetchXmlSyntax,
 	parseFetchXml,
 	getBlockingWarnings,
+	getExecutionErrors,
 } from "../../model/fetchxmlParser";
 import { ParseIssueList, type ParseIssueItem } from "./ParseIssueList";
 import type { LayoutXmlConfig } from "../../model/layoutxml";
@@ -348,7 +349,7 @@ export function PreviewTabs({
 	const [editorValidationError, setEditorValidationError] = useState<ParseIssueItem[] | null>(
 		null,
 	);
-	// Editor XML that Dataverse will likely reject, awaiting "Execute anyway" (#89)
+	// Editor XML Dataverse might reject, awaiting "Execute anyway" (#89)
 	const [pendingExecute, setPendingExecute] = useState<{
 		xml: string;
 		warnings: ParseWarning[];
@@ -408,7 +409,14 @@ export function PreviewTabs({
 				return;
 			}
 
-			// Dataverse will likely reject these — ask before sending. Informational findings
+			// Known to be rejected by Dataverse — block (Parse to Tree can often correct these)
+			const executionErrors = getExecutionErrors(parseResult);
+			if (executionErrors.length > 0) {
+				setEditorValidationError(executionErrors);
+				return;
+			}
+
+			// Can't be determined client-side — ask before sending. Informational findings
 			// (ignored or unsupported-in-tree attributes) never block execution.
 			const blocking = getBlockingWarnings(parseResult);
 			if (blocking.length > 0) {
@@ -525,7 +533,7 @@ export function PreviewTabs({
 				<div className={styles.messageBarContainer}>
 					<MessageBar intent="warning" layout="multiline">
 						<MessageBarBody>
-							<MessageBarTitle>Dataverse will likely reject this query</MessageBarTitle>
+							<MessageBarTitle>Dataverse might reject this query</MessageBarTitle>
 							<ParseIssueList items={pendingExecute.warnings} />
 						</MessageBarBody>
 						<MessageBarActions
