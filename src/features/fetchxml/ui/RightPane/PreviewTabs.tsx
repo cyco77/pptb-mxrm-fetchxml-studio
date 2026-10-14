@@ -37,8 +37,13 @@ import { ResultsCommandBar } from "./ResultsCommandBar";
 import type { RelatedEntityColumn } from "./AddColumnsPanel";
 import type { AttributeMetadata, RelationshipMetadata } from "../../api/pptbClient";
 import type { FetchNode } from "../../model/nodes";
-import type { ParseResult } from "../../model/fetchxmlParser";
-import { validateFetchXmlSyntax, parseFetchXml } from "../../model/fetchxmlParser";
+import type { ParseResult, ParseWarning } from "../../model/fetchxmlParser";
+import {
+	validateFetchXmlSyntax,
+	parseFetchXml,
+	getBlockingWarnings,
+} from "../../model/fetchxmlParser";
+import { ParseIssueList, type ParseIssueItem } from "./ParseIssueList";
 import type { LayoutXmlConfig } from "../../model/layoutxml";
 import type { WorkflowInfo } from "../../api/pptbClient";
 import type { DisplaySettings } from "../../model/displaySettings";
@@ -340,7 +345,14 @@ export function PreviewTabs({
 	// isEditorModeActive in state controls the disabled prop + renders; the ref holds the latest XML.
 	const [isEditorModeActive, setIsEditorModeActive] = useState(false);
 	const editorXmlRef = useRef<string>("");
-	const [editorValidationError, setEditorValidationError] = useState<string | null>(null);
+	const [editorValidationError, setEditorValidationError] = useState<ParseIssueItem[] | null>(
+		null,
+	);
+	// Editor XML that Dataverse will likely reject, awaiting "Execute anyway" (#89)
+	const [pendingExecute, setPendingExecute] = useState<{
+		xml: string;
+		warnings: ParseWarning[];
+	} | null>(null);
 
 	// The XML currently shown to the user: the live editor buffer when in editor
 	// mode, otherwise the tree-generated XML. Used by the T2T "Return FetchXML" button.
@@ -351,6 +363,8 @@ export function PreviewTabs({
 	const handleEditorStateChange = useCallback((isActive: boolean, editorXml: string) => {
 		editorXmlRef.current = editorXml;
 		setIsEditorModeActive((prev) => (prev !== isActive ? isActive : prev));
+		// A pending "Execute anyway" only applies to the exact XML it warned about
+		setPendingExecute((prev) => (prev && (!isActive || prev.xml !== editorXml) ? null : prev));
 		if (!isActive) {
 			setEditorValidationError(null);
 		}
@@ -365,8 +379,18 @@ export function PreviewTabs({
 		}
 	};
 
+	/** Run the editor XML exactly as written despite warnings; Dataverse's own error is shown if it fails. */
+	const handleExecuteAnyway = () => {
+		if (!pendingExecute) return;
+		const { xml: xmlToRun } = pendingExecute;
+		setPendingExecute(null);
+		setSelectedTab("results");
+		onExecute?.(xmlToRun);
+	};
+
 	const handleExecute = () => {
 		setEditorValidationError(null);
+		setPendingExecute(null);
 
 		if (isEditorModeActive) {
 			const editorXml = editorXmlRef.current;
@@ -374,27 +398,21 @@ export function PreviewTabs({
 			// Client-side validation before sending to Dataverse
 			const syntaxResult = validateFetchXmlSyntax(editorXml);
 			if (!syntaxResult.valid) {
-				setEditorValidationError(syntaxResult.error || "Invalid XML syntax");
+				setEditorValidationError([{ message: syntaxResult.error || "Invalid XML syntax" }]);
 				return;
 			}
 
 			const parseResult = parseFetchXml(editorXml);
 			if (!parseResult.success) {
-				setEditorValidationError(parseResult.errors.map((e) => e.message).join(" | "));
+				setEditorValidationError(parseResult.errors);
 				return;
 			}
 
-			// Warnings (e.g. invalid aliases) will be rejected by Dataverse — block execution
-			if (parseResult.warnings.length > 0) {
-				const warningText = parseResult.warnings
-					.map((w) => {
-						const prefix = w.element ? `<${w.element}>: ` : "";
-						return `${prefix}${w.message}`;
-					})
-					.join(" | ");
-				setEditorValidationError(
-					`Fix before executing — ${warningText} Use 'Parse to Tree' to auto-correct.`,
-				);
+			// Dataverse will likely reject these — ask before sending. Informational findings
+			// (ignored or unsupported-in-tree attributes) never block execution.
+			const blocking = getBlockingWarnings(parseResult);
+			if (blocking.length > 0) {
+				setPendingExecute({ xml: editorXml, warnings: blocking });
 				return;
 			}
 
@@ -503,12 +521,34 @@ export function PreviewTabs({
 					</MessageBar>
 				</div>
 			)}
+			{pendingExecute && (
+				<div className={styles.messageBarContainer}>
+					<MessageBar intent="warning" layout="multiline">
+						<MessageBarBody>
+							<MessageBarTitle>Dataverse will likely reject this query</MessageBarTitle>
+							<ParseIssueList items={pendingExecute.warnings} />
+						</MessageBarBody>
+						<MessageBarActions
+							containerAction={
+								<Button
+									appearance="transparent"
+									icon={<Dismiss16Regular />}
+									onClick={() => setPendingExecute(null)}
+									aria-label="Dismiss"
+								/>
+							}
+						>
+							<Button onClick={handleExecuteAnyway}>Execute anyway</Button>
+						</MessageBarActions>
+					</MessageBar>
+				</div>
+			)}
 			{editorValidationError && (
 				<div className={styles.messageBarContainer}>
-					<MessageBar intent="error">
+					<MessageBar intent="error" layout="multiline">
 						<MessageBarBody>
 							<MessageBarTitle>Invalid FetchXML</MessageBarTitle>
-							{editorValidationError}
+							<ParseIssueList items={editorValidationError} />
 						</MessageBarBody>
 						<MessageBarActions
 							containerAction={

@@ -30,7 +30,12 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **Bi-directional editing** — Edit XML directly and parse back to the visual builder
 - **What you build is what runs** — The generated FetchXML contains exactly what is in the tree; nothing is injected, so what you copy, save as a view, or send to another tool matches what executes
 - **Copy to clipboard** — One-click copy of generated FetchXML, available in both read-only and editor modes
-- **Alias validation** — Invalid alias characters are sanitized in real time in the property editors; the parser auto-corrects aliases on Parse to Tree with a clear description of each correction
+- **Alias validation** — Invalid alias characters are sanitized in real time in the property editors; Parse to Tree corrects invalid aliases and lists each correction
+- **Accurate validation** — The editor sorts findings into three levels, checked against a live Dataverse environment:
+  - **errors** block the query;
+  - **warnings** (FetchXML that Dataverse would reject) offer **Execute anyway**;
+  - **notes** (attributes Dataverse ignores, such as `xmlns:*` from other tools) never block.
+- **No silent changes** — Before Parse to Tree removes or rewrites anything the visual builder can't represent yet (for example `datasource`, `<order alias>`, `useraworderby`), a confirmation dialog lists every change
 - **LayoutXML preview** — See the column layout configuration
 
 ### 📥 Load & Save Views

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.2] - 2026-10-13
+
+### 🔧 Fixed
+
+- **Valid FetchXML is no longer blocked in the editor (#89, #48).** Previously *any* parser warning blocked Validate and Execute. That refused FetchXML Dataverse accepts, such as `<fetch xmlns:generator="MarkMpn.SQL4CDS">` from SQL 4 CDS, `useraworderby`, `aggregatelimit` and `<order alias>`.
+  - Parser findings now have levels, each checked against a live Dataverse environment through the PPTB `dataverseAPI` request path: 17 probes, 0 mismatches.
+  - **Errors** block. These are malformed XML, a missing `<entity>`, and a link-entity with empty `from=""` and `to=""` (Dataverse silently returns no rows for this).
+  - **Warnings** are FetchXML Dataverse rejects: invalid attribute alias characters, unknown child element, non-integer `top` / `count` / `page`, unknown operator, invalid `link-type`, missing `name` / `attribute`, a link-entity missing `from` / `to`, a default `xmlns`, and an order with neither attribute nor alias. Execute shows them and offers **Execute anyway**, so Dataverse's own message appears if it rejects the query.
+  - **Notes** never block. These are namespace declarations and namespaced attributes, unknown attributes (Dataverse ignores them), and documented attributes the visual builder doesn't support yet. Common legacy attributes from Advanced Find and saved views (`version`, `output-format`, `mapping`, `uiname`, `uitype`) are accepted silently.
+- **Parse to Tree no longer changes queries silently.** When it would remove or rewrite something, a confirmation dialog lists the changes under **Removed** and **Corrected**. Examples: `datasource="retained"`, which would otherwise read live data; `<order alias>`; an invalid alias.
+  - Order elements that the tree can't represent are now dropped, with a note, instead of being rewritten as the invalid `<order attribute="" />`.
+  - The misleading "Auto-corrected" label is gone.
+- **Validate** shows at most one bar per level (Errors / "Dataverse will likely reject this query" / Notes) instead of one bar per finding. Lists are bulleted.
+
+### 🏗️ Technical
+
+- `ParseWarning` gained `severity` (`warning` | `info`) and `kind` (`invalid` | `ignored` | `dropped` | `corrected`).
+- New helpers: `getBlockingWarnings()` and `getParseToTreeChanges()`.
+- Unknown-attribute checks now cover every element, using per-element attribute lists from the [FetchXML reference](https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/reference/).
+- New `ParseIssueList` component. The Parse to Tree confirmation uses a Fluent UI v9 `Dialog` (`modalType="alert"`, Cancel focused first).
+- 30 new unit tests, 95 in total.
+
 ## [1.4.1-beta.1] - 2026-10-12
 
 ### 🔧 Fixed

@@ -17,6 +17,7 @@ import type {
 	NodeId,
 } from "./nodes";
 import { isValidAlias, sanitizeAlias } from "./aliasUtils";
+import { ALL_OPERATORS } from "./operators";
 
 // ID generator for parsed nodes
 let parseIdCounter = 0;
@@ -45,18 +46,213 @@ export interface ParseError {
 	column?: number;
 }
 
+/**
+ * How serious a parser finding is (#89):
+ *  - "warning": Dataverse is expected to reject the query as written (verified against a live org);
+ *    the editor shows it and offers "Execute anyway".
+ *  - "info": never blocks — Dataverse ignores or accepts it, but the user should know (e.g. what
+ *    Parse to Tree will drop).
+ * Problems that make the query unusable are reported in `errors` instead.
+ */
+export type ParseWarningSeverity = "warning" | "info";
+
+/**
+ * What happens to the finding:
+ *  - "invalid":   the query is invalid as written (Dataverse rejects it)
+ *  - "ignored":   Dataverse ignores it; Parse to Tree drops it with no change in results
+ *  - "dropped":   meaningful, but the tree can't represent it yet — Parse to Tree removes it
+ *  - "corrected": Parse to Tree changes it to a valid form (e.g. sanitized alias)
+ */
+export type ParseWarningKind = "invalid" | "ignored" | "dropped" | "corrected";
+
 export interface ParseWarning {
 	message: string;
 	element?: string;
 	attribute?: string;
+	severity: ParseWarningSeverity;
+	kind: ParseWarningKind;
+}
+
+/** Internal: a finding that may also be a hard error (moved to `errors` when parsing finishes). */
+type ParseIssue = Omit<ParseWarning, "severity"> & { severity: ParseWarningSeverity | "error" };
+
+/** Warnings that Dataverse is expected to reject — the editor asks before executing. */
+export function getBlockingWarnings(result: Pick<ParseResult, "warnings">): ParseWarning[] {
+	return result.warnings.filter((w) => w.severity === "warning");
+}
+
+/**
+ * Changes Parse to Tree would make to the query: anything it drops, and anything it rewrites to fix
+ * a problem Dataverse would reject. Ignored items (Dataverse ignores them too) and minor
+ * informational corrections are not changes; invalid items are kept as written.
+ */
+export function getParseToTreeChanges(result: Pick<ParseResult, "warnings">): ParseWarning[] {
+	return result.warnings.filter(
+		(w) => w.kind === "dropped" || (w.kind === "corrected" && w.severity === "warning"),
+	);
+}
+
+const XMLNS_NAMESPACE = "http://www.w3.org/2000/xmlns/";
+
+/** Documented condition operators. https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/reference/operators */
+const KNOWN_OPERATORS: ReadonlySet<string> = new Set<string>([
+	...ALL_OPERATORS.map((o) => o.value),
+	// Documented, but not yet selectable in the UI (#87)
+	"last-x-fiscal-periods",
+	"last-x-fiscal-years",
+	"next-x-fiscal-periods",
+	"next-x-fiscal-years",
+	// Deprecated alias of "ne", still accepted
+	"neq",
+]);
+
+/**
+ * Attributes Dataverse ignores that are ubiquitous in FetchXML exported from Advanced Find and
+ * saved views. Reporting them on every paste would be noise, so they are accepted silently.
+ */
+const SILENT_LEGACY_ATTRIBUTES: Record<string, ReadonlySet<string>> = {
+	fetch: new Set(["version", "output-format", "mapping", "min-active-row-version"]),
+	condition: new Set(["uiname", "uitype", "uihidden"]),
+};
+
+/**
+ * Per element: attributes the tree model reads and writes, and documented attributes it can't
+ * hold yet (#90). Source: https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/reference/
+ */
+const ELEMENT_ATTRIBUTES: Record<
+	string,
+	{ modelled: ReadonlySet<string>; unmodelled: ReadonlySet<string> }
+> = {
+	fetch: {
+		modelled: new Set([
+			"aggregate",
+			"distinct",
+			"top",
+			"count",
+			"page",
+			"paging-cookie",
+			"returntotalrecordcount",
+			"no-lock",
+			"utc-offset",
+		]),
+		unmodelled: new Set(["aggregatelimit", "datasource", "latematerialize", "options", "useraworderby"]),
+	},
+	entity: {
+		modelled: new Set(["name"]),
+		unmodelled: new Set(["enableprefiltering", "prefilterparametername"]),
+	},
+	attribute: {
+		modelled: new Set(["name", "alias", "groupby", "aggregate", "dategrouping", "usertimezone"]),
+		unmodelled: new Set(["distinct", "rowaggregate"]),
+	},
+	order: {
+		modelled: new Set(["attribute", "descending", "entityname"]),
+		unmodelled: new Set(["alias"]),
+	},
+	filter: {
+		modelled: new Set(["type", "hint"]),
+		unmodelled: new Set([
+			"isquickfindfields",
+			"overridequickfindrecordlimitenabled",
+			"overridequickfindrecordlimitdisabled",
+		]),
+	},
+	condition: {
+		modelled: new Set(["attribute", "entityname", "operator", "value", "valueof", "aggregate"]),
+		unmodelled: new Set(),
+	},
+	"link-entity": {
+		modelled: new Set(["name", "from", "to", "alias", "link-type", "intersect", "visible"]),
+		unmodelled: new Set(),
+	},
+};
+
+/**
+ * Report attributes on an element that the tree won't keep: namespace declarations, namespaced
+ * attributes, documented-but-unsupported attributes, and unknown attributes.
+ * Live-validated: Dataverse ignores unknown and namespaced attributes, but rejects a default
+ * namespace on <fetch> (0x80041102).
+ */
+function reportElementAttributes(el: Element, elementName: string, issues: ParseIssue[]): void {
+	const lists = ELEMENT_ATTRIBUTES[elementName];
+	if (!lists) return;
+	const silent = SILENT_LEGACY_ATTRIBUTES[elementName];
+
+	for (const attr of Array.from(el.attributes)) {
+		const name = attr.name;
+		const lower = name.toLowerCase();
+
+		if (lower === "xmlns") {
+			issues.push({
+				message: `Default namespace (xmlns="${attr.value}") isn't supported by Dataverse; Parse to Tree removes it.`,
+				element: elementName,
+				attribute: name,
+				severity: "warning",
+				kind: "corrected",
+			});
+			continue;
+		}
+		if (attr.namespaceURI === XMLNS_NAMESPACE || lower.startsWith("xmlns:")) {
+			issues.push({
+				message: `Namespace declaration '${name}' is ignored by Dataverse.`,
+				element: elementName,
+				attribute: name,
+				severity: "info",
+				kind: "ignored",
+			});
+			continue;
+		}
+		if (attr.namespaceURI) {
+			issues.push({
+				message: `Namespaced attribute '${name}' is ignored by Dataverse; Parse to Tree drops it.`,
+				element: elementName,
+				attribute: name,
+				severity: "info",
+				kind: "ignored",
+			});
+			continue;
+		}
+		if (lists.modelled.has(lower) || silent?.has(lower)) continue;
+
+		if (lists.unmodelled.has(lower)) {
+			const changesDataSource = elementName === "fetch" && lower === "datasource";
+			issues.push({
+				message: changesDataSource
+					? `'${name}="${attr.value}"' isn't supported in the tree yet; Parse to Tree drops it, so the query would read live data instead.`
+					: `'${name}' is supported by Dataverse but not by the tree yet; Parse to Tree drops it.`,
+				element: elementName,
+				attribute: name,
+				severity: changesDataSource ? "warning" : "info",
+				kind: "dropped",
+			});
+			continue;
+		}
+
+		issues.push({
+			message: `Unknown attribute '${name}' is ignored by Dataverse; Parse to Tree drops it.`,
+			element: elementName,
+			attribute: name,
+			severity: "info",
+			kind: "ignored",
+		});
+	}
+}
+
+/** Unknown child element (including namespaced ones): Dataverse rejects it (0x8004111c). */
+function reportUnknownChild(child: Element, parentName: string, issues: ParseIssue[]): void {
+	issues.push({
+		message: `Unknown element <${child.nodeName}> inside <${parentName}> isn't valid FetchXML (Dataverse rejects it); Parse to Tree drops it.`,
+		element: child.nodeName,
+		severity: "warning",
+		kind: "dropped",
+	});
 }
 
 /**
  * Main entry point: Parse FetchXML string to FetchNode
  */
 export function parseFetchXml(xmlString: string): ParseResult {
-	const errors: ParseError[] = [];
-	const warnings: ParseWarning[] = [];
+	const issues: ParseIssue[] = [];
 
 	// Validate input
 	if (!xmlString || typeof xmlString !== "string") {
@@ -135,10 +331,10 @@ export function parseFetchXml(xmlString: string): ParseResult {
 
 	try {
 		// Parse the fetch options
-		const options = parseFetchOptions(fetchElement, warnings);
+		const options = parseFetchOptions(fetchElement, issues);
 
 		// Parse the entity tree
-		const entity = parseEntity(entityElement, warnings);
+		const entity = parseEntity(entityElement, issues);
 
 		const fetchNode: FetchNode = {
 			id: generateParseId(),
@@ -147,17 +343,19 @@ export function parseFetchXml(xmlString: string): ParseResult {
 			options,
 		};
 
-		return {
-			success: true,
-			fetchNode,
-			errors,
-			warnings,
-		};
+		const errors: ParseError[] = issues
+			.filter((i) => i.severity === "error")
+			.map((i) => ({ message: i.message }));
+		const warnings = issues.filter((i): i is ParseWarning => i.severity !== "error");
+
+		return errors.length > 0
+			? { success: false, errors, warnings }
+			: { success: true, fetchNode, errors, warnings };
 	} catch (e) {
 		return {
 			success: false,
 			errors: [{ message: `Parsing Error: ${e instanceof Error ? e.message : String(e)}` }],
-			warnings,
+			warnings: issues.filter((i): i is ParseWarning => i.severity !== "error"),
 		};
 	}
 }
@@ -165,7 +363,7 @@ export function parseFetchXml(xmlString: string): ParseResult {
 /**
  * Parse fetch element attributes into options
  */
-function parseFetchOptions(fetchElement: Element, warnings: ParseWarning[]): FetchNode["options"] {
+function parseFetchOptions(fetchElement: Element, issues: ParseIssue[]): FetchNode["options"] {
 	const options: FetchNode["options"] = {};
 
 	// Boolean options
@@ -192,7 +390,13 @@ function parseFetchOptions(fetchElement: Element, warnings: ParseWarning[]): Fet
 		if (!isNaN(topNum)) {
 			options.top = topNum;
 		} else {
-			warnings.push({ message: `Invalid 'top' value: ${top}`, element: "fetch", attribute: "top" });
+			issues.push({
+				message: `Invalid 'top' value '${top}' (Dataverse rejects it); Parse to Tree drops it.`,
+				element: "fetch",
+				attribute: "top",
+				severity: "warning",
+				kind: "dropped",
+			});
 		}
 	}
 
@@ -202,10 +406,12 @@ function parseFetchOptions(fetchElement: Element, warnings: ParseWarning[]): Fet
 		if (!isNaN(countNum)) {
 			options.count = countNum;
 		} else {
-			warnings.push({
-				message: `Invalid 'count' value: ${count}`,
+			issues.push({
+				message: `Invalid 'count' value '${count}' (Dataverse rejects it); Parse to Tree drops it.`,
 				element: "fetch",
 				attribute: "count",
+				severity: "warning",
+				kind: "dropped",
 			});
 		}
 	}
@@ -216,10 +422,12 @@ function parseFetchOptions(fetchElement: Element, warnings: ParseWarning[]): Fet
 		if (!isNaN(pageNum)) {
 			options.page = pageNum;
 		} else {
-			warnings.push({
-				message: `Invalid 'page' value: ${page}`,
+			issues.push({
+				message: `Invalid 'page' value '${page}' (Dataverse rejects it); Parse to Tree drops it.`,
 				element: "fetch",
 				attribute: "page",
+				severity: "warning",
+				kind: "dropped",
 			});
 		}
 	}
@@ -230,10 +438,12 @@ function parseFetchOptions(fetchElement: Element, warnings: ParseWarning[]): Fet
 		if (!isNaN(utcNum)) {
 			options.utcOffset = utcNum;
 		} else {
-			warnings.push({
-				message: `Invalid 'utc-offset' value: ${utcOffset}`,
+			issues.push({
+				message: `Invalid 'utc-offset' value '${utcOffset}'; Parse to Tree drops it.`,
 				element: "fetch",
 				attribute: "utc-offset",
+				severity: "warning",
+				kind: "dropped",
 			});
 		}
 	}
@@ -244,35 +454,8 @@ function parseFetchOptions(fetchElement: Element, warnings: ParseWarning[]): Fet
 		options.pagingCookie = pagingCookie;
 	}
 
-	// Check for unknown attributes (schema warnings)
-	const knownFetchAttrs = new Set([
-		"aggregate",
-		"distinct",
-		"top",
-		"count",
-		"page",
-		"paging-cookie",
-		"returntotalrecordcount",
-		"no-lock",
-		"utc-offset",
-		"latematerialize",
-		"version",
-		"mapping",
-		"output-format",
-		"min-active-row-version",
-		"datasource",
-		"options",
-	]);
-
-	for (const attr of fetchElement.attributes) {
-		if (!knownFetchAttrs.has(attr.name.toLowerCase())) {
-			warnings.push({
-				message: `Unknown attribute '${attr.name}' on <fetch> element`,
-				element: "fetch",
-				attribute: attr.name,
-			});
-		}
-	}
+	// Attributes the tree won't keep (namespaces, unsupported, unknown)
+	reportElementAttributes(fetchElement, "fetch", issues);
 
 	return options;
 }
@@ -280,7 +463,7 @@ function parseFetchOptions(fetchElement: Element, warnings: ParseWarning[]): Fet
 /**
  * Parse entity element
  */
-function parseEntity(entityElement: Element, warnings: ParseWarning[]): EntityNode {
+function parseEntity(entityElement: Element, issues: ParseIssue[]): EntityNode {
 	const name = entityElement.getAttribute("name") || "";
 
 	const entity: EntityNode = {
@@ -302,31 +485,33 @@ function parseEntity(entityElement: Element, warnings: ParseWarning[]): EntityNo
 		entity.prefilterParameterName = prefilterParam;
 	}
 
+	reportElementAttributes(entityElement, "entity", issues);
+
 	// Parse child elements
 	for (const child of entityElement.children) {
 		const tagName = child.nodeName.toLowerCase();
 
 		switch (tagName) {
 			case "all-attributes":
-				entity.allAttributes = parseAllAttributes(child, warnings);
+				entity.allAttributes = parseAllAttributes(child, issues);
 				break;
 			case "attribute":
-				entity.attributes.push(parseAttribute(child, warnings));
+				entity.attributes.push(parseAttribute(child, issues));
 				break;
 			case "order":
-				entity.orders.push(parseOrder(child, warnings));
+				{
+					const order = parseOrder(child, issues);
+					if (order) entity.orders.push(order);
+				}
 				break;
 			case "filter":
-				entity.filters.push(parseFilter(child, warnings));
+				entity.filters.push(parseFilter(child, issues));
 				break;
 			case "link-entity":
-				entity.links.push(parseLinkEntity(child, warnings));
+				entity.links.push(parseLinkEntity(child, issues));
 				break;
 			default:
-				warnings.push({
-					message: `Unknown element <${tagName}> inside <entity>`,
-					element: tagName,
-				});
+				reportUnknownChild(child, "entity", issues);
 		}
 	}
 
@@ -337,7 +522,7 @@ function parseEntity(entityElement: Element, warnings: ParseWarning[]): EntityNo
  * Parse all-attributes element
  * Note: Parameters reserved for future use (potential warnings for deprecated usage)
  */
-function parseAllAttributes(_element: Element, _warnings: ParseWarning[]): AllAttributesNode {
+function parseAllAttributes(_element: Element, _issues: ParseIssue[]): AllAttributesNode {
 	return {
 		id: generateParseId(),
 		type: "all-attributes",
@@ -348,15 +533,19 @@ function parseAllAttributes(_element: Element, _warnings: ParseWarning[]): AllAt
 /**
  * Parse attribute element
  */
-function parseAttribute(attrElement: Element, warnings: ParseWarning[]): AttributeNode {
+function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNode {
 	const name = attrElement.getAttribute("name") || "";
 
 	if (!name) {
-		warnings.push({
-			message: "Attribute element missing 'name'",
+		issues.push({
+			message: "Attribute element missing 'name' (Dataverse rejects it).",
 			element: "attribute",
+			severity: "warning",
+			kind: "invalid",
 		});
 	}
+
+	reportElementAttributes(attrElement, "attribute", issues);
 
 	const attr: AttributeNode = {
 		id: generateParseId(),
@@ -369,12 +558,14 @@ function parseAttribute(attrElement: Element, warnings: ParseWarning[]): Attribu
 	if (alias) {
 		if (!isValidAlias(alias)) {
 			const sanitized = sanitizeAlias(alias);
-			warnings.push({
+			issues.push({
 				message: sanitized
-					? `Alias '${alias}' had invalid characters and was corrected to '${sanitized}'.`
-					: `Alias '${alias}' had no valid characters and was removed.`,
+					? `Alias '${alias}' has invalid characters; Parse to Tree changes it to '${sanitized}'.`
+					: `Alias '${alias}' has no valid characters; Parse to Tree removes it.`,
 				element: "attribute",
 				attribute: "alias",
+				severity: "warning",
+				kind: "corrected",
 			});
 			if (sanitized) attr.alias = sanitized;
 		} else {
@@ -392,10 +583,12 @@ function parseAttribute(attrElement: Element, warnings: ParseWarning[]): Attribu
 		if (validAggregates.includes(aggregate)) {
 			attr.aggregate = aggregate as AttributeNode["aggregate"];
 		} else {
-			warnings.push({
-				message: `Invalid aggregate value '${aggregate}'`,
+			issues.push({
+				message: `Invalid aggregate value '${aggregate}'; Parse to Tree drops it.`,
 				element: "attribute",
 				attribute: "aggregate",
+				severity: "warning",
+				kind: "dropped",
 			});
 		}
 	}
@@ -414,10 +607,12 @@ function parseAttribute(attrElement: Element, warnings: ParseWarning[]): Attribu
 		if (validDateGroupings.includes(dategrouping)) {
 			attr.dategrouping = dategrouping as AttributeNode["dategrouping"];
 		} else {
-			warnings.push({
-				message: `Invalid dategrouping value '${dategrouping}'`,
+			issues.push({
+				message: `Invalid dategrouping value '${dategrouping}'; Parse to Tree drops it.`,
 				element: "attribute",
 				attribute: "dategrouping",
+				severity: "warning",
+				kind: "dropped",
 			});
 		}
 	}
@@ -432,15 +627,31 @@ function parseAttribute(attrElement: Element, warnings: ParseWarning[]): Attribu
 /**
  * Parse order element
  */
-function parseOrder(orderElement: Element, warnings: ParseWarning[]): OrderNode {
+function parseOrder(orderElement: Element, issues: ParseIssue[]): OrderNode | null {
 	const attribute = orderElement.getAttribute("attribute") || "";
 
 	if (!attribute) {
-		warnings.push({
-			message: "Order element missing 'attribute'",
-			element: "order",
-		});
+		const alias = orderElement.getAttribute("alias");
+		issues.push(
+			alias
+				? {
+						message: `Order by alias '${alias}' is supported by Dataverse but not by the tree yet; Parse to Tree drops this order.`,
+						element: "order",
+						attribute: "alias",
+						severity: "info",
+						kind: "dropped",
+					}
+				: {
+						message: "Order element has neither 'attribute' nor 'alias' (Dataverse rejects it); Parse to Tree drops it.",
+						element: "order",
+						severity: "warning",
+						kind: "dropped",
+					},
+		);
+		return null;
 	}
+
+	reportElementAttributes(orderElement, "order", issues);
 
 	const order: OrderNode = {
 		id: generateParseId(),
@@ -463,8 +674,18 @@ function parseOrder(orderElement: Element, warnings: ParseWarning[]): OrderNode 
 /**
  * Parse filter element (recursive for subfilters)
  */
-function parseFilter(filterElement: Element, warnings: ParseWarning[]): FilterNode {
+function parseFilter(filterElement: Element, issues: ParseIssue[]): FilterNode {
 	const type = filterElement.getAttribute("type") || "and";
+	if (type !== "and" && type !== "or") {
+		issues.push({
+			message: `Invalid filter type '${type}'; Parse to Tree uses 'and'.`,
+			element: "filter",
+			attribute: "type",
+			severity: "warning",
+			kind: "corrected",
+		});
+	}
+	reportElementAttributes(filterElement, "filter", issues);
 
 	const filter: FilterNode = {
 		id: generateParseId(),
@@ -486,20 +707,17 @@ function parseFilter(filterElement: Element, warnings: ParseWarning[]): FilterNo
 
 		switch (tagName) {
 			case "condition":
-				filter.conditions.push(parseCondition(child, warnings));
+				filter.conditions.push(parseCondition(child, issues));
 				break;
 			case "filter":
-				filter.subfilters.push(parseFilter(child, warnings));
+				filter.subfilters.push(parseFilter(child, issues));
 				break;
 			case "link-entity":
 				// Parse link-entity inside filter (for any/not any/all/not all)
-				filter.links.push(parseLinkEntity(child, warnings));
+				filter.links.push(parseLinkEntity(child, issues));
 				break;
 			default:
-				warnings.push({
-					message: `Unknown element <${tagName}> inside <filter>`,
-					element: tagName,
-				});
+				reportUnknownChild(child, "filter", issues);
 		}
 	}
 
@@ -509,16 +727,38 @@ function parseFilter(filterElement: Element, warnings: ParseWarning[]): FilterNo
 /**
  * Parse condition element
  */
-function parseCondition(condElement: Element, warnings: ParseWarning[]): ConditionNode {
+function parseCondition(condElement: Element, issues: ParseIssue[]): ConditionNode {
 	const attribute = condElement.getAttribute("attribute") || "";
-	const operator = condElement.getAttribute("operator") || "eq";
+	const operatorAttr = condElement.getAttribute("operator");
+	const operator = operatorAttr || "eq";
 
 	if (!attribute) {
-		warnings.push({
-			message: "Condition element missing 'attribute'",
+		issues.push({
+			message: "Condition element missing 'attribute' (Dataverse rejects it).",
 			element: "condition",
+			severity: "warning",
+			kind: "invalid",
 		});
 	}
+	if (!operatorAttr) {
+		issues.push({
+			message: "Condition element missing 'operator'; Parse to Tree uses 'eq'.",
+			element: "condition",
+			attribute: "operator",
+			severity: "warning",
+			kind: "corrected",
+		});
+	} else if (!KNOWN_OPERATORS.has(operatorAttr)) {
+		issues.push({
+			message: `Unknown condition operator '${operatorAttr}' (Dataverse rejects it).`,
+			element: "condition",
+			attribute: "operator",
+			severity: "warning",
+			kind: "invalid",
+		});
+	}
+
+	reportElementAttributes(condElement, "condition", issues);
 
 	const condition: ConditionNode = {
 		id: generateParseId(),
@@ -580,27 +820,37 @@ function parseCondition(condElement: Element, warnings: ParseWarning[]): Conditi
 /**
  * Parse link-entity element (recursive)
  */
-function parseLinkEntity(linkElement: Element, warnings: ParseWarning[]): LinkEntityNode {
+function parseLinkEntity(linkElement: Element, issues: ParseIssue[]): LinkEntityNode {
 	const name = linkElement.getAttribute("name") || "";
 	const from = linkElement.getAttribute("from") || "";
 	const to = linkElement.getAttribute("to") || "";
 
 	if (!name) {
-		warnings.push({
-			message: "Link-entity element missing 'name'",
+		issues.push({
+			message: "Link-entity element missing 'name' (Dataverse rejects it).",
 			element: "link-entity",
+			severity: "warning",
+			kind: "invalid",
 		});
 	}
-	if (!from) {
-		warnings.push({
-			message: "Link-entity element missing 'from'",
+
+	// Live-validated: from="" and to="" together return HTTP 200 with zero rows — silently wrong.
+	const hasFrom = linkElement.hasAttribute("from");
+	const hasTo = linkElement.hasAttribute("to");
+	if (hasFrom && hasTo && !from && !to) {
+		issues.push({
+			message: `Link-entity '${name}' has empty 'from' and 'to' attributes; Dataverse returns no rows for this. Set both, or remove them for a system many-to-many relationship.`,
 			element: "link-entity",
+			severity: "error",
+			kind: "invalid",
 		});
-	}
-	if (!to) {
-		warnings.push({
-			message: "Link-entity element missing 'to'",
+	} else if (!from || !to) {
+		const missing = [!from && "'from'", !to && "'to'"].filter(Boolean).join(" and ");
+		issues.push({
+			message: `Link-entity '${name}' is missing ${missing}. Dataverse can only infer the join for a system many-to-many relationship.`,
 			element: "link-entity",
+			severity: "warning",
+			kind: "invalid",
 		});
 	}
 
@@ -621,10 +871,12 @@ function parseLinkEntity(linkElement: Element, warnings: ParseWarning[]): LinkEn
 	if (validLinkTypes.includes(linkTypeAttr as LinkType)) {
 		linkType = linkTypeAttr as LinkType;
 	} else {
-		warnings.push({
-			message: `Invalid link-type '${linkTypeAttr}', defaulting to 'inner'`,
+		issues.push({
+			message: `Invalid link-type '${linkTypeAttr}' (Dataverse rejects it); Parse to Tree uses 'inner'.`,
 			element: "link-entity",
 			attribute: "link-type",
+			severity: "warning",
+			kind: "corrected",
 		});
 	}
 
@@ -646,18 +898,22 @@ function parseLinkEntity(linkElement: Element, warnings: ParseWarning[]): LinkEn
 	if (alias) {
 		if (!isValidAlias(alias)) {
 			const sanitized = sanitizeAlias(alias);
-			warnings.push({
+			issues.push({
 				message: sanitized
-					? `Alias '${alias}' had invalid characters and was corrected to '${sanitized}'.`
-					: `Alias '${alias}' had no valid characters and was removed.`,
+					? `Alias '${alias}' has invalid characters; Parse to Tree changes it to '${sanitized}'.`
+					: `Alias '${alias}' has no valid characters; Parse to Tree removes it.`,
 				element: "link-entity",
 				attribute: "alias",
+				severity: "info",
+				kind: "corrected",
 			});
 			if (sanitized) link.alias = sanitized;
 		} else {
 			link.alias = alias;
 		}
 	}
+
+	reportElementAttributes(linkElement, "link-entity", issues);
 
 	if (linkElement.getAttribute("intersect") === "true") {
 		link.intersect = true;
@@ -673,25 +929,25 @@ function parseLinkEntity(linkElement: Element, warnings: ParseWarning[]): LinkEn
 
 		switch (tagName) {
 			case "all-attributes":
-				link.allAttributes = parseAllAttributes(child, warnings);
+				link.allAttributes = parseAllAttributes(child, issues);
 				break;
 			case "attribute":
-				link.attributes.push(parseAttribute(child, warnings));
+				link.attributes.push(parseAttribute(child, issues));
 				break;
 			case "order":
-				link.orders.push(parseOrder(child, warnings));
+				{
+					const order = parseOrder(child, issues);
+					if (order) link.orders.push(order);
+				}
 				break;
 			case "filter":
-				link.filters.push(parseFilter(child, warnings));
+				link.filters.push(parseFilter(child, issues));
 				break;
 			case "link-entity":
-				link.links.push(parseLinkEntity(child, warnings));
+				link.links.push(parseLinkEntity(child, issues));
 				break;
 			default:
-				warnings.push({
-					message: `Unknown element <${tagName}> inside <link-entity>`,
-					element: tagName,
-				});
+				reportUnknownChild(child, "link-entity", issues);
 		}
 	}
 
