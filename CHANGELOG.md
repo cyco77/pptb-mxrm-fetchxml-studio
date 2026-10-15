@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.10] - 2026-10-15
+
+### 🔧 Fixed
+
+- **Dark theme covers the whole tool (#67).** The left pane (tree and properties) and any surface without its own background showed the page's white canvas behind dark-theme text, which made them unreadable in dark mode. The theme background now covers the whole tool. Native controls (scrollbars, date inputs) follow the theme too (`color-scheme`).
+- **The tool follows the PPTB theme live, including System (#67).**
+  - On `settings:updated`, the tool now always asks the host for the resolved theme (`getCurrentTheme()`). It used to read the raw setting, and "system" was treated as light.
+  - The host sends no event when the OS theme changes while ToolBox is set to System. The tool now also listens for the OS colour scheme and asks the host again, so it switches without a reload. An explicit Light or Dark setting is kept.
+  - Only the latest theme request applies.
+  - Verified against the PPTB 1.2.7 host source: `getCurrentTheme()` resolves System from `nativeTheme`, and `settings:updated` carries only the changed settings.
+
+### 🏗️ Technical
+
+- `usePptbContext.test.ts`: the theme contract (settings:updated with System, OS changes, explicit settings, cleanup, standalone).
+- Removed the theme debug logging from `AppShell`.
+
 ## [1.4.1-beta.8] - 2026-10-14
 
 ### 🔧 Fixed

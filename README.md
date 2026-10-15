@@ -84,7 +84,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **SQL** — Dataverse-generated T-SQL via `FetchXMLToSQL` (undocumented API, labelled Preview)
 
 ### 🎨 User Experience
-- **Dark/Light themes** — Follows Power Platform ToolBox theme with Fluent UI tokens
+- **Dark/Light themes** — Every surface (tree, properties, editors, results grid, panels and dialogs) uses the Fluent UI v9 light or dark theme and follows the Power Platform ToolBox theme live: changing it in ToolBox settings, including **System**, and changing the OS theme while ToolBox is on System, update the tool without a reload
 - **Lazy metadata loading** — Loads only what's needed, when it's needed
 - **Intelligent caching** — In-memory cache prevents duplicate API calls per session
 - **Resizable panes** — Adjust split-pane layout to your preference
