@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Switching a link-entity to not any / not all no longer deletes its filters and nested link-entities (#86).**
   - Those filters are what these types evaluate.
   - Switching to any type that returns no attributes (exists, in, any, not any, all, not all) now lists the attributes, all-attributes and sorts that Dataverse would reject, and asks before removing them.
-  - The tree disables adding attributes and sorts to those link-entities.
+  - The tree disables adding attributes and sorts to those link-entities, and **Add Columns** creates a new link-entity instead of adding to one of them.
 - **From / To on a link-entity are no longer marked required.** The docs say they're optional; the panel now explains what Dataverse does when one or both are missing.
 - **Intersect** is described correctly: it only signals intent and doesn't change how the query runs.
 - **"Visible in Results" couldn't be turned off.** `visible` isn't in the FetchXML reference, and Dataverse ignores it (verified). It's shown only when present, with a Remove button.
