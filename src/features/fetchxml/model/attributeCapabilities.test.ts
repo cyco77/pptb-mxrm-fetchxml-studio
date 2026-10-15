@@ -9,6 +9,7 @@ import {
 	getDataSourceIssue,
 	getOrderMetadataIssue,
 	getUnsupportedFunctionReason,
+	getValueOfCompatibleTypes,
 	toAttributeTypeInfo,
 } from "./attributeCapabilities";
 
@@ -87,5 +88,39 @@ describe("editor messages", () => {
 		expect(getDataSourceIssue("retained", { logicalName: "account", isRetentionEnabled: false })).toMatch(/IsRetentionEnabled/);
 		expect(getDataSourceIssue("retained", { logicalName: "account", isRetentionEnabled: true })).toBeUndefined();
 		expect(getDataSourceIssue("retained", { logicalName: "account" })).toBeUndefined();
+	});
+});
+
+describe("getValueOfCompatibleTypes (valueof type matrix run live, 2026-10-15)", () => {
+	it.each([
+		// accepted by Dataverse
+		["Integer", "Picklist", true],
+		["State", "Status", true],
+		["EntityName", "Picklist", true],
+		["Money", "Decimal", true],
+		["Lookup", "Uniqueidentifier", true],
+		["Customer", "Owner", true],
+		["Memo", "String", true],
+		["DateTime", "DateTime", true],
+		["EntityName", "Status", true],
+		["ManagedProperty", "Boolean", true],
+		["BigInt", "BigInt", true],
+		["Double", "Double", true],
+		// rejected with 0x80040203
+		["Integer", "BigInt", false],
+		["Double", "Decimal", false],
+		["Boolean", "Integer", false],
+		["String", "Uniqueidentifier", false],
+		["String", "State", false],
+		["Integer", "Decimal", false],
+		["Integer", "Double", false],
+	])("%s compared to %s: %s", (a, b, ok) => {
+		expect(getValueOfCompatibleTypes(a).includes(b)).toBe(ok);
+		expect(getValueOfCompatibleTypes(b).includes(a)).toBe(ok);
+	});
+	it("multi-select and unverified types are never offered", () => {
+		expect(getValueOfCompatibleTypes("Virtual")).toEqual([]);
+		expect(getValueOfCompatibleTypes("PartyList")).toEqual([]);
+		expect(getValueOfCompatibleTypes(undefined)).toEqual([]);
 	});
 });

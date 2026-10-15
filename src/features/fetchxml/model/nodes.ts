@@ -173,13 +173,13 @@ export interface LinkEntityNode {
 export type LinkType =
 	| "inner" // Inner join (default)
 	| "outer" // Left outer join
-	| "any" // Exists with ANY match in related
-	| "not any" // NOT EXISTS with any match
-	| "all" // ALL records match
-	| "not all" // NOT ALL records match
-	| "exists" // EXISTS (semi-join)
-	| "in" // IN (similar to exists)
-	| "matchfirstrowusingcrossapply" // CROSS APPLY for first match
+	| "any" // Related records exist that match the link's filter
+	| "not any" // No related record matches the link's filter
+	| "all" // Related records exist, none match the link's filter (use with an inverted filter)
+	| "not all" // Same as any, despite the name
+	| "exists" // Inner variant using EXISTS; returns no link attributes
+	| "in" // Inner variant using IN; returns no link attributes
+	| "matchfirstrowusingcrossapply" // Inner variant matching one related row
 	| "natural"; // Undocumented, but accepted by Dataverse (verified)
 
 /**

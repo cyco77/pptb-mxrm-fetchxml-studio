@@ -41,12 +41,21 @@ import {
 	getParseToTreeChanges,
 } from "../../model/fetchxmlParser";
 import type { ParseResult, ParseWarning } from "../../model/fetchxmlParser";
+import { generateFetchXml } from "../../model/fetchxml";
 import { ParseIssueList, type ParseIssueItem } from "./ParseIssueList";
 import { ParseChangesDialog } from "./ParseChangesDialog";
 import {
 	registerFetchXmlIntellisense,
 	registerFetchXmlHoverProvider,
 } from "../../model/fetchxmlIntellisense";
+
+/** FetchXML as the tree would write it, to compare meaning rather than formatting; null if it doesn't parse. */
+function canonicalFetchXml(xmlText: string): string | null {
+	const result = parseFetchXml(xmlText);
+	return result.success && result.fetchNode ? generateFetchXml(result.fetchNode) : null;
+}
+
+const TREE_CHANGED_TITLE = "The tree changed while you were editing";
 
 const useStyles = makeStyles({
 	container: {
@@ -174,6 +183,47 @@ export function FetchXmlEditor({
 	const clearMessages = useCallback(() => {
 		setMessages([]);
 	}, []);
+
+	// Tree FetchXML the editor last matched. While editor mode is on, tree changes (e.g. edits in the
+	// property panel) are followed when the editor still means the same as this; otherwise the editor
+	// keeps its text and says so, because Execute / Save / Send would replace the tree with it (#102).
+	const lastTreeXmlRef = useRef(xml);
+	useEffect(() => {
+		if (!isEditorMode) {
+			lastTreeXmlRef.current = xml;
+			return;
+		}
+		if (xml === lastTreeXmlRef.current) return;
+		const editorMeaning = canonicalFetchXml(editedXml);
+		if (editorMeaning === xml) {
+			// The tree now matches the editor (e.g. after an editor-mode sync)
+			lastTreeXmlRef.current = xml;
+			return;
+		}
+		if (editorMeaning !== null && editorMeaning === lastTreeXmlRef.current) {
+			// The editor hasn't changed the query: follow the tree
+			lastTreeXmlRef.current = xml;
+			setEditedXml(xml);
+			onEditorStateChange?.(true, xml);
+			return;
+		}
+		lastTreeXmlRef.current = xml;
+		setMessages((prev) =>
+			prev.some((m) => m.title === TREE_CHANGED_TITLE)
+				? prev
+				: [
+						{
+							id: messageIdRef.current++,
+							intent: "warning" as const,
+							title: TREE_CHANGED_TITLE,
+							body: "Execute, Save and Send to Tool use the editor's FetchXML and will replace the tree's changes. Use Reset to take the tree's FetchXML instead.",
+						},
+						...prev,
+					].slice(0, 5),
+		);
+		// Only tree changes drive this; the editor's own edits are compared when the tree changes
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [xml, isEditorMode]);
 
 	// Show what the tree loaded when an editor-mode action changed the query (#102)
 	useEffect(() => {

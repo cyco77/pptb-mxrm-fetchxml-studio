@@ -179,6 +179,17 @@ export async function loadEntityRelationships(
 }
 
 /**
+ * Whether the entity has a hierarchical relationship (cached)
+ */
+export async function loadIsHierarchical(logicalName: string): Promise<boolean> {
+	const cached = metadataCache.getEntityHierarchical(logicalName);
+	if (cached !== undefined) return cached;
+	const isHierarchical = await pptbClient.getIsHierarchical(logicalName);
+	metadataCache.setEntityHierarchical(logicalName, isHierarchical);
+	return isHierarchical;
+}
+
+/**
  * Clear all metadata cache
  */
 export function clearMetadataCache(): void {

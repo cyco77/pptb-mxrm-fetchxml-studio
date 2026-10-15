@@ -33,6 +33,8 @@ export interface EntityMetadata {
 	ObjectTypeCode: number;
 	/** Lower-case collection name; routes when a few system entities' EntitySetName doesn't (#61) */
 	LogicalCollectionName?: string;
+	/** Long-term retention is enabled: datasource="retained" can query it (#90b) */
+	IsRetentionEnabled?: boolean;
 }
 
 export interface AttributeMetadata {
@@ -43,6 +45,9 @@ export interface AttributeMetadata {
 	AttributeTypeName?: { Value?: string };
 	MetadataId: string;
 	IsValidForAdvancedFind?: { Value: boolean };
+	/** Logical attributes include composite ones (address1_composite), which can't be grouped or aggregated */
+	IsLogical?: boolean;
+	IsPrimaryId?: boolean;
 	MaxLength?: number;
 	Precision?: number;
 	// For Integer, BigInt, Decimal, Double attributes
@@ -232,7 +237,7 @@ export async function getEntityAttributes(
 	}
 
 	// Build OData query with server-side filtering
-	let query = `EntityDefinitions(LogicalName='${logicalName}')/Attributes?$select=LogicalName,SchemaName,DisplayName,AttributeType,AttributeTypeName,MetadataId,IsValidForAdvancedFind`;
+	let query = `EntityDefinitions(LogicalName='${logicalName}')/Attributes?$select=LogicalName,SchemaName,DisplayName,AttributeType,AttributeTypeName,MetadataId,IsValidForAdvancedFind,IsLogical,IsPrimaryId`;
 
 	// Add server-side filter for IsValidForAdvancedFind
 	if (advancedFindOnly) {
@@ -526,6 +531,22 @@ async function resolveFetchXmlEntitySet(
 /** Dataverse's answer when the URL's entity set segment doesn't exist (0x80060888). */
 const isUnknownSegmentError = (error: unknown) =>
 	error instanceof Error && /Resource not found for the segment/i.test(error.message);
+
+/**
+ * Whether the entity has a hierarchical relationship (a self-referencing one-to-many relationship
+ * with IsHierarchical = true). Count child records (rowaggregate) only works on these entities
+ * (verified: 7 of 7 hierarchical entities accept it, 5 of 5 others reject it with 0x80047020).
+ * @see https://learn.microsoft.com/en-us/power-apps/developer/data-platform/query-hierarchical-data
+ */
+export async function getIsHierarchical(logicalName: string): Promise<boolean> {
+	if (!isDataverseAvailable()) {
+		throw new Error("PPTB Dataverse API not available");
+	}
+	const result = await window.dataverseAPI!.queryData(
+		`EntityDefinitions(LogicalName='${logicalName}')/OneToManyRelationships?$select=SchemaName&$filter=IsHierarchical eq true`,
+	);
+	return result.value.length > 0;
+}
 
 /**
  * Execute FetchXML query with formatted values

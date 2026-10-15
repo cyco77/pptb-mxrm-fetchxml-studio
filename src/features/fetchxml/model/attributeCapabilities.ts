@@ -125,3 +125,32 @@ export function getDataSourceIssue(
 	if (dataSource !== "retained" || entity.isRetentionEnabled !== false) return undefined;
 	return `Long-term retention isn't enabled for ${entity.logicalName} (IsRetentionEnabled is false), so Dataverse can't query its retained data.`;
 }
+
+/**
+ * AttributeType groups a `valueof` comparison accepts. The docs say "the columns must be the same
+ * type". Verified live (2026-10-15, every Advanced Find attribute type in the org: a pair matrix over
+ * account, contact and systemuser covering date-only / user-local / calculated / rollup / composite
+ * flavours, plus an org-wide scan for the rarer types), Dataverse compares by the underlying type:
+ * pairs within a group work with all six operators; pairs across groups fail with 0x80040203.
+ * Multi-select option sets are left out: Dataverse runs eq / ne on their stored text, which isn't
+ * documented and doesn't compare choices; gt..le fail. Types not listed are never offered.
+ */
+const VALUEOF_TYPE_GROUPS: readonly (readonly string[])[] = [
+	["Integer", "Picklist", "State", "Status", "EntityName"], // Int32
+	["BigInt"], // Int64
+	["Decimal", "Money"],
+	["Double"],
+	["Boolean", "ManagedProperty"],
+	["DateTime"], // any format / behaviour
+	["Lookup", "Customer", "Owner", "Uniqueidentifier"], // Guid
+	["String", "Memo"],
+];
+
+/**
+ * AttributeTypes a `valueof` attribute can have for a condition on `attributeType`; empty when
+ * comparing that type to another attribute isn't verified (or the type is unknown).
+ */
+export function getValueOfCompatibleTypes(attributeType: string | undefined): string[] {
+	if (!attributeType) return [];
+	return [...(VALUEOF_TYPE_GROUPS.find((g) => g.includes(attributeType)) ?? [])];
+}
