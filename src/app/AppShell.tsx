@@ -62,6 +62,7 @@ import type {
 } from "../features/fetchxml/api/pptbClient";
 import { generateFetchXml, addPagingToFetchXml } from "../features/fetchxml/model/fetchxml";
 import { getQueryEntities } from "../features/fetchxml/model/treeUtils";
+import type { FetchNode } from "../features/fetchxml/model/nodes";
 import { generateLayoutXml } from "../features/fetchxml/model/layoutxml";
 import { collectAttributesFromFetchXml } from "../features/fetchxml/model/layoutxml";
 import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid";
@@ -303,6 +304,8 @@ function AppContent() {
 	// Used by loadAllPages / handleLoadMore so subsequent pages use the same XML
 	// (which may differ from the tree-generated fetchXml when editor mode was active).
 	const lastExecutedXmlRef = useRef<string>("");
+	// Entity node of the tree the current results were produced for (see the clearing effect below)
+	const resultEntityIdRef = useRef<string | undefined>(undefined);
 
 	// Record action privileges state
 	const [recordActionPrivileges, setRecordActionPrivileges] = useState<{
@@ -620,8 +623,12 @@ function AppContent() {
 	}, [queryEntities.key, loadAttributes, loadEntityMetadata, loadRelationships]);
 
 	// Clear query results when the fetch query structure changes (entity change, view clear, etc.)
-	// We use the entity node id as a proxy - it changes when entity is re-selected or view is cleared
+	// We use the entity node id as a proxy - it changes when entity is re-selected or view is cleared.
+	// Results produced for the new tree are kept: an editor-mode Execute loads the editor's FetchXML
+	// into the tree and runs it straight away, and a fast response can arrive first (#102).
 	useEffect(() => {
+		const entityId = builder.fetchQuery?.entity?.id;
+		if (entityId !== undefined && entityId === resultEntityIdRef.current) return;
 		setQueryResult(null);
 	}, [builder.fetchQuery?.entity?.id]);
 
@@ -779,11 +786,13 @@ function AppContent() {
 	};
 
 	/**
-	 * Execute the query and handle Retrieve All if enabled
-	 * @param xmlOverride - when provided (editor mode), use this XML instead of the tree-generated one
+	 * Execute the tree's query and handle Retrieve All if enabled.
+	 * @param synced - in editor mode the editor's FetchXML is loaded into the tree first (#102);
+	 *   the new tree and its XML are passed here because builder state updates on the next render.
 	 */
-	const handleExecute = async (xmlOverride?: string) => {
-		const xmlToExecute = xmlOverride ?? fetchXml;
+	const handleExecute = async (synced?: { xml: string; fetchQuery: FetchNode }) => {
+		const query = synced?.fetchQuery ?? builder.fetchQuery;
+		const xmlToExecute = synced?.xml ?? fetchXml;
 		if (!xmlToExecute) return;
 
 		setIsExecuting(true);
@@ -793,24 +802,25 @@ function AppContent() {
 
 		// Remember what XML was sent so loadAllPages / handleLoadMore use the same query
 		lastExecutedXmlRef.current = xmlToExecute;
+		resultEntityIdRef.current = query?.entity.id;
 
 		const startTime = performance.now();
-		const entityLogicalName = builder.fetchQuery?.entity.name;
+		const entityLogicalName = query?.entity.name;
 		const retrieveAll = builder.retrieveAllRecords;
 
 		// Check if user has set a 'top' limit in FetchXML - if so, we respect it and don't enable paging
-		const hasTopLimit = builder.fetchQuery?.options?.top !== undefined;
+		const hasTopLimit = query?.options?.top !== undefined;
 		// Get page size from fetch options (count), default to 5000 if not set
-		const pageSize = builder.fetchQuery?.options?.count;
+		const pageSize = query?.options?.count;
 
 		try {
-			// Determine execution method based on loaded view state.
-			// Only use view-based execution when using tree XML (not editor override).
+			// Determine execution method based on loaded view state. A synced editor query
+			// replaced the tree (and cleared the loaded view), so it always runs as FetchXML.
 			let result;
-			const loadedView = builder.loadedView;
+			const loadedView = synced ? null : builder.loadedView;
 			let useViewExecution = false;
 
-			if (!xmlOverride && loadedView) {
+			if (loadedView) {
 				const isUnmodified =
 					xmlToExecute.replace(/\s+/g, "") === loadedView.originalFetchXml.replace(/\s+/g, "");
 
@@ -833,8 +843,8 @@ function AppContent() {
 			// If not using view execution (either no view, view was modified, or editor override), use FetchXML
 			if (!result) {
 				console.log(
-					xmlOverride
-						? "✏️ Executing editor FetchXML"
+					synced
+						? "✏️ Executing editor FetchXML (loaded into the tree)"
 						: loadedView
 							? `📝 View "${loadedView.name}" was modified - executing its FetchXML`
 							: "📡 Executing FetchXML query",
@@ -843,7 +853,7 @@ function AppContent() {
 			}
 
 			const executionTimeMs = Math.round(performance.now() - startTime);
-			const columns = buildColumnsFromResult(result.records, builder.fetchQuery);
+			const columns = buildColumnsFromResult(result.records, query);
 			const rows = result.records.map((record) => ({ ...record }));
 
 			// Set initial result

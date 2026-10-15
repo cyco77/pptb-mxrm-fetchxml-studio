@@ -2,7 +2,7 @@
  * Tabbed preview panel with FetchXML editor and Results grid
  */
 
-import { useState, useCallback, useRef, type ReactNode } from "react";
+import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
 import {
 	TabList,
 	Tab,
@@ -43,7 +43,16 @@ import {
 	parseFetchXml,
 	getBlockingWarnings,
 	getExecutionErrors,
+	getParseToTreeChanges,
 } from "../../model/fetchxmlParser";
+import { generateFetchXml } from "../../model/fetchxml";
+import type { LoadFetchXmlOptions } from "../../state/builderContext";
+import { ParseChangesDialog } from "./ParseChangesDialog";
+import {
+	EditorSyncContext,
+	type EditorSyncAction,
+	type EditorSyncResult,
+} from "./editorSync";
 import { ParseIssueList, type ParseIssueItem } from "./ParseIssueList";
 import type { LayoutXmlConfig } from "../../model/layoutxml";
 import type { WorkflowInfo } from "../../api/pptbClient";
@@ -183,12 +192,16 @@ interface PreviewTabsProps {
 	isExecuting?: boolean;
 	/** Whether more pages are being loaded (for progress display) */
 	isLoadingMore?: boolean;
-	onExecute?: (xmlOverride?: string) => void;
+	/**
+	 * Execute the tree's query. After an editor-mode sync (#102) the new tree and its XML are
+	 * passed along, because builder state updates arrive on the next render.
+	 */
+	onExecute?: (synced?: { xml: string; fetchQuery: FetchNode }) => void;
 	/** Export via Dataverse ExportToExcel API */
 	onExport?: () => void;
 	/** Export locally using exceljs */
 	onExportLocal?: () => void;
-	onParseToTree?: (xmlString: string) => ParseResult;
+	onParseToTree?: (xmlString: string, options?: LoadFetchXmlOptions) => ParseResult;
 	/** Multi-entity attribute metadata: Map<entityLogicalName, Map<attributeLogicalName, AttributeMetadata>> */
 	attributeMetadata?: Map<string, Map<string, AttributeMetadata>>;
 	fetchQuery?: FetchNode | null;
@@ -354,6 +367,14 @@ export function PreviewTabs({
 		xml: string;
 		warnings: ParseWarning[];
 	} | null>(null);
+	// Whether the editor buffer has any content (Execute is enabled on it in editor mode, #102)
+	const [editorHasContent, setEditorHasContent] = useState(false);
+	// Editor sync awaiting confirmation because loading into the tree would change the query
+	const [pendingSync, setPendingSync] = useState<{
+		action: EditorSyncAction;
+		changes: ParseWarning[];
+		resolve: (confirmed: boolean) => void;
+	} | null>(null);
 
 	// The XML currently shown to the user: the live editor buffer when in editor
 	// mode, otherwise the tree-generated XML. Used by the T2T "Return FetchXML" button.
@@ -364,6 +385,7 @@ export function PreviewTabs({
 	const handleEditorStateChange = useCallback((isActive: boolean, editorXml: string) => {
 		editorXmlRef.current = editorXml;
 		setIsEditorModeActive((prev) => (prev !== isActive ? isActive : prev));
+		setEditorHasContent(isActive && editorXml.trim().length > 0);
 		// A pending "Execute anyway" only applies to the exact XML it warned about
 		setPendingExecute((prev) => (prev && (!isActive || prev.xml !== editorXml) ? null : prev));
 		if (!isActive) {
@@ -380,13 +402,76 @@ export function PreviewTabs({
 		}
 	};
 
-	/** Run the editor XML exactly as written despite warnings; Dataverse's own error is shown if it fails. */
+	/**
+	 * Editor mode (#102): load the editor's FetchXML into the tree before an action, so the tree is
+	 * always what runs, is saved and is sent. Invalid FetchXML is shown and stops the action; if
+	 * loading would change the query, the user confirms the changes first (#89). When the editor
+	 * already matches the tree, nothing is reloaded.
+	 */
+	const syncEditorToTree = useCallback(
+		async (action: EditorSyncAction): Promise<EditorSyncResult> => {
+			if (!isEditorModeActive) return { status: "unchanged" };
+			const editorXml = editorXmlRef.current;
+
+			const syntaxResult = validateFetchXmlSyntax(editorXml);
+			if (!syntaxResult.valid) {
+				setEditorValidationError([{ message: syntaxResult.error || "Invalid XML syntax" }]);
+				return { status: "cancelled" };
+			}
+			const preview = parseFetchXml(editorXml);
+			if (!preview.success || !preview.fetchNode) {
+				setEditorValidationError(preview.errors);
+				return { status: "cancelled" };
+			}
+			// Known to be rejected by Dataverse: block (Parse to Tree can often correct these)
+			const executionErrors = getExecutionErrors(preview);
+			if (executionErrors.length > 0) {
+				setEditorValidationError(executionErrors);
+				return { status: "cancelled" };
+			}
+			if (xml && generateFetchXml(preview.fetchNode) === xml) return { status: "unchanged" };
+
+			const changes = getParseToTreeChanges(preview);
+			if (changes.length > 0) {
+				const confirmed = await new Promise<boolean>((resolve) =>
+					setPendingSync({ action, changes, resolve }),
+				);
+				if (!confirmed) return { status: "cancelled" };
+			}
+
+			const result = onParseToTree?.(editorXml, { preserveLayout: true });
+			if (!result?.success || !result.fetchNode) {
+				setEditorValidationError(result?.errors ?? [{ message: "The FetchXML couldn't be loaded into the tree." }]);
+				return { status: "cancelled" };
+			}
+			return { status: "synced", fetchXml: generateFetchXml(result.fetchNode), fetchQuery: result.fetchNode };
+		},
+		[isEditorModeActive, xml, onParseToTree],
+	);
+
+	const editorSyncValue = useMemo(
+		() => ({ sync: syncEditorToTree, editorHasContent: isEditorModeActive && editorHasContent }),
+		[syncEditorToTree, isEditorModeActive, editorHasContent],
+	);
+
+	const resolvePendingSync = (confirmed: boolean) => {
+		pendingSync?.resolve(confirmed);
+		setPendingSync(null);
+	};
+
+	/** Sync the editor into the tree (editor mode), then run the tree's query. */
+	const runExecute = async () => {
+		const synced = await syncEditorToTree("execute");
+		if (synced.status === "cancelled") return;
+		setSelectedTab("results");
+		onExecute?.(synced.status === "synced" ? { xml: synced.fetchXml, fetchQuery: synced.fetchQuery } : undefined);
+	};
+
+	/** Run the editor XML despite warnings; Dataverse's own error is shown if it fails. */
 	const handleExecuteAnyway = () => {
 		if (!pendingExecute) return;
-		const { xml: xmlToRun } = pendingExecute;
 		setPendingExecute(null);
-		setSelectedTab("results");
-		onExecute?.(xmlToRun);
+		void runExecute();
 	};
 
 	const handleExecute = () => {
@@ -394,42 +479,18 @@ export function PreviewTabs({
 		setPendingExecute(null);
 
 		if (isEditorModeActive) {
+			// Can't be determined client-side: ask before sending. Errors are checked by the sync.
 			const editorXml = editorXmlRef.current;
-
-			// Client-side validation before sending to Dataverse
-			const syntaxResult = validateFetchXmlSyntax(editorXml);
-			if (!syntaxResult.valid) {
-				setEditorValidationError([{ message: syntaxResult.error || "Invalid XML syntax" }]);
-				return;
+			const preview = parseFetchXml(editorXml);
+			if (preview.success && getExecutionErrors(preview).length === 0) {
+				const blocking = getBlockingWarnings(preview);
+				if (blocking.length > 0) {
+					setPendingExecute({ xml: editorXml, warnings: blocking });
+					return;
+				}
 			}
-
-			const parseResult = parseFetchXml(editorXml);
-			if (!parseResult.success) {
-				setEditorValidationError(parseResult.errors);
-				return;
-			}
-
-			// Known to be rejected by Dataverse — block (Parse to Tree can often correct these)
-			const executionErrors = getExecutionErrors(parseResult);
-			if (executionErrors.length > 0) {
-				setEditorValidationError(executionErrors);
-				return;
-			}
-
-			// Can't be determined client-side — ask before sending. Informational findings
-			// (ignored or unsupported-in-tree attributes) never block execution.
-			const blocking = getBlockingWarnings(parseResult);
-			if (blocking.length > 0) {
-				setPendingExecute({ xml: editorXml, warnings: blocking });
-				return;
-			}
-
-			setSelectedTab("results");
-			onExecute?.(editorXml);
-		} else {
-			setSelectedTab("results");
-			onExecute?.();
 		}
+		void runExecute();
 	};
 
 	const handleSelectionChange = useCallback(
@@ -447,275 +508,283 @@ export function PreviewTabs({
 	}, [getSelectedRecordIds, selectedRecordIds]);
 
 	return (
-		<div className={styles.container}>
-			<div className={styles.header}>
-				<TabList selectedValue={selectedTab} onTabSelect={handleTabSelect}>
-					<Tab value="xml">FetchXML</Tab>
-					<Tab value="layout">LayoutXML</Tab>
-					<Tab value="results">Results</Tab>
-					<Tab value="code" icon={<Code20Regular />}>
-						Code
-					</Tab>
-				</TabList>
-				<Toolbar size="small">
-					<Button
-						appearance="primary"
-						icon={<Play24Regular />}
-						onClick={handleExecute}
-						disabled={isExecuting || isLoadingMore || !xml}
-					>
-						{isExecuting ? "Executing..." : "Execute"}
-					</Button>
-					{isCallee && (
-						<>
-							<ToolbarDivider />
-							<ReturnFetchXmlButton getCurrentXml={getCurrentXml} />
-						</>
-					)}
-					{selectedTab === "xml" && saveViewButton && (
-						<>
-							<ToolbarDivider />
-							{saveViewButton}
-						</>
-					)}
-					{sendToToolButton && (
-						<>
-							<ToolbarDivider />
-							{sendToToolButton}
-						</>
-					)}
-					<ToolbarDivider />
-					<Button
-						appearance="subtle"
-						icon={<Settings20Regular />}
-						onClick={onOpenSettings}
-						aria-label="Settings"
-					/>
-				</Toolbar>
-			</div>
-			{(isExecuting || isLoadingMore) && (
-				<div className={styles.progressContainer}>
-					<ProgressBar />
-				</div>
-			)}
-			{/* Export status MessageBar */}
-			{isExporting && (
-				<div className={styles.messageBarContainer}>
-					<MessageBar intent="info">
-						<MessageBarBody>
-							<MessageBarTitle>Exporting</MessageBarTitle>
-							Exporting view to Excel...
-						</MessageBarBody>
-					</MessageBar>
-				</div>
-			)}
-			{exportError && !isExporting && (
-				<div className={styles.messageBarContainer}>
-					<MessageBar intent="error">
-						<MessageBarBody>
-							<MessageBarTitle>Export Failed</MessageBarTitle>
-							{exportError}
-						</MessageBarBody>
-						<MessageBarActions
-							containerAction={
-								<Button
-									appearance="transparent"
-									icon={<Dismiss16Regular />}
-									onClick={onDismissExportError}
-									aria-label="Dismiss"
-								/>
-							}
-						/>
-					</MessageBar>
-				</div>
-			)}
-			{pendingExecute && (
-				<div className={styles.messageBarContainer}>
-					<MessageBar intent="warning" layout="multiline">
-						<MessageBarBody>
-							<MessageBarTitle>Dataverse might reject this query</MessageBarTitle>
-							<ParseIssueList items={pendingExecute.warnings} />
-						</MessageBarBody>
-						<MessageBarActions
-							containerAction={
-								<Button
-									appearance="transparent"
-									icon={<Dismiss16Regular />}
-									onClick={() => setPendingExecute(null)}
-									aria-label="Dismiss"
-								/>
-							}
+		<EditorSyncContext.Provider value={editorSyncValue}>
+			<div className={styles.container}>
+				<ParseChangesDialog
+					action={pendingSync?.action ?? null}
+					changes={pendingSync?.changes ?? []}
+					onConfirm={() => resolvePendingSync(true)}
+					onCancel={() => resolvePendingSync(false)}
+				/>
+				<div className={styles.header}>
+					<TabList selectedValue={selectedTab} onTabSelect={handleTabSelect}>
+						<Tab value="xml">FetchXML</Tab>
+						<Tab value="layout">LayoutXML</Tab>
+						<Tab value="results">Results</Tab>
+						<Tab value="code" icon={<Code20Regular />}>
+							Code
+						</Tab>
+					</TabList>
+					<Toolbar size="small">
+						<Button
+							appearance="primary"
+							icon={<Play24Regular />}
+							onClick={handleExecute}
+							disabled={isExecuting || isLoadingMore || (isEditorModeActive ? !editorHasContent : !xml)}
 						>
-							<Button onClick={handleExecuteAnyway}>Execute anyway</Button>
-						</MessageBarActions>
-					</MessageBar>
-				</div>
-			)}
-			{editorValidationError && (
-				<div className={styles.messageBarContainer}>
-					<MessageBar intent="error" layout="multiline">
-						<MessageBarBody>
-							<MessageBarTitle>Invalid FetchXML</MessageBarTitle>
-							<ParseIssueList items={editorValidationError} />
-						</MessageBarBody>
-						<MessageBarActions
-							containerAction={
-								<Button
-									appearance="transparent"
-									icon={<Dismiss16Regular />}
-									onClick={() => setEditorValidationError(null)}
-									aria-label="Dismiss"
-								/>
-							}
+							{isExecuting ? "Executing..." : "Execute"}
+						</Button>
+						{isCallee && (
+							<>
+								<ToolbarDivider />
+								<ReturnFetchXmlButton getCurrentXml={getCurrentXml} />
+							</>
+						)}
+						{selectedTab === "xml" && saveViewButton && (
+							<>
+								<ToolbarDivider />
+								{saveViewButton}
+							</>
+						)}
+						{sendToToolButton && (
+							<>
+								<ToolbarDivider />
+								{sendToToolButton}
+							</>
+						)}
+						<ToolbarDivider />
+						<Button
+							appearance="subtle"
+							icon={<Settings20Regular />}
+							onClick={onOpenSettings}
+							aria-label="Settings"
 						/>
-					</MessageBar>
+					</Toolbar>
 				</div>
-			)}
-			{executeError && (
-				<div className={styles.messageBarContainer}>
-					<MessageBar intent="error">
-						<MessageBarBody>
-							<MessageBarTitle>Execution Failed</MessageBarTitle>
-							{executeError}
-						</MessageBarBody>
-						<MessageBarActions
-							containerAction={
-								<Button
-									appearance="transparent"
-									icon={<Dismiss16Regular />}
-									onClick={onDismissExecuteError}
-									aria-label="Dismiss"
-								/>
-							}
-						/>
-					</MessageBar>
-				</div>
-			)}
-			<div className={styles.tabContent}>
-				{/* FetchXML tab — always mounted so Monaco editor state (editor mode, content,
-				    cursor position) survives tab switches. Hidden via display:none when inactive;
-				    Monaco's automaticLayout re-layouts automatically when it becomes visible. */}
-				<div
-					className={styles.codeCard}
-					style={selectedTab !== "xml" ? { display: "none" } : undefined}
-				>
-					<FetchXmlEditor
-						xml={xml}
-						onParseToTree={onParseToTree}
-						onEditorStateChange={handleEditorStateChange}
-					/>
-				</div>
-				{selectedTab === "layout" && (
-					<div className={styles.codeCard}>
-						<LayoutXmlViewer layoutXml={layoutXml || ""} />
+				{(isExecuting || isLoadingMore) && (
+					<div className={styles.progressContainer}>
+						<ProgressBar />
 					</div>
 				)}
-				{selectedTab === "code" && (
-					<div className={styles.codeCard}>
-						<CodePanel fetchXml={xml} />
+				{/* Export status MessageBar */}
+				{isExporting && (
+					<div className={styles.messageBarContainer}>
+						<MessageBar intent="info">
+							<MessageBarBody>
+								<MessageBarTitle>Exporting</MessageBarTitle>
+								Exporting view to Excel...
+							</MessageBarBody>
+						</MessageBar>
 					</div>
 				)}
-				{selectedTab === "results" && (
-					<div className={styles.resultsLayout}>
-						<div className={styles.toolbarCard}>
-							<ResultsCommandBar
-								selectedCount={toolbarSelectedCount}
-								onOpen={() => {
-									const ids = getSelectedIds();
-									if (ids?.length && onOpenRecord) {
-										onOpenRecord(ids);
-									}
-								}}
-								onCopyUrl={() => {
-									const ids = getSelectedIds();
-									if (ids?.length && onCopyRecordUrl) {
-										onCopyRecordUrl(ids);
-									}
-								}}
-								onActivate={() => {
-									const ids = getSelectedIds();
-									if (ids?.length && onActivateRecords) {
-										onActivateRecords(ids);
-									}
-								}}
-								onDeactivate={() => {
-									const ids = getSelectedIds();
-									if (ids?.length && onDeactivateRecords) {
-										onDeactivateRecords(ids);
-									}
-								}}
-								onDelete={() => {
-									const ids = getSelectedIds();
-									// For delete, we allow empty selection to trigger "delete all" dialog
-									if (onDeleteRecords) {
-										onDeleteRecords(ids || []);
-									}
-								}}
-								onBulkDelete={() => {
-									const ids = getSelectedIds();
-									if (onBulkDeleteRecords) {
-										onBulkDeleteRecords(ids || []);
-									}
-								}}
-								canDelete={canDelete}
-								canBulkDelete={canBulkDelete}
-								deleteDisabled={isAggregateQuery || hasOneToManyRelationship}
-								onRunSpecificWorkflow={(workflow: WorkflowInfo) => {
-									const ids = getSelectedIds();
-									if (ids?.length && onRunSpecificWorkflow) {
-										onRunSpecificWorkflow(workflow, ids);
-									}
-								}}
-								canRunWorkflow={canRunWorkflow}
-								workflowDisabled={isAggregateQuery || hasOneToManyRelationship}
-								recordActionsDisabledReason={recordActionsDisabledReason}
-								onFetchWorkflows={onFetchWorkflows}
-								onExport={onExport || (() => console.log("Export not yet implemented"))}
-								onExportLocal={onExportLocal}
-								canExport={canExport}
-								isExporting={isExporting}
-								exportDisabledReason={exportDisabledReason}
-								entityName={result?.entityLogicalName}
-								entityDisplayName={entityDisplayName}
-								columns={columnConfig?.columns}
-								onReorderColumns={onReorderColumns}
-								onRemoveColumn={onRemoveColumn}
-								availableAttributes={
-									// Get root entity attributes from multi-entity map
-									attributeMetadata && fetchQuery?.entity?.name
-										? Array.from(attributeMetadata.get(fetchQuery.entity.name)?.values() || [])
-										: undefined
+				{exportError && !isExporting && (
+					<div className={styles.messageBarContainer}>
+						<MessageBar intent="error">
+							<MessageBarBody>
+								<MessageBarTitle>Export Failed</MessageBarTitle>
+								{exportError}
+							</MessageBarBody>
+							<MessageBarActions
+								containerAction={
+									<Button
+										appearance="transparent"
+										icon={<Dismiss16Regular />}
+										onClick={onDismissExportError}
+										aria-label="Dismiss"
+									/>
 								}
-								selectedAttributes={fetchQuery?.entity.attributes.map((a) => a.name)}
-								onAddColumn={onAddColumn}
-								onAddRelatedColumns={onAddRelatedColumns}
-								lookupRelationships={lookupRelationships}
-								oneToManyRelationships={oneToManyRelationships}
-								isLoadingRelationships={isLoadingRelationships}
-								onLoadRelatedAttributes={onLoadRelatedAttributes}
-								onResetToDefault={onResetToDefault}
 							/>
-						</div>
-						<div className={styles.gridCard}>
-							<ResultsGrid
-								result={result}
-								isLoading={isExecuting}
-								isLoadingMore={isLoadingMore}
-								attributeMetadata={attributeMetadata}
-								fetchQuery={fetchQuery}
-								primaryIdAttribute={primaryIdAttribute}
-								onSelectedCountChange={setToolbarSelectedCount}
-								onSelectionChange={handleSelectionChange}
-								columnConfig={columnConfig}
-								onColumnResize={onColumnResize}
-								onSortChange={onSortChange}
-								onLoadMore={onLoadMore}
-								displaySettings={displaySettings}
-							/>
-						</div>
+						</MessageBar>
 					</div>
 				)}
+				{pendingExecute && (
+					<div className={styles.messageBarContainer}>
+						<MessageBar intent="warning" layout="multiline">
+							<MessageBarBody>
+								<MessageBarTitle>Dataverse might reject this query</MessageBarTitle>
+								<ParseIssueList items={pendingExecute.warnings} />
+							</MessageBarBody>
+							<MessageBarActions
+								containerAction={
+									<Button
+										appearance="transparent"
+										icon={<Dismiss16Regular />}
+										onClick={() => setPendingExecute(null)}
+										aria-label="Dismiss"
+									/>
+								}
+							>
+								<Button onClick={handleExecuteAnyway}>Execute anyway</Button>
+							</MessageBarActions>
+						</MessageBar>
+					</div>
+				)}
+				{editorValidationError && (
+					<div className={styles.messageBarContainer}>
+						<MessageBar intent="error" layout="multiline">
+							<MessageBarBody>
+								<MessageBarTitle>Invalid FetchXML</MessageBarTitle>
+								<ParseIssueList items={editorValidationError} />
+							</MessageBarBody>
+							<MessageBarActions
+								containerAction={
+									<Button
+										appearance="transparent"
+										icon={<Dismiss16Regular />}
+										onClick={() => setEditorValidationError(null)}
+										aria-label="Dismiss"
+									/>
+								}
+							/>
+						</MessageBar>
+					</div>
+				)}
+				{executeError && (
+					<div className={styles.messageBarContainer}>
+						<MessageBar intent="error">
+							<MessageBarBody>
+								<MessageBarTitle>Execution Failed</MessageBarTitle>
+								{executeError}
+							</MessageBarBody>
+							<MessageBarActions
+								containerAction={
+									<Button
+										appearance="transparent"
+										icon={<Dismiss16Regular />}
+										onClick={onDismissExecuteError}
+										aria-label="Dismiss"
+									/>
+								}
+							/>
+						</MessageBar>
+					</div>
+				)}
+				<div className={styles.tabContent}>
+					{/* FetchXML tab — always mounted so Monaco editor state (editor mode, content,
+					    cursor position) survives tab switches. Hidden via display:none when inactive;
+					    Monaco's automaticLayout re-layouts automatically when it becomes visible. */}
+					<div
+						className={styles.codeCard}
+						style={selectedTab !== "xml" ? { display: "none" } : undefined}
+					>
+						<FetchXmlEditor
+							xml={xml}
+							onParseToTree={onParseToTree}
+							onEditorStateChange={handleEditorStateChange}
+						/>
+					</div>
+					{selectedTab === "layout" && (
+						<div className={styles.codeCard}>
+							<LayoutXmlViewer layoutXml={layoutXml || ""} />
+						</div>
+					)}
+					{selectedTab === "code" && (
+						<div className={styles.codeCard}>
+							<CodePanel fetchXml={xml} />
+						</div>
+					)}
+					{selectedTab === "results" && (
+						<div className={styles.resultsLayout}>
+							<div className={styles.toolbarCard}>
+								<ResultsCommandBar
+									selectedCount={toolbarSelectedCount}
+									onOpen={() => {
+										const ids = getSelectedIds();
+										if (ids?.length && onOpenRecord) {
+											onOpenRecord(ids);
+										}
+									}}
+									onCopyUrl={() => {
+										const ids = getSelectedIds();
+										if (ids?.length && onCopyRecordUrl) {
+											onCopyRecordUrl(ids);
+										}
+									}}
+									onActivate={() => {
+										const ids = getSelectedIds();
+										if (ids?.length && onActivateRecords) {
+											onActivateRecords(ids);
+										}
+									}}
+									onDeactivate={() => {
+										const ids = getSelectedIds();
+										if (ids?.length && onDeactivateRecords) {
+											onDeactivateRecords(ids);
+										}
+									}}
+									onDelete={() => {
+										const ids = getSelectedIds();
+										// For delete, we allow empty selection to trigger "delete all" dialog
+										if (onDeleteRecords) {
+											onDeleteRecords(ids || []);
+										}
+									}}
+									onBulkDelete={() => {
+										const ids = getSelectedIds();
+										if (onBulkDeleteRecords) {
+											onBulkDeleteRecords(ids || []);
+										}
+									}}
+									canDelete={canDelete}
+									canBulkDelete={canBulkDelete}
+									deleteDisabled={isAggregateQuery || hasOneToManyRelationship}
+									onRunSpecificWorkflow={(workflow: WorkflowInfo) => {
+										const ids = getSelectedIds();
+										if (ids?.length && onRunSpecificWorkflow) {
+											onRunSpecificWorkflow(workflow, ids);
+										}
+									}}
+									canRunWorkflow={canRunWorkflow}
+									workflowDisabled={isAggregateQuery || hasOneToManyRelationship}
+									recordActionsDisabledReason={recordActionsDisabledReason}
+									onFetchWorkflows={onFetchWorkflows}
+									onExport={onExport || (() => console.log("Export not yet implemented"))}
+									onExportLocal={onExportLocal}
+									canExport={canExport}
+									isExporting={isExporting}
+									exportDisabledReason={exportDisabledReason}
+									entityName={result?.entityLogicalName}
+									entityDisplayName={entityDisplayName}
+									columns={columnConfig?.columns}
+									onReorderColumns={onReorderColumns}
+									onRemoveColumn={onRemoveColumn}
+									availableAttributes={
+										// Get root entity attributes from multi-entity map
+										attributeMetadata && fetchQuery?.entity?.name
+											? Array.from(attributeMetadata.get(fetchQuery.entity.name)?.values() || [])
+											: undefined
+									}
+									selectedAttributes={fetchQuery?.entity.attributes.map((a) => a.name)}
+									onAddColumn={onAddColumn}
+									onAddRelatedColumns={onAddRelatedColumns}
+									lookupRelationships={lookupRelationships}
+									oneToManyRelationships={oneToManyRelationships}
+									isLoadingRelationships={isLoadingRelationships}
+									onLoadRelatedAttributes={onLoadRelatedAttributes}
+									onResetToDefault={onResetToDefault}
+								/>
+							</div>
+							<div className={styles.gridCard}>
+								<ResultsGrid
+									result={result}
+									isLoading={isExecuting}
+									isLoadingMore={isLoadingMore}
+									attributeMetadata={attributeMetadata}
+									fetchQuery={fetchQuery}
+									primaryIdAttribute={primaryIdAttribute}
+									onSelectedCountChange={setToolbarSelectedCount}
+									onSelectionChange={handleSelectionChange}
+									columnConfig={columnConfig}
+									onColumnResize={onColumnResize}
+									onSortChange={onSortChange}
+									onLoadMore={onLoadMore}
+									displaySettings={displaySettings}
+								/>
+							</div>
+						</div>
+					)}
+				</div>
 			</div>
-		</div>
+		</EditorSyncContext.Provider>
 	);
 }
