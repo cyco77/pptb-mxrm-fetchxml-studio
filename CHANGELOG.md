@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.8] - 2026-10-14
+
+### 🔧 Fixed
+
+- **The tool icon now shows in Power Platform ToolBox (#62).** PPTB resolves the top-level `icon` relative to `dist/`, but the SVGs were never copied there, so PPTB showed its default icon. A valid SVG bundled under `dist` is also a **required** item for Verified status ([publishing](https://docs.powerplatformtoolbox.com/tool-development/publishing), [maturity model](https://docs.powerplatformtoolbox.com/tool-development/maturity-model)).
+  - The build now bundles the icon at `dist/icons/icon.svg`, and `package.json` points `icon` there.
+  - Prerelease versions (e.g. `1.4.1-beta.8`) get the gold-stamped Insider icon; releases get the regular blue icon. There's no manual switch per release.
+
+### 🏗️ Technical
+
+- **`package-lock.json` is committed**, pinning every dependency with an integrity hash. npm's guidance: it's "intended to be committed into source repositories" and isn't published. PPTB users install the pre-built package, so this only affects development and CI.
+  - It enables `npm ci` and `npm audit` (a Verified requirement) and CI (#72).
+  - It pins exactly the versions tested so far (restored from the last `npm-shrinkwrap.json`), not a fresh resolution.
+- `files` no longer lists `icons` (the icon ships inside `dist`) or the removed `npm-shrinkwrap.json`.
+
 ## [1.4.1-beta.7] - 2026-10-14
 
 ### 🔧 Fixed
