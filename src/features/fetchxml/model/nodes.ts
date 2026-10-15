@@ -83,7 +83,7 @@ export interface AttributeNode {
 	name: string; // logical attribute name
 	alias?: string;
 	groupby?: boolean;
-	aggregate?: "sum" | "count" | "countcolumn" | "min" | "max" | "avg" | "rowaggregate";
+	aggregate?: "sum" | "count" | "countcolumn" | "min" | "max" | "avg";
 	usertimezone?: boolean;
 	dategrouping?: "day" | "week" | "month" | "quarter" | "year" | "fiscal-period" | "fiscal-year";
 	/** distinct: with aggregate="countcolumn", count only unique values */

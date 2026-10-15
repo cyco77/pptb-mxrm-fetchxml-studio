@@ -18,6 +18,7 @@ import { Info16Regular } from "@fluentui/react-icons";
 import type { AttributeNode } from "../../../../model/nodes";
 import { sanitizeAlias } from "../../../../model/aliasUtils";
 import { AttributePicker } from "../../../../../../shared/components/AttributePicker";
+import { NONE_OPTION, optionalValue } from "./optionalValue";
 
 const useStyles = makeStyles({
 	container: {
@@ -72,7 +73,7 @@ export function AttributeEditor({
 		};
 
 	const handleDropdownChange = (field: string) => (_: unknown, data: { optionValue?: string }) => {
-		onUpdate({ [field]: data.optionValue || undefined });
+		onUpdate({ [field]: optionalValue(data.optionValue) });
 	};
 
 	return (
@@ -123,19 +124,18 @@ export function AttributeEditor({
 					<Field label="Aggregate Function">
 						<div className={styles.fieldWithTooltip}>
 							<Dropdown
-								value={node.aggregate ?? "none"}
-								selectedOptions={[node.aggregate ?? "none"]}
+								value={node.aggregate ?? "None"}
+								selectedOptions={[node.aggregate ?? NONE_OPTION]}
 								onOptionSelect={handleDropdownChange("aggregate")}
 								placeholder="None"
 							>
-								<Option value="none">None</Option>
+								<Option value={NONE_OPTION}>None</Option>
 								<Option value="count">Count</Option>
 								<Option value="countcolumn">Count Column (non-null)</Option>
 								<Option value="sum">Sum</Option>
 								<Option value="avg">Average</Option>
 								<Option value="min">Minimum</Option>
 								<Option value="max">Maximum</Option>
-								<Option value="rowaggregate">Row Aggregate</Option>
 							</Dropdown>
 							<Tooltip
 								content="Aggregate function to apply. SUM/AVG only work with numeric types. COUNT works with all types."
@@ -171,12 +171,12 @@ export function AttributeEditor({
 				<Field label="Date Grouping (for datetime attributes)">
 					<div className={styles.fieldWithTooltip}>
 						<Dropdown
-							value={node.dategrouping ?? "none"}
-							selectedOptions={[node.dategrouping ?? "none"]}
+							value={node.dategrouping ?? "None"}
+							selectedOptions={[node.dategrouping ?? NONE_OPTION]}
 							onOptionSelect={handleDropdownChange("dategrouping")}
 							placeholder="None"
 						>
-							<Option value="none">None</Option>
+							<Option value={NONE_OPTION}>None</Option>
 							<Option value="day">Day</Option>
 							<Option value="week">Week</Option>
 							<Option value="month">Month</Option>

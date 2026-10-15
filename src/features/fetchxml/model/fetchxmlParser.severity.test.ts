@@ -83,7 +83,6 @@ describe("supported: documented, or undocumented but verified to work", () => {
 
 	it.each([
 		["useraworderby", ` useraworderby="1"`],
-		["aggregatelimit", ` aggregatelimit="1000"`],
 		["latematerialize", ` latematerialize="true"`],
 		["options", ` options="HashJoin"`],
 		["datasource (retained)", ` datasource="retained"`],
@@ -91,6 +90,15 @@ describe("supported: documented, or undocumented but verified to work", () => {
 	])("documented '%s' is supported with no findings (#90)", (_label, fetchAttrs) => {
 		// Dataverse: ✅ accepts (datasource errors only where long-term retention isn't provisioned)
 		const f = findings(wrap("", fetchAttrs));
+		expect(f.result.warnings).toEqual([]);
+		expect(f.changes).toEqual([]);
+	});
+
+	it("documented 'aggregatelimit' on an aggregate query is supported with no findings (#90)", () => {
+		// Dataverse: ✅ accepts; on a non-aggregate query it is ignored (reported as info)
+		const f = findings(
+			`<fetch aggregate="true" aggregatelimit="1000"><entity name="task"><attribute name="prioritycode" alias="p" groupby="true" /><attribute name="activityid" alias="n" aggregate="count" /></entity></fetch>`,
+		);
 		expect(f.result.warnings).toEqual([]);
 		expect(f.changes).toEqual([]);
 	});

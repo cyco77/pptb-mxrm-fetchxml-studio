@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.6] - 2026-10-14
+
+### 🔧 Fixed
+
+- **Validate and Execute now catch the query mistakes Dataverse rejects (#90b, part 1).** New query-level rules, each verified against a live Dataverse org. FXS's parser agreed with Dataverse on all 48 rule cases (0 mismatches).
+  - **Aggregate queries:**
+    - every attribute needs Group by or an aggregate (`0x8004111e`) and an alias (`0x8004110b`);
+    - an attribute can't be both Group by and an aggregate (`0x80041137`);
+    - Group by and aggregates outside aggregate queries are errors (`0x8004112e`, `0x8004111a`);
+    - an order can only use aliases from its own entity or link-entity (`0x8004110a`);
+    - `aggregatelimit` together with an order fails with a SQL error.
+  - **Orders:** `entityname` must match a link-entity alias, a link-entity name or the root entity (`0x80041108`), and isn't allowed on orders inside a link-entity.
+  - **Aliases:** must be unique across the query, case-insensitively, and can't reuse the logical name of another attribute selected without an alias. Link-entity aliases must be unique too (`0x80041130`).
+  - **Filters:** the union hint must be exactly `union`, on an `or` filter, once per query (`0x80041122`). Other hint values were silently dropped by Parse to Tree; they're now reported.
+  - **Count child records (`rowaggregate`):** needs an alias, works only on the root entity, and doesn't work in aggregate queries.
+  - **Ignored, not errors:** settings Dataverse accepts but ignores are reported as information only. Examples: `aggregatelimit` or date grouping outside aggregate queries, and `distinct` on aggregates other than `countcolumn`.
+- **Boolean spellings Dataverse accepts are read correctly.**
+  - `usertimezone="1"` used to be read as **false** (inverted meaning after Parse to Tree).
+  - `groupby="1"`, `descending="1"`, `distinct="1"`, `returntotalrecordcount="1"` and `enableprefiltering="1"` (the documented form) were dropped.
+  - `descending="True"`, which Dataverse rejects (`0x80041119`), is now an error instead of silently sorting ascending.
+  - `aggregate` only makes an aggregate query when it's exactly `"true"`, as Dataverse does.
+- **Report prefiltering is written as `enableprefiltering="1"`**, the documented value ([Use data filtering](https://learn.microsoft.com/en-us/dynamics365/customerengagement/on-premises/analytics/improve-report-performance-by-using-filters?view=op-9-1)).
+- **Choosing "None" no longer writes `aggregate="none"` / `dategrouping="none"` (#88).** The Attribute and Condition editors clear the value instead, and the serializer never writes values outside the documented sets. The invalid "Row Aggregate" aggregate option is removed (`0x8004111a`).
+
+### 🏗️ Technical
+
+- `model/fetchxmlRules.ts`: query-level rules shared by the parser and (next) the property editors. Findings carry the `nodeId` they refer to.
+- `model/attributeCapabilities.ts`: the metadata-driven capability matrix for the property panel. It records which attribute types support sort, group by and each aggregate function. It came from a 912-query live matrix over every attribute type, identical through `fetchXmlQuery` and `queryData`.
+  - Example: Money attributes can't be counted through the Web API.
+  - Example: multi-select option sets can't be sorted or grouped.
+- `AttributeNode.aggregate` no longer allows `"rowaggregate"`.
+- 280 unit tests.
+- `npm-shrinkwrap.json` removed, and `finalize-package` no longer runs `npm shrinkwrap` (npm 12 dropped that command). The local `.claude/` workspace folder is git-ignored.
+
 ## [1.4.1-beta.5] - 2026-10-13
 
 ### 🔧 Fixed
