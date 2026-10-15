@@ -16,6 +16,7 @@ import type {
 	LinkEntityNode,
 	OrderNode,
 } from "./nodes";
+import { operatorRequiresValue } from "./operators";
 
 export type RuleSeverity = "error" | "warning" | "info";
 export type RuleKind = "invalid" | "ignored" | "advice";
@@ -58,6 +59,77 @@ function collectScopes(fetch: FetchNode): Scope[] {
 }
 
 const isLink = (c: Container): c is LinkEntityNode => c.type === "link-entity";
+
+/** Link types allowed for a link-entity inside a filter (others, or none: 0x8004111c, verified live). */
+export const FILTER_LINK_TYPES: ReadonlySet<string> = new Set(["any", "not any", "all", "not all"]);
+/** Link types that return no attributes: attribute, all-attributes and order fail with 0x80041121 (verified live). */
+export const NON_RETURNING_LINK_TYPES: ReadonlySet<string> = new Set(["exists", "in", "any", "not any", "all", "not all"]);
+
+/** Operators a `valueof` comparison accepts (filter-rows: "Limitations on column comparison filters"). */
+export const VALUEOF_OPERATORS: ReadonlySet<string> = new Set(["eq", "ne", "gt", "ge", "lt", "le"]);
+
+/** What a condition's `valueof` can refer to with "qualifier.attribute". */
+export interface ValueOfScope {
+	/** The root entity's logical name: always reachable (verified, though not documented) */
+	rootName: string;
+	/** Aliases of the joined link-entities it can reach */
+	aliases: string[];
+	/** Alias of the joined link-entity whose filter holds the condition (its own record) */
+	selfAlias?: string;
+	/** Joined aliases it can't reach because they're joined after (or inside) its link-entity */
+	laterAliases: string[];
+}
+
+/**
+ * `valueof` reach per condition, verified live (2026-10-15). The docs show a root filter comparing to
+ * a link-entity alias; Dataverse also accepts these, and rejects anything else with 0x80040216:
+ * - conditions in the root entity's filters (including entityname conditions, and any / not any /
+ *   all / not all link-entities there): every joined link-entity alias, at any depth;
+ * - conditions in a joined link-entity's filter: its own alias and link-entities joined before it in
+ *   the query (not its own link-entities, nor later ones);
+ * - a link-entity inside a filter has the reach of the filter's entity / link-entity; its own alias,
+ *   and aliases of other link-entities inside filters, are never reachable;
+ * - the root entity's logical name works everywhere.
+ */
+export function valueofScopes(fetch: FetchNode): Map<string, ValueOfScope> {
+	const joined: LinkEntityNode[] = [];
+	const collect = (c: Container) =>
+		c.links.forEach((l) => {
+			joined.push(l);
+			collect(l);
+		});
+	collect(fetch.entity);
+	const all = joined.flatMap((l) => (l.alias ? [l.alias] : []));
+	const map = new Map<string, ValueOfScope>();
+	const visitFilters = (filters: FilterNode[], scope: ValueOfScope) => {
+		const visit = (f: FilterNode) => {
+			f.conditions.forEach((c) => map.set(c.id, scope));
+			f.subfilters.forEach(visit);
+			// A link-entity inside a filter keeps the reach of the scope that holds the filter
+			f.links?.forEach((l) => visitContainer(l, scope));
+		};
+		filters.forEach(visit);
+	};
+	const visitContainer = (c: Container, scope: ValueOfScope) => {
+		visitFilters(c.filters, scope);
+		c.links.forEach((l) => {
+			const index = joined.indexOf(l);
+			const reachable = joined.slice(0, index + 1).flatMap((x) => (x.alias ? [x.alias] : []));
+			const linkScope: ValueOfScope =
+				index === -1
+					? scope
+					: {
+							rootName: fetch.entity.name,
+							aliases: reachable,
+							selfAlias: l.alias,
+							laterAliases: all.filter((a) => !reachable.includes(a)),
+						};
+			visitContainer(l, linkScope);
+		});
+	};
+	visitContainer(fetch.entity, { rootName: fetch.entity.name, aliases: all, laterAliases: [] });
+	return map;
+}
 
 /**
  * Attributes an aggregate `<order alias>` can see. Dataverse resolves the alias only within the
@@ -171,6 +243,31 @@ export function validateQueryRules(fetch: FetchNode): RuleFinding[] {
 		}
 		seenLinkAliases.add(link.alias);
 	}
+	// Link types by placement and what they return (verified live, 2026-10-14). Joined link-entities
+	// accept all nine types, including the four the docs describe for use inside a filter.
+	const filterLinkIds = new Set(scopes.flatMap((s) => s.filters.flatMap(({ filter }) => (filter.links ?? []).map((l) => l.id))));
+	for (const link of links) {
+		const base = { element: "link-entity", nodeId: link.id } as const;
+		if (filterLinkIds.has(link.id) && !FILTER_LINK_TYPES.has(link.linkType)) {
+			push({ ...base, attribute: "link-type", severity: "error", kind: "invalid",
+				message: `A link-entity inside a filter must be any, not any, all or not all (Dataverse rejects '${link.linkType}': 0x8004111c).` });
+		}
+		if (NON_RETURNING_LINK_TYPES.has(link.linkType)) {
+			const returns = [
+				link.attributes.length > 0 && "attributes",
+				link.allAttributes?.enabled && "all-attributes",
+				link.orders.length > 0 && "orders",
+			].filter(Boolean);
+			if (returns.length > 0) {
+				push({ ...base, attribute: "link-type", severity: "error", kind: "invalid",
+					message: `A '${link.linkType}' link-entity returns no attributes, so it can't have ${returns.join(" or ")} (Dataverse rejects it: 0x80041121).` });
+			}
+		}
+		if (link.visible !== undefined) {
+			push({ ...base, attribute: "visible", severity: "info", kind: "ignored",
+				message: `The visible attribute isn't in the FetchXML reference, and Dataverse ignores it: the results are the same with any value.` });
+		}
+	}
 
 	// ---- orders
 	const entityNames = new Set<string>([fetch.entity.name, ...links.flatMap((l) => [l.name, l.alias ?? ""])]);
@@ -206,6 +303,28 @@ export function validateQueryRules(fetch: FetchNode): RuleFinding[] {
 	}
 
 	// ---- fetch options
+	const paging = [
+		fetch.options.count !== undefined && "count",
+		fetch.options.page !== undefined && "page",
+		fetch.options.returnTotalRecordCount && "returntotalrecordcount",
+	].filter((x): x is string => typeof x === "string");
+	if (fetch.options.top !== undefined && paging.length > 0) {
+		push({ element: "fetch", attribute: "top", nodeId: fetch.id, severity: "error", kind: "invalid",
+			message: `'top' can't be used with ${paging.map((p) => `'${p}'`).join(", ")} (Dataverse rejects it: 0x80040203). Use either top or paging.` });
+	}
+	for (const [name, value] of [
+		["top", fetch.options.top],
+		["count", fetch.options.count],
+	] as const) {
+		if (value !== undefined && value > 5000) {
+			push({ element: "fetch", attribute: name, nodeId: fetch.id, severity: "info", kind: "advice",
+				message: `'${name}' is ${value}, but Dataverse returns at most 5,000 rows per request.` });
+		}
+	}
+	if (fetch.options.page !== undefined && fetch.options.page < 1) {
+		push({ element: "fetch", attribute: "page", nodeId: fetch.id, severity: "error", kind: "invalid",
+			message: `Page number must be 1 or more (Dataverse rejects page ${fetch.options.page}: 0x80040203).` });
+	}
 	if (fetch.options.aggregateLimit !== undefined) {
 		if (!aggregate) {
 			push({ element: "fetch", attribute: "aggregatelimit", nodeId: fetch.id, severity: "info", kind: "ignored",
@@ -218,6 +337,7 @@ export function validateQueryRules(fetch: FetchNode): RuleFinding[] {
 	}
 
 	// ---- filters
+	const reach = valueofScopes(fetch);
 	const unionFilters: { filter: FilterNode; depth: number }[] = [];
 	for (const scope of scopes) {
 		for (const { filter, depth } of scope.filters) {
@@ -235,6 +355,39 @@ export function validateQueryRules(fetch: FetchNode): RuleFinding[] {
 			if (filter.overrideQuickFindRecordLimitEnabled && filter.overrideQuickFindRecordLimitDisabled) {
 				push({ ...base, attribute: "overridequickfindrecordlimitenabled", severity: "info", kind: "advice",
 					message: `Both quick find record limit overrides are set; which one applies isn't documented. Keep one.` });
+			}
+			// valueof (verified live): only eq/ne/gt/ge/lt/le compare two attributes (others: 0x80048415);
+			// operators without a value ignore it; "x.attr" must be reachable (valueofScopes; 0x80040216).
+			for (const condition of filter.conditions) {
+				if (condition.valueof === undefined || condition.valueof === "") continue;
+				const cbase = { element: "condition", attribute: "valueof", nodeId: condition.id } as const;
+				if (!operatorRequiresValue(condition.operator)) {
+					push({ ...cbase, severity: "info", kind: "ignored",
+						message: `Dataverse ignores valueof here: the '${condition.operator}' operator doesn't compare to a value.` });
+					continue;
+				}
+				if (!VALUEOF_OPERATORS.has(condition.operator)) {
+					push({ ...cbase, severity: "error", kind: "invalid",
+						message: `Comparing to another attribute only works with eq, ne, gt, ge, lt or le (Dataverse rejects '${condition.operator}': 0x80048415).` });
+				}
+				const dot = condition.valueof.indexOf(".");
+				const qualifier = dot > 0 ? condition.valueof.slice(0, dot) : undefined;
+				const scope = reach.get(condition.id);
+				if (qualifier && scope && qualifier !== scope.rootName && !scope.aliases.includes(qualifier)) {
+					push({ ...cbase, severity: "error", kind: "invalid",
+						message: scope.laterAliases.includes(qualifier)
+							? `'${qualifier}' is joined after this link-entity (or inside it), so this filter can't refer to it. Compare from the root entity's filter instead (Dataverse rejects it: 0x80040216).`
+							: `'${qualifier}' isn't the alias of a joined link-entity. To compare to another entity's attribute, give its link-entity an alias and use alias.attribute (Dataverse rejects it: 0x80040216).` });
+				}
+			}
+			// condition/@aggregate isn't in the condition reference. Verified live: Dataverse runs the
+			// condition as a plain row condition (the value is converted to the attribute's type), so
+			// FetchXML has no HAVING and removing it doesn't change the results.
+			for (const condition of filter.conditions) {
+				if (condition.aggregate) {
+					push({ element: "condition", attribute: "aggregate", nodeId: condition.id, severity: "info", kind: "ignored",
+						message: `Dataverse ignores aggregate="${condition.aggregate}" on a condition: it compares each record's ${condition.attribute} value, not an aggregate result. FetchXML can't filter on aggregate values.` });
+				}
 			}
 		}
 	}

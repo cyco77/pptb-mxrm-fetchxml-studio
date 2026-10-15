@@ -20,6 +20,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `model/manyToMany.ts`: `planManyToManyJoin`, with tests.
 
+## [1.4.1-beta.9] - 2026-10-14
+
+### ✨ Added
+
+- **A complete, metadata-driven properties panel (#90b).** Every node type now has an editor that covers the FetchXML reference. The "coming in a later phase" placeholders are gone. Fields use Fluent UI v9 info popovers with a **Learn more** link to the matching Microsoft Learn article, sentence-case labels and Entity / Attribute / Logical Name terms.
+  - **Fetch Query:**
+    - **Query:** aggregate, distinct, total record count, sort option sets by value.
+    - **Paging and limits:** top, count, page and paging cookie. `top` can't be combined with paging, so the conflicting fields explain why.
+    - **Aggregation:** `aggregatelimit` (1–50,000).
+    - **Data source:** Active / Retained. Retained is disabled when the entity's long-term retention is off.
+    - **Performance:** late materialize, the documented query hints as checkboxes, and any other hints kept as tags.
+    - **Advanced:** UTC offset.
+    - **Turning off aggregate** lists what it would remove or change (Group by, aggregates, alias sorts) and asks first.
+  - **Entity:** the entity's logical and display name, plus report prefiltering (`enableprefiltering`, `prefilterparametername`).
+  - **All attributes:** what it does, Microsoft's guidance against it, and a Remove button.
+  - **Attribute:**
+    - **Role:** Group by or Aggregate.
+    - **Function:** only the functions the attribute's type supports.
+    - **Group by options:** date grouping (required for date attributes), time zone, and unique values for count of values.
+    - **Count child records:** offered on the primary key of hierarchical entities.
+    - **Renaming an alias** updates the sorts that use it.
+  - **Sort:**
+    - **Regular queries:** an attribute picker limited to sortable types.
+    - **Aggregate queries:** a list of the aliases in scope.
+    - **Entity:** sort a link-entity first.
+  - **Filter:** all (and) / any (or), the union hint (only for `or`, one per query), quick find, and the quick find record limit overrides.
+  - **Condition:** Entity (`entityname`, filter after an outer join), attribute, operator and value. **Compare to** chooses between a value and another attribute.
+  - **Link-entity:**
+    - entity, From / To attribute pickers, link type, alias and intersect;
+    - link types are offered by placement: inside a filter only any / not any / all / not all;
+    - descriptions follow the docs, including that `all` / `not all` mean the opposite of what the names suggest.
+- **Tree badges:**
+  - **Fetch Query:** Aggregate, Distinct, Retained, Hints.
+  - **Attributes:** Group by (with date grouping), the aggregate function, Unique, Child count.
+  - **Filters:** Union, Quick find.
+  - **Any node with a rule error:** a red **Error** badge.
+  - **Conditions that compare attributes** read `attribute eq → other`.
+- **Editor mode follows the properties panel.** While editor mode is on, panel edits update the editor when the editor hasn't changed the query. If it has, the editor keeps your text and says so.
+
+### 🔧 Fixed
+
+- **Comparing to another attribute (`valueof`) only offers what Dataverse accepts (#94).**
+  - The choice appears only for eq, ne, gt, ge, lt and le (others fail with `0x80048415`). Changing to another operator clears it.
+  - **Which entities are offered.** The docs show the documented same-row and link-entity-alias cases; the picker offers only those, plus what was verified to work from where the condition is:
+    - the root entity by its logical name;
+    - from the root entity's filters: any joined link-entity alias;
+    - from a link-entity's filter: only link-entities joined before it (its own children and later link-entities fail with `0x80040216`).
+    - A link-entity name without an alias, or a link-entity inside a filter, is never offered.
+  - **Which attributes are offered.** The docs say "the same type". FetchXML Studio offers the same type plus the pairs verified to work, with all six operators: Integer / option set / status / state / entity name; Decimal / Money; Lookup / Customer / Owner / unique identifier; String / Memo; Boolean / managed property; DateTime (any behaviour).
+    - Verified with a live matrix over every Advanced Find attribute type: about 2,000 queries, including calculated, rollup, composite and date-only attributes.
+    - Pairs across these groups fail (`0x80040203`), so they aren't offered.
+    - Multi-select option sets, and any type that wasn't verified, aren't offered at all.
+- **Conditions on a link-entity attribute (`entityname`) load that entity's metadata (#94).** Numeric limits and date-only rules previously came from the wrong entity.
+- **Switching a link-entity to not any / not all no longer deletes its filters and nested link-entities (#86).**
+  - Those filters are what these types evaluate.
+  - Switching to any type that returns no attributes (exists, in, any, not any, all, not all) now lists the attributes, all-attributes and sorts that Dataverse would reject, and asks before removing them.
+  - The tree disables adding attributes and sorts to those link-entities, and **Add Columns** creates a new link-entity instead of adding to one of them.
+- **From / To on a link-entity are no longer marked required.** The docs say they're optional; the panel now explains what Dataverse does when one or both are missing.
+- **Intersect** is described correctly: it only signals intent and doesn't change how the query runs.
+- **"Visible in Results" couldn't be turned off.** `visible` isn't in the FetchXML reference, and Dataverse ignores it (verified). It's shown only when present, with a Remove button.
+- **The condition "Aggregate function" option is gone.** Dataverse ignores `aggregate` on a condition and runs it as a plain row condition (verified): FetchXML can't filter on aggregate values. Parsed queries keep it, with a note and a Remove button.
+- The serializer now escapes condition `attribute`, `entityname` and `valueof` values.
+- Removed a leftover "Export not yet implemented" console fallback.
+
+### 🔍 New checks
+
+Each check was verified against a live Dataverse org.
+- **Errors:**
+  - `top` with `count`, `page` or `returntotalrecordcount` (moved from the parser to the query rules, so the panel shows it on the field);
+  - `page` below 1;
+  - `valueof` with an unsupported operator (`0x80048415`), or with a qualifier the condition can't reach: not a joined link-entity alias or the root entity, or a link-entity joined after the one whose filter holds the condition (`0x80040216`);
+  - a link-entity inside a filter that isn't any / not any / all / not all (`0x8004111c`);
+  - attributes, all-attributes or orders inside an exists, in, any, not any, all or not all link-entity (`0x80041121`).
+- **Notes (never block):** condition `aggregate`, link-entity `visible`, and `valueof` on operators that take no value.
+
+### 🏗️ Technical
+
+- Shared panel building blocks: `fields.tsx` (`InfoField`, `InfoCheckbox`, `NumberField`, `LeftoverSetting`), `docLinks.ts`, `editorStyles.ts`, `ruleFindings.ts` and `useEditorMetadata.ts`.
+- `aggregateToggle.ts` plans what turning off aggregate changes; `treeUtils.ts` adds `findNodeContainer`, `collectAllLinkEntities`, `collectAllFilters` and `findOrdersUsingAlias`.
+- Metadata: `IsRetentionEnabled`, `IsLogical` and `IsPrimaryId` are read, and hierarchical entities are detected from their relationships (cached).
+- `attributeCapabilities.ts` adds `getValueOfCompatibleTypes`; `fetchxmlRules.ts` exports `VALUEOF_OPERATORS`, `FILTER_LINK_TYPES`, `NON_RETURNING_LINK_TYPES` and `joinedLinkAliases`.
+
 ## [1.4.1-beta.8] - 2026-10-14
 
 ### 🔧 Fixed

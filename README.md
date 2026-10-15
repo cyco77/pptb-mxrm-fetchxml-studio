@@ -13,7 +13,11 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 
 ### 🔧 Visual Query Builder
 - **Tree-based hierarchy** — Build FetchXML queries visually with entities, attributes, filters, orders, and link-entities
-- **Smart property editors** — Context-aware panels for each node type (fetch options, conditions, relationships)
+- **Property panel for every node** — Fetch options, entity, attributes, all-attributes, sorts, filters, conditions and link-entities each have an editor covering the full FetchXML reference. Every field explains itself in an info popover with a link to Microsoft Learn.
+  - **Metadata-driven** — Attribute pickers, operators, value pickers, aggregate functions, date grouping, sortable attributes and compare-to-attribute choices follow each attribute's metadata, so the panel only offers what Dataverse accepts.
+  - **Shows problems where they are** — Rule errors appear on the field they're about and as an **Error** badge in the tree; settings Dataverse ignores are listed with a **Remove** button.
+  - **Tree badges** — Aggregate, Distinct, Retained and Hints on the query; Group by, date grouping and aggregate functions on attributes; Union and Quick find on filters.
+  - **Safe mode changes** — Turning off aggregate, or switching a link-entity to a type that returns no attributes, lists what has to change and asks first.
 - **Full FetchXML support** — Aggregate queries, grouping, distinct, top/count, paging, and advanced hints
 - **Nested filters** — Create complex AND/OR filter groups with unlimited nesting
 - **Link-entity relationships** — Browse and add 1:N, N:1, and N:N relationships with inner/outer joins; N:N relationships join through their intersect entity, as documented
@@ -44,9 +48,13 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
   - `aggregatelimit` combined with an order;
   - duplicate aliases;
   - an invalid union hint;
-  - misuse of `rowaggregate`.
+  - misuse of `rowaggregate`;
+  - `top` together with `count`, `page` or `returntotalrecordcount`, and `page` below 1;
+  - comparing to another attribute (`valueof`) with an operator other than eq, ne, gt, ge, lt or le, or through a link-entity without an alias;
+  - a link-entity inside a filter whose type isn't any / not any / all / not all;
+  - attributes, all-attributes or orders in an exists, in, any, not any, all or not all link-entity.
 
-  Settings Dataverse accepts but ignores (such as `aggregatelimit` on a non-aggregate query) are shown as notes only.
+  Settings Dataverse accepts but ignores (such as `aggregatelimit` on a non-aggregate query, `aggregate` on a condition, which FetchXML can't use to filter on aggregate values, or `visible` on a link-entity) are shown as notes only.
 - **Boolean spellings** — `"1"`/`"0"` and other spellings Dataverse accepts are read correctly (e.g. `usertimezone="1"`, `descending="1"`, `enableprefiltering="1"`), so Parse to Tree never flips or drops them.
 - **Lossless Parse to Tree** — Every attribute in the FetchXML reference is kept, including `datasource`, `aggregatelimit`, `useraworderby`, query hints (`options`), `latematerialize`, `<order alias>`, `distinct` counts, `rowaggregate` and quick find flags. So are unknown, namespaced and legacy attributes (e.g. `xmlns:generator` from SQL 4 CDS, `version`/`mapping` from Advanced Find, `uiname`/`uitype` from saved views). Every FetchXML example in the Microsoft Learn FetchXML articles round-trips without loss.
 - **No silent changes** — If Parse to Tree must correct something Dataverse would reject (for example an invalid alias), a confirmation dialog lists every change first
@@ -243,7 +251,8 @@ src/
 │   │   ├── fetchxml.ts           # FetchXML XML generation
 │   │   ├── fetchxmlParser.ts     # FetchXML XML → node tree parser (severity-classified findings)
 │   │   ├── fetchxmlRules.ts      # Query-level rules shared by the parser and editors
-│   │   ├── attributeCapabilities.ts # What each attribute type supports (sort, group by, aggregates)
+│   │   ├── attributeCapabilities.ts # What each attribute type supports (sort, group by, aggregates, valueof)
+│   │   ├── aggregateToggle.ts    # What turning off an aggregate query changes
 │   │   ├── fetchxmlIntellisense.ts # Intellisense / autocomplete helpers
 │   │   ├── layoutxml.ts          # LayoutXML generation
 │   │   ├── operators.ts          # Operator definitions by attribute type
@@ -260,7 +269,11 @@ src/
 │   └── ui/
 │       ├── LeftPane/             # Tree view + context-aware properties panel
 │       │   └── PropertiesPanel/
-│       │       └── editors/      # Node-specific property editors
+│       │       ├── editors/      # One editor per node type
+│       │       ├── fields.tsx    # InfoField, InfoCheckbox, NumberField, LeftoverSetting
+│       │       ├── docLinks.ts   # Microsoft Learn links used by the info popovers
+│       │       ├── ruleFindings.ts # Rule findings → field validation
+│       │       └── useEditorMetadata.ts # Attribute / entity metadata hooks
 │       ├── RightPane/            # Monaco editor, LayoutXML viewer, results grid,
 │       │                         # code generation panel, Power Automate pane
 │       ├── Toolbar/              # Entity selector, load view picker, save button,
@@ -290,7 +303,7 @@ src/
 | All condition operators | ✅ |
 | Link-entity (joins) | ✅ |
 | Inner/outer joins | ✅ |
-| N:N relationships | ✅ |
+| N:N relationships (through the intersect entity) | ✅ |
 | Orders (sorting) | ✅ |
 | Multi-column sort | ✅ |
 | Aggregate queries | ✅ |
@@ -389,7 +402,6 @@ This project follows [Conventional Commits](https://www.conventionalcommits.org/
 - [ ] Import/export query definitions (JSON)
 - [ ] Quick query templates
 - [ ] Query history
-- [ ] Web API code generation
 - [ ] Query performance insights
 - [ ] Syntax validation in Monaco
 

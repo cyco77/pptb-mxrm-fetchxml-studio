@@ -228,15 +228,14 @@ function generateCondition(condition: ConditionNode, indent: number): string[] {
 	const spaces = "  ".repeat(indent);
 
 	const attrs: string[] = [
-		`attribute="${condition.attribute}"`,
+		`attribute="${escapeXml(condition.attribute)}"`,
 		`operator="${condition.operator}"`,
 	];
 
-	if (condition.entityname) attrs.push(`entityname="${condition.entityname}"`);
+	if (condition.entityname) attrs.push(`entityname="${escapeXml(condition.entityname)}"`);
 	if (condition.aggregate && AGGREGATES.has(condition.aggregate))
 		attrs.push(`aggregate="${condition.aggregate}"`);
-	// Note: ConditionNode doesn't have alias in our type definition
-	if (condition.valueof) attrs.push(`valueof="${condition.valueof}"`);
+	if (condition.valueof) attrs.push(`valueof="${escapeXml(condition.valueof)}"`);
 	attrs.push(...extraAttrs(condition.extraAttributes));
 
 	// Use the centralized operator logic to determine if value is needed

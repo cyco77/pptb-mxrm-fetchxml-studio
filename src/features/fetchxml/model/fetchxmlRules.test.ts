@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { parseFetchXml, getExecutionErrors, type ParseWarning } from "./fetchxmlParser";
+import { validateQueryRules } from "./fetchxmlRules";
 
 const SU = (inner: string, fetchAttrs = "") => `<fetch${fetchAttrs}><entity name="systemuser">${inner}</entity></fetch>`;
 const CNT = `<attribute name="systemuserid" alias="n" aggregate="count" />`;
@@ -34,6 +35,8 @@ describe("accepted by Dataverse → no errors", () => {
 		["row aggregate next to the same attribute without alias (Learn)", `<fetch><entity name="account"><attribute name="accountid" /><attribute name="accountid" rowaggregate="CountChildren" alias="AccountChildren" /></entity></fetch>`],
 		["union hint on an or-filter", SU(`<attribute name="fullname" /><filter type="or" hint="union"><condition attribute="isdisabled" operator="eq" value="0" /><condition attribute="isdisabled" operator="eq" value="1" /></filter>`)],
 		["quick find with one override", SU(`<attribute name="fullname" /><filter type="or" isquickfindfields="1" overridequickfindrecordlimitdisabled="1"><condition attribute="fullname" operator="like" value="a%" /></filter>`)],
+		["count + page + returntotalrecordcount (paging without top)", SU(`<attribute name="fullname" /><order attribute="fullname" />`, ` count="3" page="2" returntotalrecordcount="true"`)],
+		["top alone", SU(`<attribute name="fullname" />`, ` top="5"`)],
 		["alias equal to a link-entity alias", SU(`<attribute name="fullname" alias="bu" />${BU(`<attribute name="name" />`)}`)],
 	])("%s", (_label, xml) => {
 		expect(errorsOf(xml)).toEqual([]);
@@ -68,6 +71,10 @@ describe("rejected by Dataverse → error", () => {
 		["same alias on root and link attributes (0x80041130)", SU(`<attribute name="fullname" alias="x" />${BU(`<attribute name="name" alias="x" />`)}`), "0x80041130"],
 		["alias equal to another root attribute's logical name (0x80041130)", SU(`<attribute name="fullname" alias="domainname" /><attribute name="domainname" />`), "0x80041130"],
 		["duplicate link-entity alias (0x80041130)", SU(`<attribute name="fullname" />${BU(`<attribute name="name" />`)}${BU(`<attribute name="name" />`)}`), "0x80041130"],
+		["top with count (0x80040203)", SU(`<attribute name="fullname" />`, ` top="5" count="3"`), "0x80040203"],
+		["top with page (0x80040203)", SU(`<attribute name="fullname" />`, ` top="5" page="2"`), "0x80040203"],
+		["top with returntotalrecordcount (0x80040203)", SU(`<attribute name="fullname" />`, ` top="5" returntotalrecordcount="true"`), "0x80040203"],
+		["page 0 (0x80040203)", SU(`<attribute name="fullname" />`, ` count="3" page="0"`), "Page number"],
 		["descending='True' (0x80041119)", SU(`<attribute name="fullname" /><order attribute="fullname" descending="True" />`), "0x80041119"],
 	])("%s", (_label, xml, needle) => {
 		const errors = errorsOf(xml);
@@ -95,6 +102,128 @@ describe("accepted but ignored → info only", () => {
 		const warnings = warningsOf(xml);
 		expect(getExecutionErrors({ warnings })).toEqual([]);
 		expect(warnings.some((w) => w.severity === "info" && w.attribute === attribute)).toBe(true);
+	});
+});
+
+describe("condition aggregate (verified ignored: no HAVING in FetchXML)", () => {
+	it("is kept, reported as ignored on the condition node, and never blocks Execute", () => {
+		const xml = SU(`<attribute name="businessunitid" alias="b" groupby="true" />${CNT}<filter><condition attribute="systemuserid" aggregate="count" operator="ne" value="11111111-1111-1111-1111-111111111111" /></filter>`, ` aggregate="true"`);
+		const parsed = parseFetchXml(xml);
+		const condition = parsed.fetchNode!.entity.filters[0].conditions[0];
+		expect(condition.aggregate).toBe("count");
+		expect(getExecutionErrors(parsed)).toEqual([]);
+		const finding = validateQueryRules(parsed.fetchNode!).find((f) => f.element === "condition");
+		expect(finding).toMatchObject({ attribute: "aggregate", severity: "info", kind: "ignored", nodeId: condition.id });
+	});
+});
+
+describe("valueof (filter-rows limitations, verified live 2026-10-14)", () => {
+	const CT = (filter: string, links = "") =>
+		`<fetch top="1"><entity name="contact"><attribute name="fullname" /><filter>${filter}</filter>${links}</entity></fetch>`;
+	const ACCT = (inner = "", alias = ` alias="acct"`) =>
+		`<link-entity name="account" from="accountid" to="parentcustomerid" link-type="outer"${alias}>${inner}</link-entity>`;
+	const valueofFindings = (xml: string) =>
+		validateQueryRules(parseFetchXml(xml).fetchNode!).filter((f) => f.attribute === "valueof");
+
+	it.each([
+		["eq in the same row", CT(`<condition attribute="firstname" operator="eq" valueof="lastname" />`)],
+		["ge on dates", CT(`<condition attribute="modifiedon" operator="ge" valueof="createdon" />`)],
+		["a joined link-entity alias", CT(`<condition attribute="fullname" operator="eq" valueof="acct.name" />`, ACCT())],
+		["a nested link-entity alias", CT(`<condition attribute="fullname" operator="eq" valueof="pc.fullname" />`, ACCT(`<link-entity name="contact" from="contactid" to="primarycontactid" link-type="outer" alias="pc" />`))],
+		["the root entity's name", CT(`<condition attribute="firstname" operator="eq" valueof="contact.lastname" />`)],
+	])("accepted: %s", (_label, xml) => {
+		expect(valueofFindings(xml)).toEqual([]);
+	});
+
+	it.each([
+		["like (0x80048415)", CT(`<condition attribute="firstname" operator="like" valueof="lastname" />`)],
+		["begins-with (0x80048415)", CT(`<condition attribute="firstname" operator="begins-with" valueof="lastname" />`)],
+		["on-or-after (0x80048415)", CT(`<condition attribute="modifiedon" operator="on-or-after" valueof="createdon" />`)],
+		["a link-entity name without alias (0x80040216)", CT(`<condition attribute="fullname" operator="eq" valueof="account.name" />`, ACCT("", ""))],
+		["an unknown qualifier (0x80040216)", CT(`<condition attribute="firstname" operator="eq" valueof="zz.lastname" />`)],
+		["an alias in a different case (0x80040216)", CT(`<condition attribute="fullname" operator="eq" valueof="ACCT.name" />`, ACCT())],
+		["the alias of a link-entity inside a filter (0x80040216)", CT(`<condition attribute="fullname" operator="eq" valueof="x.name" /><link-entity name="account" from="primarycontactid" to="contactid" link-type="any" alias="x" />`)],
+	])("rejected: %s", (_label, xml) => {
+		const findings = valueofFindings(xml);
+		expect(findings.some((f) => f.severity === "error")).toBe(true);
+	});
+
+	describe("reach by where the condition is (verified live 2026-10-15)", () => {
+		const c = (attr: string, valueof: string) => `<filter><condition attribute="${attr}" operator="eq" valueof="${valueof}" /></filter>`;
+		const PC = (f = "") => `<link-entity name="contact" from="contactid" to="primarycontactid" link-type="outer" alias="pc">${f}</link-entity>`;
+		const ACCT = (f = "", child = "") => `<link-entity name="account" from="accountid" to="parentcustomerid" link-type="outer" alias="acct">${f}${child}</link-entity>`;
+		const OWN = (f = "") => `<link-entity name="systemuser" from="systemuserid" to="owninguser" link-type="outer" alias="own">${f}</link-entity>`;
+		const Q = (links: string, rootFilter = "") => `<fetch top="3"><entity name="contact"><attribute name="fullname" />${rootFilter}${links}</entity></fetch>`;
+		const anyLink = (type: string, inner: string) => `<filter><link-entity name="account" from="primarycontactid" to="contactid" link-type="${type}" alias="x">${inner}</link-entity></filter>`;
+
+		it.each([
+			["root filter → nested alias", Q(ACCT("", PC()) + OWN(), c("fullname", "pc.fullname"))],
+			["root filter, entityname acct → root name", Q(ACCT("", PC()), `<filter><condition entityname="acct" attribute="name" operator="eq" valueof="contact.fullname" /></filter>`)],
+			["root filter, entityname acct → other alias", Q(ACCT() + OWN(), `<filter><condition entityname="acct" attribute="name" operator="eq" valueof="own.fullname" /></filter>`)],
+			["link filter → its own alias", Q(ACCT(c("name", "acct.accountnumber")))],
+			["link filter → root name", Q(ACCT(c("name", "contact.fullname")))],
+			["nested link filter → parent alias", Q(ACCT("", PC(c("fullname", "acct.name"))))],
+			["link filter → earlier sibling", Q(ACCT() + OWN(c("fullname", "acct.name")))],
+			["link filter → descendant of an earlier sibling", Q(ACCT("", PC()) + OWN(c("fullname", "pc.fullname")))],
+			["any filter in the root → any joined alias", Q(ACCT() + OWN(), anyLink("any", c("name", "own.fullname")))],
+			["all filter in the root → root name", Q(ACCT(), anyLink("all", c("name", "contact.fullname")))],
+			["any filter inside acct's filter → acct", Q(ACCT(`<filter><link-entity name="contact" from="parentcustomerid" to="accountid" link-type="any">${c("fullname", "acct.name")}</link-entity></filter>`) + OWN())],
+		])("accepted: %s", (_label, xml) => expect(valueofFindings(xml)).toEqual([]));
+
+		it.each([
+			["link filter → its child", Q(ACCT(c("name", "pc.fullname"), PC()))],
+			["link filter → later sibling", Q(ACCT(c("name", "own.fullname")) + OWN())],
+			["nested link filter → later uncle", Q(ACCT("", PC(c("fullname", "own.fullname"))) + OWN())],
+			["any filter inside acct's filter → later alias", Q(ACCT(`<filter><link-entity name="contact" from="parentcustomerid" to="accountid" link-type="any">${c("fullname", "own.fullname")}</link-entity></filter>`) + OWN())],
+			["filter link's own alias", Q("", anyLink("any", c("name", "x.accountnumber")))],
+		])("rejected (0x80040216): %s", (_label, xml) => {
+			expect(valueofFindings(xml).some((f) => f.severity === "error")).toBe(true);
+		});
+	});
+
+	it("is ignored by operators that take no value (null + valueof ran fine)", () => {
+		const findings = valueofFindings(CT(`<condition attribute="firstname" operator="null" valueof="zz.lastname" />`));
+		expect(findings).toHaveLength(1);
+		expect(findings[0]).toMatchObject({ severity: "info", kind: "ignored" });
+	});
+});
+
+describe("link-type by placement (verified live 2026-10-14)", () => {
+	const F = `<filter><condition attribute="name" operator="not-null" /></filter>`;
+	const JOINED = (lt: string, inner = F) =>
+		`<fetch top="3"><entity name="contact"><attribute name="fullname" /><link-entity name="account" from="primarycontactid" to="contactid" link-type="${lt}" alias="a">${inner}</link-entity></entity></fetch>`;
+	const IN_FILTER = (lt: string, inner = F) =>
+		`<fetch top="3"><entity name="contact"><attribute name="fullname" /><filter><link-entity name="account" from="primarycontactid" to="contactid" link-type="${lt}" alias="a">${inner}</link-entity></filter></entity></fetch>`;
+	const linkErrors = (xml: string) =>
+		validateQueryRules(parseFetchXml(xml).fetchNode!).filter((f) => f.element === "link-entity" && f.severity === "error");
+
+	it.each(["inner", "outer", "exists", "in", "matchfirstrowusingcrossapply", "any", "not any", "all", "not all"])(
+		"joined %s is accepted",
+		(lt) => expect(linkErrors(JOINED(lt))).toEqual([]),
+	);
+	it.each(["any", "not any", "all", "not all"])("%s inside a filter is accepted", (lt) =>
+		expect(linkErrors(IN_FILTER(lt))).toEqual([]),
+	);
+	it.each(["inner", "outer", "exists", "in", "matchfirstrowusingcrossapply"])(
+		"%s inside a filter is rejected (0x8004111c)",
+		(lt) => expect(linkErrors(IN_FILTER(lt))).toHaveLength(1),
+	);
+	it.each([
+		["exists + attribute", JOINED("exists", `<attribute name="name" />`)],
+		["in + attribute", JOINED("in", `<attribute name="name" />`)],
+		["any + all-attributes", JOINED("any", `<all-attributes />`)],
+		["not any + order", IN_FILTER("not any", `<order attribute="name" />${F}`)],
+		["all + attribute", IN_FILTER("all", `<attribute name="name" />${F}`)],
+	])("%s is rejected (0x80041121)", (_label, xml) => expect(linkErrors(xml)).toHaveLength(1));
+	it.each([
+		["inner + attribute", JOINED("inner", `<attribute name="name" />`)],
+		["outer + attribute", JOINED("outer", `<attribute name="name" />`)],
+		["matchfirstrowusingcrossapply + attribute", JOINED("matchfirstrowusingcrossapply", `<attribute name="name" />`)],
+		["exists + nested link-entity", JOINED("exists", `<link-entity name="account" from="accountid" to="parentcustomerid" alias="b" />`)],
+	])("%s is accepted", (_label, xml) => expect(linkErrors(xml)).toEqual([]));
+	it("visible is reported as ignored, never an error", () => {
+		const findings = validateQueryRules(parseFetchXml(JOINED("inner", `<attribute name="name" />`).replace(`alias="a"`, `alias="a" visible="false"`)).fetchNode!);
+		expect(findings.find((f) => f.attribute === "visible")).toMatchObject({ severity: "info", kind: "ignored" });
 	});
 });
 
