@@ -2,7 +2,7 @@
 
 A powerful, modern FetchXML query builder and data explorer for [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app). Inspired by the XrmToolBox FetchXML Builder, reimagined with React 18, Fluent UI v9, and seamless Dataverse integration.
 
-![Version](https://img.shields.io/badge/version-1.4.1--beta.7-blue)
+![Version](https://img.shields.io/badge/version-1.4.1--beta.8-blue)
 [![npm](https://img.shields.io/npm/v/@mohsinonxrm/pptb-fetchxml-studio?label=npm)](https://www.npmjs.com/package/@mohsinonxrm/pptb-fetchxml-studio)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
@@ -150,8 +150,8 @@ FetchXML Studio is available as a tool in Power Platform ToolBox. Install it fro
 git clone https://github.com/mohsinonxrm/pptb-mxrm-fetchxml-studio.git
 cd pptb-mxrm-fetchxml-studio
 
-# Install dependencies
-npm install
+# Install the exact dependency versions from package-lock.json
+npm ci
 
 # Start development server
 npm run dev
@@ -172,6 +172,10 @@ npm run validate
 # Finalize for publishing (validate + build)
 npm run finalize-package
 ```
+
+**Tool icon.** `package.json` points `icon` at `icons/icon.svg` under `dist/`, where Power Platform ToolBox looks for it. The build bundles `icons/icon-insider.svg` (gold stamp) for prerelease versions such as `1.4.1-beta.8`, and `icons/icon.svg` for releases.
+
+**Dependencies.** `package-lock.json` is committed and pins every dependency with an integrity hash. Use `npm ci` for a clean install. After changing dependencies, run `npm install` and commit the updated lockfile.
 
 ### Testing
 
