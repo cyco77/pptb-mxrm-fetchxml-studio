@@ -31,6 +31,8 @@ export interface EntityMetadata {
 	IsValidForAdvancedFind?: boolean;
 	MetadataId: string;
 	ObjectTypeCode: number;
+	/** Lower-case collection name; routes when a few system entities' EntitySetName doesn't (#61) */
+	LogicalCollectionName?: string;
 }
 
 export interface AttributeMetadata {
@@ -488,8 +490,47 @@ export async function getEntityRelationships(
 }
 
 /**
+ * Root <entity> logical name of a FetchXML string, or undefined when it can't be determined
+ * (malformed XML is left for Dataverse to report).
+ */
+export function getFetchXmlEntityName(fetchXml: string): string | undefined {
+	const doc = new DOMParser().parseFromString(fetchXml, "text/xml");
+	if (doc.getElementsByTagName("parsererror").length > 0) return undefined;
+	const root = doc.documentElement;
+	if (root?.nodeName !== "fetch") return undefined;
+	for (const child of Array.from(root.children)) {
+		if (child.nodeName === "entity") return child.getAttribute("name") || undefined;
+	}
+	return undefined;
+}
+
+/**
+ * EntitySetName from metadata (cached) for the FetchXML's root entity (#61). Microsoft: the entity
+ * set name must be the one for the table in the FetchXML entity element. The host's fetchXmlQuery
+ * guesses it with an English pluralizer, which fails for entities such as `feedback` (verified live).
+ */
+async function resolveFetchXmlEntitySet(
+	fetchXml: string,
+): Promise<{ entitySetName: string; logicalCollectionName?: string } | undefined> {
+	const logicalName = getFetchXmlEntityName(fetchXml);
+	if (!logicalName) return undefined;
+	let metadata = metadataCache.getEntityMetadata(logicalName);
+	if (!metadata) {
+		metadata = await getEntityMetadata(logicalName);
+		metadataCache.setEntityMetadata(logicalName, metadata);
+	}
+	if (!metadata.EntitySetName) return undefined;
+	return { entitySetName: metadata.EntitySetName, logicalCollectionName: metadata.LogicalCollectionName };
+}
+
+/** Dataverse's answer when the URL's entity set segment doesn't exist (0x80060888). */
+const isUnknownSegmentError = (error: unknown) =>
+	error instanceof Error && /Resource not found for the segment/i.test(error.message);
+
+/**
  * Execute FetchXML query with formatted values
  * Formatted values are returned with @OData.Community.Display.V1.FormattedValue annotations
+ * @see https://learn.microsoft.com/en-us/power-apps/developer/data-platform/fetchxml/retrieve-data?tabs=webapi
  */
 export async function executeFetchXml(fetchXml: string): Promise<FetchXmlResult> {
 	if (!isDataverseAvailable()) {
@@ -499,9 +540,32 @@ export async function executeFetchXml(fetchXml: string): Promise<FetchXmlResult>
 	debugLog("fetchXmlAPI", `📡 Executing FetchXML query...`);
 	debugLog("fetchXmlAPI", `FetchXML:\n${fetchXml}`);
 
-	const result = (await window.dataverseAPI!.fetchXmlQuery(
-		fetchXml,
-	)) as unknown as DataverseFetchXmlResponse;
+	// queryData sends the same request as fetchXmlQuery (GET with Prefer: odata.include-annotations="*"),
+	// but with the metadata EntitySetName. fetchXmlQuery is only the fallback when metadata is unavailable.
+	let entitySet: Awaited<ReturnType<typeof resolveFetchXmlEntitySet>>;
+	try {
+		entitySet = await resolveFetchXmlEntitySet(fetchXml);
+	} catch (error) {
+		console.warn("executeFetchXml: entity set name lookup failed, using fetchXmlQuery:", error);
+	}
+
+	const query = (set: string) =>
+		window.dataverseAPI!.queryData(`${set}?fetchXml=${encodeURIComponent(fetchXml)}`);
+	let response: unknown;
+	if (!entitySet) {
+		response = await window.dataverseAPI!.fetchXmlQuery(fetchXml);
+	} else {
+		try {
+			response = await query(entitySet.entitySetName);
+		} catch (error) {
+			// A few system entities (e.g. archivecleanupinfo) report an EntitySetName the service doesn't
+			// route; their LogicalCollectionName does (verified live). Retry once with it.
+			const fallback = entitySet.logicalCollectionName;
+			if (!fallback || fallback === entitySet.entitySetName || !isUnknownSegmentError(error)) throw error;
+			response = await query(fallback);
+		}
+	}
+	const result = response as DataverseFetchXmlResponse;
 
 	// Log the raw response to console for inspection
 	console.log("🔍 Raw FetchXML Response:", result);
