@@ -4,7 +4,7 @@
  */
 
 import { useReducer, type ReactNode } from "react";
-import { BuilderContext, type BuilderContextValue } from "./builderContext";
+import { BuilderContext, type BuilderContextValue, type LoadFetchXmlOptions } from "./builderContext";
 import type {
 	FetchNode,
 	EntityNode,
@@ -97,7 +97,12 @@ type BuilderAction =
 	| { type: "REMOVE_NODE"; nodeId: NodeId }
 	| { type: "UPDATE_NODE"; nodeId: NodeId; updates: Record<string, unknown> }
 	| { type: "NEW_QUERY" }
-	| { type: "LOAD_FETCHXML"; fetchNode: FetchNode }
+	| {
+			type: "LOAD_FETCHXML";
+			fetchNode: FetchNode;
+			/** Keep the current column layout and merge new attributes into it (editor sync, #102) */
+			preserveLayout?: boolean;
+	  }
 	| { type: "LOAD_VIEW"; fetchNode: FetchNode; viewInfo: LoadedViewState; layoutXml?: string }
 	| { type: "CLEAR_LOADED_VIEW" }
 	| {
@@ -347,15 +352,17 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
 			// Load a pre-parsed FetchNode tree (from parser or editor)
 			// This clears loadedView since it's a manual load, not from a saved view
 			const fetchNode = action.fetchNode;
-			// Generate initial layout from the FetchXML
-			const newConfig = generateLayoutFromFetchXml(fetchNode);
+			// Editor sync keeps the user's column widths and order; the layout is merged with the
+			// new attributes afterwards. Otherwise generate the initial layout from the FetchXML.
+			const keepLayout = action.preserveLayout === true && state.columnConfig !== null;
+			const newConfig = keepLayout ? state.columnConfig : generateLayoutFromFetchXml(fetchNode);
 			return {
 				fetchQuery: fetchNode,
 				selectedNodeId: fetchNode.entity.id,
 				selectedNode: fetchNode.entity,
 				loadedView: null, // Clear view info - this was manual edit
 				columnConfig: newConfig,
-				layoutNeedsSync: false,
+				layoutNeedsSync: keepLayout,
 				retrieveAllRecords: state.retrieveAllRecords, // Preserve execution option
 			};
 		}
@@ -1107,10 +1114,14 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
 		updateNode: (nodeId: NodeId, updates: Record<string, unknown>) =>
 			dispatch({ type: "UPDATE_NODE", nodeId, updates }),
 		newQuery: () => dispatch({ type: "NEW_QUERY" }),
-		loadFetchXml: (xmlString: string): ParseResult => {
+		loadFetchXml: (xmlString: string, options?: LoadFetchXmlOptions): ParseResult => {
 			const result = parseFetchXml(xmlString);
 			if (result.success && result.fetchNode) {
-				dispatch({ type: "LOAD_FETCHXML", fetchNode: result.fetchNode });
+				dispatch({
+					type: "LOAD_FETCHXML",
+					fetchNode: result.fetchNode,
+					preserveLayout: options?.preserveLayout,
+				});
 			}
 			return result;
 		},

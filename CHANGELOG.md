@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.7] - 2026-10-14
+
+### 🔧 Fixed
+
+- **Editor mode: actions now run exactly what's in the editor (#102).** In editor mode, **Execute**, **Save / Save As** and **Send to Tool** first load the editor's FetchXML into the tree, then act on the tree.
+  - **What went wrong before:**
+    - Execute ran the editor XML, but the results grid took its columns, layout, entity and record actions from the tree. With a different query in the editor, you saw the tree's (often empty) columns.
+    - Save As and Send to Tool silently used the tree's XML, not the editor's.
+    - Execute, Save As and Send to Tool were disabled while the tree was empty, even with a valid query in the editor.
+  - **Now:**
+    - Execute is enabled as soon as the editor has content.
+    - The tree always matches what ran, was saved or was sent, so the results grid, column picker, sorting and record actions all match too.
+    - Editor mode stays on, and your column widths and order are kept. Your text is kept as typed, unless loading changed the query; then the editor shows the cleaned FetchXML that ran, with an "Editor updated" note.
+    - When the editor already matches the tree, nothing is reloaded.
+  - **No silent changes:** if loading into the tree would change the query (for example, dropping a second `<entity>`), a confirmation lists the changes first ("Load and execute" / "Load and save" / "Load and send"). Invalid FetchXML is reported and nothing runs. Cancel leaves the editor and tree untouched.
+  - Loading a different query clears the loaded-view link, as any tree edit does, so Save then saves a new view.
+- **Results are no longer cleared by a fast response** that arrives before the tree update is rendered.
+
+### 🏗️ Technical
+
+- `editorSync.ts`: a context that lets toolbar buttons rendered inside the results/editor pane ask it to sync before acting.
+- `ParseChangesDialog.tsx`: the Parse to Tree confirmation, shared by Parse to Tree and the editor-mode actions.
+- `loadFetchXml(xml, { preserveLayout })` keeps the current column layout and merges new attributes into it.
+
 ## [1.4.1-beta.6] - 2026-10-14
 
 ### 🔧 Fixed

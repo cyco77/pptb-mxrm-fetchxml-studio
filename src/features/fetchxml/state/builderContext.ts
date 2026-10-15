@@ -9,6 +9,11 @@ import type { LayoutXmlConfig } from "../model/layoutxml";
 import type { ParseResult } from "../model/fetchxmlParser";
 import type { BuilderState, ViewLoadInfo } from "./builderStore";
 
+export interface LoadFetchXmlOptions {
+	/** Keep the current column layout, merging new attributes into it (editor sync, #102) */
+	preserveLayout?: boolean;
+}
+
 export interface BuilderContextValue extends BuilderState {
 	setEntity: (entityName: string) => void;
 	selectNode: (nodeId: NodeId) => void;
@@ -35,7 +40,7 @@ export interface BuilderContextValue extends BuilderState {
 	removeNode: (nodeId: NodeId) => void;
 	updateNode: (nodeId: NodeId, updates: Record<string, unknown>) => void;
 	newQuery: () => void;
-	loadFetchXml: (xmlString: string) => ParseResult;
+	loadFetchXml: (xmlString: string, options?: LoadFetchXmlOptions) => ParseResult;
 	/** Load a view's FetchXML while preserving view info for execution optimization */
 	loadView: (xmlString: string, viewInfo: ViewLoadInfo, layoutXml?: string) => ParseResult;
 	/** Clear the loaded view info (called when FetchXML is manually edited) */

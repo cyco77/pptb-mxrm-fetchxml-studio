@@ -4,7 +4,7 @@
  * - Editor mode: Editable with Paste, Load File, Reset, Validate, Parse to Tree buttons
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Editor from "@monaco-editor/react";
 import type * as MonacoEditor from "monaco-editor";
 import {
@@ -22,14 +22,6 @@ import {
 	MessageBarTitle,
 	MessageBarActions,
 	MessageBarGroup,
-	Dialog,
-	DialogSurface,
-	DialogBody,
-	DialogTitle,
-	DialogContent,
-	DialogActions,
-	Body1,
-	Body1Strong,
 } from "@fluentui/react-components";
 import {
 	Copy24Regular,
@@ -50,6 +42,7 @@ import {
 } from "../../model/fetchxmlParser";
 import type { ParseResult, ParseWarning } from "../../model/fetchxmlParser";
 import { ParseIssueList, type ParseIssueItem } from "./ParseIssueList";
+import { ParseChangesDialog } from "./ParseChangesDialog";
 import {
 	registerFetchXmlIntellisense,
 	registerFetchXmlHoverProvider,
@@ -104,11 +97,6 @@ const useStyles = makeStyles({
 		fontSize: tokens.fontSizeBase200,
 		fontWeight: tokens.fontWeightSemibold,
 	},
-	dialogContent: {
-		display: "flex",
-		flexDirection: "column",
-		gap: tokens.spacingVerticalM,
-	},
 });
 
 interface Message {
@@ -131,9 +119,19 @@ interface FetchXmlEditorProps {
 	 * `isActive=true` means editor mode is on; `xml` is the current editor content.
 	 */
 	onEditorStateChange?: (isActive: boolean, xml: string) => void;
+	/**
+	 * Replace the editor buffer (editor mode only), e.g. after an editor-mode action loaded the
+	 * FetchXML into the tree and the tree changed it (#102). A new `id` triggers the replacement.
+	 */
+	replaceRequest?: { xml: string; id: number } | null;
 }
 
-export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: FetchXmlEditorProps) {
+export function FetchXmlEditor({
+	xml,
+	onParseToTree,
+	onEditorStateChange,
+	replaceRequest,
+}: FetchXmlEditorProps) {
 	const styles = useStyles();
 	const { isDark } = useTheme();
 	const editorRef = useRef<MonacoEditor.editor.IStandaloneCodeEditor | null>(null);
@@ -176,6 +174,20 @@ export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: Fetc
 	const clearMessages = useCallback(() => {
 		setMessages([]);
 	}, []);
+
+	// Show what the tree loaded when an editor-mode action changed the query (#102)
+	useEffect(() => {
+		if (!replaceRequest || !isEditorMode) return;
+		setEditedXml(replaceRequest.xml);
+		onEditorStateChange?.(true, replaceRequest.xml);
+		addMessage(
+			"info",
+			"Editor updated",
+			"The editor now shows the FetchXML that was loaded into the tree, with the changes you confirmed.",
+		);
+		// Only a new request replaces the buffer
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [replaceRequest?.id]);
 
 	// Toggle editor mode
 	const handleToggleEditorMode = useCallback(
@@ -494,57 +506,12 @@ export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: Fetc
 			)}
 
 			{/* Parse to Tree confirmation (#89) */}
-			<Dialog
-				modalType="alert"
-				open={pendingParse !== null}
-				onOpenChange={(_, data) => {
-					if (!data.open) setPendingParse(null);
-				}}
-			>
-				<DialogSurface>
-					<DialogBody>
-						<DialogTitle>Parse to Tree will change this query</DialogTitle>
-						<DialogContent className={styles.dialogContent}>
-							<Body1>
-								The tree can't represent everything in this FetchXML. Parsing will make these
-								changes:
-							</Body1>
-							{pendingParse && <ParseChangesGroups changes={pendingParse.changes} />}
-							<Body1>If you cancel, the editor keeps your FetchXML unchanged.</Body1>
-						</DialogContent>
-						<DialogActions>
-							<Button appearance="secondary" onClick={() => setPendingParse(null)}>
-								Cancel
-							</Button>
-							<Button appearance="primary" onClick={handleConfirmParseToTree}>
-								Parse anyway
-							</Button>
-						</DialogActions>
-					</DialogBody>
-				</DialogSurface>
-			</Dialog>
+			<ParseChangesDialog
+				action={pendingParse ? "parse" : null}
+				changes={pendingParse?.changes ?? []}
+				onConfirm={handleConfirmParseToTree}
+				onCancel={() => setPendingParse(null)}
+			/>
 		</div>
-	);
-}
-
-/** "Removed" and "Corrected" groups for the Parse to Tree confirmation dialog. */
-function ParseChangesGroups({ changes }: { changes: ParseWarning[] }) {
-	const removed = changes.filter((c) => c.kind === "dropped");
-	const corrected = changes.filter((c) => c.kind === "corrected");
-	return (
-		<>
-			{removed.length > 0 && (
-				<div>
-					<Body1Strong>Removed</Body1Strong>
-					<ParseIssueList items={removed} />
-				</div>
-			)}
-			{corrected.length > 0 && (
-				<div>
-					<Body1Strong>Corrected</Body1Strong>
-					<ParseIssueList items={corrected} />
-				</div>
-			)}
-		</>
 	);
 }
