@@ -91,7 +91,7 @@ describe("editor messages", () => {
 	});
 });
 
-describe("getValueOfCompatibleTypes (valueof type pairs run live, 2026-10-14)", () => {
+describe("getValueOfCompatibleTypes (valueof type matrix run live, 2026-10-15)", () => {
 	it.each([
 		// accepted by Dataverse
 		["Integer", "Picklist", true],
@@ -102,6 +102,10 @@ describe("getValueOfCompatibleTypes (valueof type pairs run live, 2026-10-14)", 
 		["Customer", "Owner", true],
 		["Memo", "String", true],
 		["DateTime", "DateTime", true],
+		["EntityName", "Status", true],
+		["ManagedProperty", "Boolean", true],
+		["BigInt", "BigInt", true],
+		["Double", "Double", true],
 		// rejected with 0x80040203
 		["Integer", "BigInt", false],
 		["Double", "Decimal", false],
@@ -114,8 +118,9 @@ describe("getValueOfCompatibleTypes (valueof type pairs run live, 2026-10-14)", 
 		expect(getValueOfCompatibleTypes(a).includes(b)).toBe(ok);
 		expect(getValueOfCompatibleTypes(b).includes(a)).toBe(ok);
 	});
-	it("unknown types only compare to themselves; no type means no filter", () => {
-		expect(getValueOfCompatibleTypes("ManagedProperty")).toEqual(["ManagedProperty"]);
+	it("multi-select and unverified types are never offered", () => {
+		expect(getValueOfCompatibleTypes("Virtual")).toEqual([]);
+		expect(getValueOfCompatibleTypes("PartyList")).toEqual([]);
 		expect(getValueOfCompatibleTypes(undefined)).toEqual([]);
 	});
 });

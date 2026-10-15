@@ -68,16 +68,67 @@ export const NON_RETURNING_LINK_TYPES: ReadonlySet<string> = new Set(["exists", 
 /** Operators a `valueof` comparison accepts (filter-rows: "Limitations on column comparison filters"). */
 export const VALUEOF_OPERATORS: ReadonlySet<string> = new Set(["eq", "ne", "gt", "ge", "lt", "le"]);
 
-/** Aliases of joined link-entities (not those inside filters): what a `valueof` qualifier can name. */
-export function joinedLinkAliases(fetch: FetchNode): string[] {
-	const aliases: string[] = [];
-	const visit = (c: Container) =>
+/** What a condition's `valueof` can refer to with "qualifier.attribute". */
+export interface ValueOfScope {
+	/** The root entity's logical name: always reachable (verified, though not documented) */
+	rootName: string;
+	/** Aliases of the joined link-entities it can reach */
+	aliases: string[];
+	/** Alias of the joined link-entity whose filter holds the condition (its own record) */
+	selfAlias?: string;
+	/** Joined aliases it can't reach because they're joined after (or inside) its link-entity */
+	laterAliases: string[];
+}
+
+/**
+ * `valueof` reach per condition, verified live (2026-10-15). The docs show a root filter comparing to
+ * a link-entity alias; Dataverse also accepts these, and rejects anything else with 0x80040216:
+ * - conditions in the root entity's filters (including entityname conditions, and any / not any /
+ *   all / not all link-entities there): every joined link-entity alias, at any depth;
+ * - conditions in a joined link-entity's filter: its own alias and link-entities joined before it in
+ *   the query (not its own link-entities, nor later ones);
+ * - a link-entity inside a filter has the reach of the filter's entity / link-entity; its own alias,
+ *   and aliases of other link-entities inside filters, are never reachable;
+ * - the root entity's logical name works everywhere.
+ */
+export function valueofScopes(fetch: FetchNode): Map<string, ValueOfScope> {
+	const joined: LinkEntityNode[] = [];
+	const collect = (c: Container) =>
 		c.links.forEach((l) => {
-			if (l.alias) aliases.push(l.alias);
-			visit(l);
+			joined.push(l);
+			collect(l);
 		});
-	visit(fetch.entity);
-	return aliases;
+	collect(fetch.entity);
+	const all = joined.flatMap((l) => (l.alias ? [l.alias] : []));
+	const map = new Map<string, ValueOfScope>();
+	const visitFilters = (filters: FilterNode[], scope: ValueOfScope) => {
+		const visit = (f: FilterNode) => {
+			f.conditions.forEach((c) => map.set(c.id, scope));
+			f.subfilters.forEach(visit);
+			// A link-entity inside a filter keeps the reach of the scope that holds the filter
+			f.links?.forEach((l) => visitContainer(l, scope));
+		};
+		filters.forEach(visit);
+	};
+	const visitContainer = (c: Container, scope: ValueOfScope) => {
+		visitFilters(c.filters, scope);
+		c.links.forEach((l) => {
+			const index = joined.indexOf(l);
+			const reachable = joined.slice(0, index + 1).flatMap((x) => (x.alias ? [x.alias] : []));
+			const linkScope: ValueOfScope =
+				index === -1
+					? scope
+					: {
+							rootName: fetch.entity.name,
+							aliases: reachable,
+							selfAlias: l.alias,
+							laterAliases: all.filter((a) => !reachable.includes(a)),
+						};
+			visitContainer(l, linkScope);
+		});
+	};
+	visitContainer(fetch.entity, { rootName: fetch.entity.name, aliases: all, laterAliases: [] });
+	return map;
 }
 
 /**
@@ -286,7 +337,7 @@ export function validateQueryRules(fetch: FetchNode): RuleFinding[] {
 	}
 
 	// ---- filters
-	const linkAliases = joinedLinkAliases(fetch);
+	const reach = valueofScopes(fetch);
 	const unionFilters: { filter: FilterNode; depth: number }[] = [];
 	for (const scope of scopes) {
 		for (const { filter, depth } of scope.filters) {
@@ -306,8 +357,7 @@ export function validateQueryRules(fetch: FetchNode): RuleFinding[] {
 					message: `Both quick find record limit overrides are set; which one applies isn't documented. Keep one.` });
 			}
 			// valueof (verified live): only eq/ne/gt/ge/lt/le compare two attributes (others: 0x80048415);
-			// operators without a value ignore it; "x.attr" resolves only a joined link-entity alias
-			// (case-sensitive, at any depth) or the root entity's name (others: 0x80040216).
+			// operators without a value ignore it; "x.attr" must be reachable (valueofScopes; 0x80040216).
 			for (const condition of filter.conditions) {
 				if (condition.valueof === undefined || condition.valueof === "") continue;
 				const cbase = { element: "condition", attribute: "valueof", nodeId: condition.id } as const;
@@ -322,9 +372,12 @@ export function validateQueryRules(fetch: FetchNode): RuleFinding[] {
 				}
 				const dot = condition.valueof.indexOf(".");
 				const qualifier = dot > 0 ? condition.valueof.slice(0, dot) : undefined;
-				if (qualifier && qualifier !== fetch.entity.name && !linkAliases.includes(qualifier)) {
+				const scope = reach.get(condition.id);
+				if (qualifier && scope && qualifier !== scope.rootName && !scope.aliases.includes(qualifier)) {
 					push({ ...cbase, severity: "error", kind: "invalid",
-						message: `'${qualifier}' isn't the alias of a joined link-entity. To compare to another entity's attribute, give its link-entity an alias and use alias.attribute (Dataverse rejects it: 0x80040216).` });
+						message: scope.laterAliases.includes(qualifier)
+							? `'${qualifier}' is joined after this link-entity (or inside it), so this filter can't refer to it. Compare from the root entity's filter instead (Dataverse rejects it: 0x80040216).`
+							: `'${qualifier}' isn't the alias of a joined link-entity. To compare to another entity's attribute, give its link-entity an alias and use alias.attribute (Dataverse rejects it: 0x80040216).` });
 				}
 			}
 			// condition/@aggregate isn't in the condition reference. Verified live: Dataverse runs the

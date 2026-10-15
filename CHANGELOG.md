@@ -50,8 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Comparing to another attribute (`valueof`) only offers what Dataverse accepts (#94).**
   - The choice appears only for eq, ne, gt, ge, lt and le (others fail with `0x80048415`). Changing to another operator clears it.
-  - Other entities are listed only through a link-entity alias (a name without an alias fails with `0x80040216`).
-  - Attributes are filtered by compatible type. Verified on a live org: types compare by their underlying type, so Money ↔ Decimal, Lookup ↔ Uniqueidentifier and Memo ↔ String work, while Integer ↔ BigInt and Double ↔ Decimal fail (`0x80040203`).
+  - **Which entities are offered.** The docs show the documented same-row and link-entity-alias cases; the picker offers only those, plus what was verified to work from where the condition is:
+    - the root entity by its logical name;
+    - from the root entity's filters: any joined link-entity alias;
+    - from a link-entity's filter: only link-entities joined before it (its own children and later link-entities fail with `0x80040216`).
+    - A link-entity name without an alias, or a link-entity inside a filter, is never offered.
+  - **Which attributes are offered.** The docs say "the same type". FetchXML Studio offers the same type plus the pairs verified to work, with all six operators: Integer / option set / status / state / entity name; Decimal / Money; Lookup / Customer / Owner / unique identifier; String / Memo; Boolean / managed property; DateTime (any behaviour).
+    - Verified with a live matrix over every Advanced Find attribute type: about 2,000 queries, including calculated, rollup, composite and date-only attributes.
+    - Pairs across these groups fail (`0x80040203`), so they aren't offered.
+    - Multi-select option sets, and any type that wasn't verified, aren't offered at all.
 - **Conditions on a link-entity attribute (`entityname`) load that entity's metadata (#94).** Numeric limits and date-only rules previously came from the wrong entity.
 - **Switching a link-entity to not any / not all no longer deletes its filters and nested link-entities (#86).**
   - Those filters are what these types evaluate.
@@ -70,7 +77,7 @@ Each check was verified against a live Dataverse org.
 - **Errors:**
   - `top` with `count`, `page` or `returntotalrecordcount` (moved from the parser to the query rules, so the panel shows it on the field);
   - `page` below 1;
-  - `valueof` with an unsupported operator (`0x80048415`), or with a qualifier that isn't a joined link-entity alias or the root entity (`0x80040216`);
+  - `valueof` with an unsupported operator (`0x80048415`), or with a qualifier the condition can't reach: not a joined link-entity alias or the root entity, or a link-entity joined after the one whose filter holds the condition (`0x80040216`);
   - a link-entity inside a filter that isn't any / not any / all / not all (`0x8004111c`);
   - attributes, all-attributes or orders inside an exists, in, any, not any, all or not all link-entity (`0x80041121`).
 - **Notes (never block):** condition `aggregate`, link-entity `visible`, and `valueof` on operators that take no value.

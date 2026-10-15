@@ -1,15 +1,15 @@
 /**
  * Picks the attribute a condition compares to (`valueof`): first the entity, then a compatible
- * attribute. Verified live (#90b): an unqualified name is an attribute of the condition's own
- * entity; "alias.attribute" reaches a joined link-entity only through its alias (case-sensitive, at
- * any depth), and the root entity can be named directly. A link-entity's name without an alias, or
- * a link-entity inside a filter, fails with 0x80040216.
+ * attribute. An unqualified name is an attribute of the condition's own entity; other entities are
+ * offered only where Dataverse can reach them from this condition (valueofScopes, verified live):
+ * the root entity by name, and joined link-entities by alias.
  * https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/filter-rows#filter-on-column-values-in-the-same-row
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { Dropdown, Option } from "@fluentui/react-components";
 import type { FetchNode } from "../../../../model/nodes";
+import type { ValueOfScope } from "../../../../model/fetchxmlRules";
 import { collectLinkEntityReferences } from "../../../../model/treeUtils";
 import { AttributePicker } from "../../../../../../shared/components/AttributePicker";
 import { DOCS } from "../docLinks";
@@ -23,6 +23,10 @@ interface ValueOfPickerProps {
 	rootEntityName: string;
 	/** The entity the condition is on (its link-entity, or the one named by entityname) */
 	effectiveEntityName: string;
+	/** What this condition can reach (valueofScopes) */
+	scope: ValueOfScope | undefined;
+	/** Alias that means the same record as "same record" (not listed twice) */
+	sameAlias?: string;
 	valueof: string;
 	/** AttributeTypes Dataverse can compare with the condition's attribute */
 	compatibleTypes: string[];
@@ -42,6 +46,8 @@ export function ValueOfPicker({
 	fetchQuery,
 	rootEntityName,
 	effectiveEntityName,
+	scope,
+	sameAlias,
 	valueof,
 	compatibleTypes,
 	validation,
@@ -57,15 +63,23 @@ export function ValueOfPicker({
 		if (rootEntityName && rootEntityName !== effectiveEntityName) {
 			list.push({ value: rootEntityName, label: `${rootEntityName} (root entity)`, entityName: rootEntityName });
 		}
-		for (const ref of collectLinkEntityReferences(fetchQuery)) {
-			if (ref.alias) list.push({ value: ref.alias, label: `${ref.alias} (${ref.entityName})`, entityName: ref.entityName });
+		const entityOf = new Map(collectLinkEntityReferences(fetchQuery).map((r) => [r.alias, r.entityName]));
+		for (const alias of scope?.aliases ?? []) {
+			if (alias === sameAlias) continue;
+			list.push({ value: alias, label: `${alias} (${entityOf.get(alias) ?? "?"})`, entityName: entityOf.get(alias) ?? "" });
 		}
 		// Keep a parsed qualifier visible even when it can't be resolved (the rule finding explains why)
 		if (parsed.qualifier && !list.some((o) => o.value === parsed.qualifier)) {
-			list.push({ value: parsed.qualifier, label: parsed.qualifier, entityName: "", secondary: "Not a link-entity alias" });
+			const reachable = parsed.qualifier === sameAlias;
+			list.push({
+				value: parsed.qualifier,
+				label: parsed.qualifier,
+				entityName: reachable ? effectiveEntityName : "",
+				secondary: reachable ? "This record" : scope?.laterAliases.includes(parsed.qualifier) ? "Joined after this link-entity" : "Not a link-entity alias",
+			});
 		}
 		return list;
-	}, [fetchQuery, rootEntityName, effectiveEntityName, parsed.qualifier]);
+	}, [fetchQuery, rootEntityName, effectiveEntityName, scope, sameAlias, parsed.qualifier]);
 
 	const [selected, setSelected] = useState<string>(parsed.qualifier ?? SAME);
 	// Follow external changes (Parse to Tree, undo)
@@ -79,7 +93,7 @@ export function ValueOfPicker({
 				label="Entity"
 				info={
 					<Info
-						text="Compare to an attribute of the same record, or of a link-entity. Other entities are listed only when their link-entity has an alias."
+						text="Compare to an attribute of the same record, the root entity, or a link-entity this condition can reach: link-entities need an alias, and a link-entity's filter can only reach link-entities joined before it."
 						href={DOCS.filterOnColumnValues}
 					/>
 				}
@@ -127,8 +141,8 @@ export function ValueOfPicker({
 						onChange(logicalName ? (qualifier ? `${qualifier}.${logicalName}` : logicalName) : "");
 					}}
 					placeholder={current.entityName ? "Select an attribute" : "Choose an entity first"}
-					disabled={!current.entityName}
-					filterByTypes={compatibleTypes.length > 0 ? compatibleTypes : undefined}
+					disabled={!current.entityName || compatibleTypes.length === 0}
+					filterByTypes={compatibleTypes}
 				/>
 			</InfoField>
 		</>

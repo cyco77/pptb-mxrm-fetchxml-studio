@@ -8,7 +8,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Input, Dropdown, Option, Radio, RadioGroup } from "@fluentui/react-components";
 import type { ConditionNode, FetchNode } from "../../../../model/nodes";
 import type { RuleFinding } from "../../../../model/fetchxmlRules";
-import { VALUEOF_OPERATORS } from "../../../../model/fetchxmlRules";
+import { VALUEOF_OPERATORS, valueofScopes } from "../../../../model/fetchxmlRules";
 import { getValueOfCompatibleTypes } from "../../../../model/attributeCapabilities";
 import { AttributePicker } from "../../../../../../shared/components/AttributePicker";
 import { OptionSetValuePicker } from "../../../../../../shared/components/OptionSetValuePicker";
@@ -60,6 +60,8 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 		: undefined;
 	const effectiveEntityName = isInRootFilter && entityTarget ? entityTarget.entityName : entityName;
 
+	// What "alias.attribute" can reach from where this condition is
+	const valueofScope = useMemo(() => valueofScopes(fetchQuery).get(node.id), [fetchQuery, node.id]);
 	const compatibleTypes = useMemo(
 		() => getValueOfCompatibleTypes(selectedAttribute?.AttributeType),
 		[selectedAttribute?.AttributeType],
@@ -112,7 +114,9 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 	const requiresMultipleValues = operatorDef?.requiresMultipleValues ?? false;
 	const isSingleValue = requiresValue && !(requiresMultipleValues && selectedAttribute) && !(requiresTwoValues && selectedAttribute);
 	const comparesToAttribute = node.valueof !== undefined;
-	const canCompareToAttribute = VALUEOF_OPERATORS.has(node.operator);
+	const operatorComparesAttributes = VALUEOF_OPERATORS.has(node.operator);
+	// Only type pairs verified to work are offered (getValueOfCompatibleTypes)
+	const canCompareToAttribute = operatorComparesAttributes && compatibleTypes.length > 0;
 	const valueofFinding = findingFor(findings, "valueof");
 	const attributeType = selectedAttribute?.AttributeType;
 
@@ -319,13 +323,18 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 					</InfoField>
 				)}
 
-				{isSingleValue && (canCompareToAttribute || comparesToAttribute) && (
+				{isSingleValue && (operatorComparesAttributes || comparesToAttribute) && (
 					<InfoField
 						label="Compare to"
 						validation={valueofFinding?.state === "error" ? valueofFinding : undefined}
+						hint={
+							!canCompareToAttribute && !comparesToAttribute && selectedAttribute
+								? `Comparing a ${selectedAttribute.AttributeTypeName?.Value?.replace(/Type$/, "") ?? selectedAttribute.AttributeType} attribute to another attribute isn't verified to work, so it isn't offered.`
+								: undefined
+						}
 						info={
 							<Info
-								text="A fixed value, or another attribute of the same record or of a link-entity. Comparing attributes works only with eq, ne, gt, ge, lt and le, and the attributes must have compatible types."
+								text="A fixed value, or another attribute of the same record or of a link-entity. Comparing attributes works only with eq, ne, gt, ge, lt and le. The docs require the same type; FetchXML Studio also offers the type pairs verified to work (for example Money with Decimal)."
 								href={DOCS.filterOnColumnValues}
 							/>
 						}
@@ -349,6 +358,8 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 							fetchQuery={fetchQuery}
 							rootEntityName={fetchQuery.entity.name}
 							effectiveEntityName={effectiveEntityName}
+							scope={valueofScope}
+							sameAlias={isInRootFilter ? node.entityname : valueofScope?.selfAlias}
 							valueof={node.valueof ?? ""}
 							compatibleTypes={compatibleTypes}
 							onChange={(valueof) => onUpdate({ valueof: valueof ?? "" })}

@@ -148,6 +148,39 @@ describe("valueof (filter-rows limitations, verified live 2026-10-14)", () => {
 		expect(findings.some((f) => f.severity === "error")).toBe(true);
 	});
 
+	describe("reach by where the condition is (verified live 2026-10-15)", () => {
+		const c = (attr: string, valueof: string) => `<filter><condition attribute="${attr}" operator="eq" valueof="${valueof}" /></filter>`;
+		const PC = (f = "") => `<link-entity name="contact" from="contactid" to="primarycontactid" link-type="outer" alias="pc">${f}</link-entity>`;
+		const ACCT = (f = "", child = "") => `<link-entity name="account" from="accountid" to="parentcustomerid" link-type="outer" alias="acct">${f}${child}</link-entity>`;
+		const OWN = (f = "") => `<link-entity name="systemuser" from="systemuserid" to="owninguser" link-type="outer" alias="own">${f}</link-entity>`;
+		const Q = (links: string, rootFilter = "") => `<fetch top="3"><entity name="contact"><attribute name="fullname" />${rootFilter}${links}</entity></fetch>`;
+		const anyLink = (type: string, inner: string) => `<filter><link-entity name="account" from="primarycontactid" to="contactid" link-type="${type}" alias="x">${inner}</link-entity></filter>`;
+
+		it.each([
+			["root filter → nested alias", Q(ACCT("", PC()) + OWN(), c("fullname", "pc.fullname"))],
+			["root filter, entityname acct → root name", Q(ACCT("", PC()), `<filter><condition entityname="acct" attribute="name" operator="eq" valueof="contact.fullname" /></filter>`)],
+			["root filter, entityname acct → other alias", Q(ACCT() + OWN(), `<filter><condition entityname="acct" attribute="name" operator="eq" valueof="own.fullname" /></filter>`)],
+			["link filter → its own alias", Q(ACCT(c("name", "acct.accountnumber")))],
+			["link filter → root name", Q(ACCT(c("name", "contact.fullname")))],
+			["nested link filter → parent alias", Q(ACCT("", PC(c("fullname", "acct.name"))))],
+			["link filter → earlier sibling", Q(ACCT() + OWN(c("fullname", "acct.name")))],
+			["link filter → descendant of an earlier sibling", Q(ACCT("", PC()) + OWN(c("fullname", "pc.fullname")))],
+			["any filter in the root → any joined alias", Q(ACCT() + OWN(), anyLink("any", c("name", "own.fullname")))],
+			["all filter in the root → root name", Q(ACCT(), anyLink("all", c("name", "contact.fullname")))],
+			["any filter inside acct's filter → acct", Q(ACCT(`<filter><link-entity name="contact" from="parentcustomerid" to="accountid" link-type="any">${c("fullname", "acct.name")}</link-entity></filter>`) + OWN())],
+		])("accepted: %s", (_label, xml) => expect(valueofFindings(xml)).toEqual([]));
+
+		it.each([
+			["link filter → its child", Q(ACCT(c("name", "pc.fullname"), PC()))],
+			["link filter → later sibling", Q(ACCT(c("name", "own.fullname")) + OWN())],
+			["nested link filter → later uncle", Q(ACCT("", PC(c("fullname", "own.fullname"))) + OWN())],
+			["any filter inside acct's filter → later alias", Q(ACCT(`<filter><link-entity name="contact" from="parentcustomerid" to="accountid" link-type="any">${c("fullname", "own.fullname")}</link-entity></filter>`) + OWN())],
+			["filter link's own alias", Q("", anyLink("any", c("name", "x.accountnumber")))],
+		])("rejected (0x80040216): %s", (_label, xml) => {
+			expect(valueofFindings(xml).some((f) => f.severity === "error")).toBe(true);
+		});
+	});
+
 	it("is ignored by operators that take no value (null + valueof ran fine)", () => {
 		const findings = valueofFindings(CT(`<condition attribute="firstname" operator="null" valueof="zz.lastname" />`));
 		expect(findings).toHaveLength(1);
