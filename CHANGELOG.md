@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.13] - 2026-10-15
+
+### 🔧 Fixed
+
+Results grid **Edit columns / Add columns** and **header sorting** (#114). Each change was checked against the sandbox.
+- **Removing a column only worked for un-aliased root attributes.** Aliased attributes and link-entity columns were silently kept.
+  - Removing now finds the attribute behind any column.
+  - It also removes sorts that use the attribute's alias (Dataverse rejects an order alias that no longer exists).
+  - An **outer** link-entity left with nothing in it is removed too. A 1:N join would otherwise keep multiplying the rows without showing anything. Inner joins are kept, because they still filter.
+- **All columns could be removed.** A query with no attributes returns every attribute, so Apply is now disabled until at least one column remains.
+- **Add columns in aggregate queries** added plain attributes, which Dataverse rejects (every attribute needs Group by or an aggregate, and an alias). It's now unavailable there, with the reason.
+- **The Related tab offered attributes the link-entity already returns.** It now leaves them out.
+- **Columns of link-entities without an alias never showed in the grid.**
+  - Dataverse names them `{name}{N}.attribute`, where N is the position among the joined link-entities (verified, and documented on the link-entity reference), not `name.attribute`.
+  - The layout and the grid now use the same names. This affects queries loaded from views or pasted FetchXML.
+- **Header sorting wrote orders Dataverse rejects:**
+  - aggregate queries got `<order attribute>` instead of `<order alias>`;
+  - an aliased link-entity attribute got `<order attribute="alias">` on the root (`0x80041103`); it's now `entityname` + attribute name;
+  - multi-select option sets could be sorted (`0x80050224`); unsortable types now show a message instead.
+  - **Single-column sort:** it replaces every order in the query, including orders inside link-entities, so the results are sorted by that column only.
+
+### 🏗️ Technical
+
+- `model/queryColumns.ts`: one model of the result columns (keys exactly as Dataverse returns them) shared by the layout, the grid, column removal and sorting. Tests in `queryColumns.test.ts`.
+- `setSort` takes a planned order (root, or inside a link-entity when the root can't target it).
+
 ## [1.4.1-beta.11] - 2026-10-15
 
 ### 🔧 Fixed

@@ -8,6 +8,7 @@ import type { NodeId } from "../model/nodes";
 import type { LayoutXmlConfig } from "../model/layoutxml";
 import type { ParseResult } from "../model/fetchxmlParser";
 import type { BuilderState, ViewLoadInfo } from "./builderStore";
+import type { SortPlan } from "../model/queryColumns";
 
 export interface LoadFetchXmlOptions {
 	/** Keep the current column layout, merging new attributes into it (editor sync, #102) */
@@ -59,15 +60,10 @@ export interface BuilderContextValue extends BuilderState {
 		primaryIdAttribute?: string,
 	) => void;
 	/**
-	 * Set sort order on an attribute. If isMultiSort is true, adds to existing sorts.
-	 * If false, replaces all existing sorts.
+	 * Sort by a result column (planned by queryColumns.planSortByColumn, #114). With isMultiSort the
+	 * order is added (or its direction changed); otherwise it replaces every order in the query.
 	 */
-	setSort: (
-		attribute: string,
-		descending: boolean,
-		isMultiSort: boolean,
-		entityName?: string,
-	) => void;
+	setSort: (plan: SortPlan, descending: boolean, isMultiSort: boolean) => void;
 	/**
 	 * Enable or disable "Retrieve All Records" mode.
 	 * When enabled, execution fetches all pages progressively.

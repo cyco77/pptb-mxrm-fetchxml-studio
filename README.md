@@ -25,7 +25,9 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 ### 📊 Results Grid
 - **Virtualized DataGrid** — Handle large result sets with smooth scrolling (powered by react-window)
 - **Rich cell rendering** — Power Apps-style display for lookups, option sets, dates, currency, and more
-- **Multi-column sorting** — Click headers to sort; Shift+click for multi-column sort
+- **Multi-column sorting** — Click headers to sort; Shift+click for multi-column sort. Each click writes a valid `<order>`: by alias in aggregate queries, with `entityname` for link-entity columns, and not at all for attribute types Dataverse can't sort (multi-select option sets)
+- **Edit / Add columns** — Remove, reorder and add columns from the root entity or related entities (N:1 and 1:N); the tree and FetchXML change to match. Removing a column removes its attribute (aliased or not, root or link-entity), any sort on its alias, and an outer link-entity left empty. At least one column must remain (a query without attributes returns every attribute). Add columns isn't available in aggregate queries
+- **Link-entities without an alias** — Their columns show in the grid: Dataverse names them `{name}{N}.attribute`, and the grid uses the same names
 - **Row selection** — Select single or multiple records for bulk operations. Record actions use the table's primary key, which Dataverse returns automatically for regular queries; for aggregate and distinct queries (which return no record IDs) record actions are disabled with an explanation
 - **Resizable & reorderable columns** — Customize your view with drag-and-drop columns
 - **Formatted values** — Display OData formatted values or raw values (configurable)

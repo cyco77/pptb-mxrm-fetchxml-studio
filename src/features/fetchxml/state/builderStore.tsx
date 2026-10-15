@@ -25,6 +25,7 @@ import {
 	parseLayoutXml,
 } from "../model/layoutxml";
 import { parseFetchXml, type ParseResult } from "../model/fetchxmlParser";
+import type { SortPlan } from "../model/queryColumns";
 
 // Temporary ID generator
 let idCounter = 0;
@@ -119,10 +120,9 @@ type BuilderAction =
 	  }
 	| {
 			type: "SET_SORT";
-			attribute: string;
+			plan: SortPlan;
 			descending: boolean;
 			isMultiSort: boolean;
-			entityName?: string;
 	  }
 	| { type: "SET_RETRIEVE_ALL_RECORDS"; enabled: boolean };
 
@@ -996,57 +996,42 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
 
 		case "SET_SORT": {
 			if (!state.fetchQuery?.entity) return state;
-
-			const { attribute, descending, isMultiSort, entityName } = action;
-
-			// Create new order node
+			const { plan, descending, isMultiSort } = action;
+			const sameOrder = (o: OrderNode) =>
+				(o.attribute ?? undefined) === (plan.spec.attribute ?? undefined) &&
+				(o.alias ?? undefined) === (plan.spec.alias ?? undefined) &&
+				(o.entityname ?? undefined) === (plan.spec.entityname ?? undefined);
 			const newOrder: OrderNode = {
 				id: generateId(),
 				type: "order",
-				attribute,
+				...(plan.spec.attribute ? { attribute: plan.spec.attribute } : {}),
+				...(plan.spec.alias ? { alias: plan.spec.alias } : {}),
+				...(plan.spec.entityname ? { entityname: plan.spec.entityname } : {}),
 				descending: descending || undefined,
-				entityname: entityName,
 			};
-
-			// Get current orders
-			const currentOrders = state.fetchQuery.entity.orders || [];
-
-			let newOrders: OrderNode[];
-
-			if (isMultiSort) {
-				// Multi-sort: check if this attribute already has an order
-				const existingIndex = currentOrders.findIndex(
-					(o) =>
-						o.attribute === attribute && (o.entityname || undefined) === (entityName || undefined),
+			const withOrder = (orders: OrderNode[]) => {
+				const existing = orders.findIndex(sameOrder);
+				return existing >= 0
+					? orders.map((o, i) => (i === existing ? { ...o, descending: descending || undefined } : o))
+					: [...orders, newOrder];
+			};
+			// A single-column sort replaces every order in the query, including orders inside
+			// link-entities, so the results are sorted by that column only (#114)
+			const clearLinkOrders = (links: LinkEntityNode[]): LinkEntityNode[] =>
+				links.map((l) => ({ ...l, orders: [], links: clearLinkOrders(l.links) }));
+			const targetId = plan.insideLink?.id;
+			const placeInLinks = (links: LinkEntityNode[]): LinkEntityNode[] =>
+				links.map((l) =>
+					l.id === targetId
+						? { ...l, orders: isMultiSort ? withOrder(l.orders) : [newOrder], links: placeInLinks(l.links) }
+						: { ...l, links: placeInLinks(l.links) },
 				);
-
-				if (existingIndex >= 0) {
-					// Update existing order's direction
-					newOrders = currentOrders.map((o, i) =>
-						i === existingIndex ? { ...o, descending: descending || undefined } : o,
-					);
-				} else {
-					// Add new order to the end
-					newOrders = [...currentOrders, newOrder];
-				}
-			} else {
-				// Single sort: replace all orders with just this one
-				newOrders = [newOrder];
-			}
-
-			// Update the entity with new orders
-			const newFetchQuery: FetchNode = {
-				...state.fetchQuery,
-				entity: {
-					...state.fetchQuery.entity,
-					orders: newOrders,
-				},
-			};
-
-			return {
-				...state,
-				fetchQuery: newFetchQuery,
-			};
+			let entity = state.fetchQuery.entity;
+			if (!isMultiSort) entity = { ...entity, orders: [], links: clearLinkOrders(entity.links) };
+			entity = targetId
+				? { ...entity, links: placeInLinks(entity.links) }
+				: { ...entity, orders: isMultiSort ? withOrder(entity.orders) : [newOrder] };
+			return { ...state, fetchQuery: { ...state.fetchQuery, entity } };
 		}
 
 		case "SET_RETRIEVE_ALL_RECORDS": {
@@ -1164,8 +1149,8 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
 			dispatch({ type: "REORDER_COLUMNS", fromIndex, toIndex }),
 		syncLayoutWithFetchXml: (attributeTypeMap?: Map<string, string>, primaryIdAttribute?: string) =>
 			dispatch({ type: "SYNC_LAYOUT_WITH_FETCHXML", attributeTypeMap, primaryIdAttribute }),
-		setSort: (attribute: string, descending: boolean, isMultiSort: boolean, entityName?: string) =>
-			dispatch({ type: "SET_SORT", attribute, descending, isMultiSort, entityName }),
+		setSort: (plan: SortPlan, descending: boolean, isMultiSort: boolean) =>
+			dispatch({ type: "SET_SORT", plan, descending, isMultiSort }),
 		setRetrieveAllRecords: (enabled: boolean) =>
 			dispatch({ type: "SET_RETRIEVE_ALL_RECORDS", enabled }),
 	};
