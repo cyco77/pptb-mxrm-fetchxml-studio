@@ -2,7 +2,7 @@
 
 A powerful, modern FetchXML query builder and data explorer for [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app). Inspired by the XrmToolBox FetchXML Builder, reimagined with React 18, Fluent UI v9, and seamless Dataverse integration.
 
-![Version](https://img.shields.io/badge/version-1.4.0-blue)
+![Version](https://img.shields.io/badge/version-1.4.1--beta.6-blue)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
 ![Fluent UI](https://img.shields.io/badge/Fluent%20UI-v9-0078D4?logo=microsoft)
@@ -24,6 +24,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **Row selection** — Select single or multiple records for bulk operations. Record actions use the table's primary key, which Dataverse returns automatically for regular queries; for aggregate and distinct queries (which return no record IDs) record actions are disabled with an explanation
 - **Resizable & reorderable columns** — Customize your view with drag-and-drop columns
 - **Formatted values** — Display OData formatted values or raw values (configurable)
+- **Works with every entity** — Queries run against the entity set name from Dataverse metadata, so entities with irregular names (for example `feedback`, `msdyn_conversationdata`) run correctly. The Power Platform ToolBox host's own name guess is wrong for about 4% of entities.
 
 ### 📝 FetchXML Editor
 - **Monaco editor** — Full-featured XML editor with XML syntax highlighting and line numbers
@@ -35,6 +36,16 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
   - **errors** block execution — only for FetchXML Dataverse is known to reject;
   - **warnings** offer **Execute anyway** — only where it can't be determined in the client (e.g. a link-entity without `from`/`to`, which is valid only for system many-to-many relationships);
   - **notes** never block (e.g. `xmlns:*` from other tools, which Dataverse ignores).
+- **Query-level checks** — Validate and Execute catch the mistakes Dataverse rejects, each verified on a live environment:
+  - aggregate queries where an attribute has no Group by / aggregate or no alias;
+  - an aggregate order using an alias from another entity;
+  - `aggregatelimit` combined with an order;
+  - duplicate aliases;
+  - an invalid union hint;
+  - misuse of `rowaggregate`.
+
+  Settings Dataverse accepts but ignores (such as `aggregatelimit` on a non-aggregate query) are shown as notes only.
+- **Boolean spellings** — `"1"`/`"0"` and other spellings Dataverse accepts are read correctly (e.g. `usertimezone="1"`, `descending="1"`, `enableprefiltering="1"`), so Parse to Tree never flips or drops them.
 - **Lossless Parse to Tree** — Every attribute in the FetchXML reference is kept, including `datasource`, `aggregatelimit`, `useraworderby`, query hints (`options`), `latematerialize`, `<order alias>`, `distinct` counts, `rowaggregate` and quick find flags. So are unknown, namespaced and legacy attributes (e.g. `xmlns:generator` from SQL 4 CDS, `version`/`mapping` from Advanced Find, `uiname`/`uitype` from saved views). Every FetchXML example in the Microsoft Learn FetchXML articles round-trips without loss.
 - **No silent changes** — If Parse to Tree must correct something Dataverse would reject (for example an invalid alias), a confirmation dialog lists every change first
 - **LayoutXML preview** — See the column layout configuration
@@ -134,8 +145,8 @@ FetchXML Studio is available as a tool in Power Platform ToolBox. Install it fro
 
 ```bash
 # Clone the repository
-git clone https://github.com/mohsinonxrm/pptb-fetchxml-studio.git
-cd pptb-fetchxml-studio
+git clone https://github.com/mohsinonxrm/pptb-mxrm-fetchxml-studio.git
+cd pptb-mxrm-fetchxml-studio
 
 # Install dependencies
 npm install
@@ -158,6 +169,20 @@ npm run validate
 
 # Finalize for publishing (validate + build)
 npm run finalize-package
+```
+
+### Testing
+
+```bash
+# Unit tests (Vitest + jsdom): parser, serializer, rules, round-trip over the Microsoft Learn examples
+npm test
+
+# Watch mode / coverage
+npm run test:watch
+npm run coverage
+
+# Lint
+npm run lint
 ```
 
 ### Debug Logging
@@ -187,11 +212,12 @@ disableAllDebug();
 | **React** | 18.3 | UI framework |
 | **TypeScript** | 5.9 | Type-safe development |
 | **Vite** | 7 | Build tooling and HMR |
-| **Fluent UI v9** | 9.72 | Microsoft design system (Tree, DataGrid, Tabs, Drawer, etc.) |
+| **Fluent UI v9** | 9.74 | Microsoft design system (Tree, DataGrid, Tabs, Drawer, etc.) |
 | **Monaco Editor** | 0.54 | VS Code XML editor for FetchXML authoring |
 | **react-window** | 2 | Virtualized list rendering for large datasets |
 | **ExcelJS** | 4.4 | Native `.xlsx` generation with typed cells |
 | **@pptb/types** | 1.2.3 | Power Platform ToolBox host API types (`window.dataverseAPI`, `window.toolboxAPI`) |
+| **Vitest** | 5 | Unit tests (jsdom) |
 
 ## 📁 Project Structure
 
@@ -209,12 +235,15 @@ src/
 │   ├── model/
 │   │   ├── nodes.ts              # FetchXML node TypeScript definitions
 │   │   ├── fetchxml.ts           # FetchXML XML generation
-│   │   ├── fetchxmlParser.ts     # FetchXML XML → node tree parser
+│   │   ├── fetchxmlParser.ts     # FetchXML XML → node tree parser (severity-classified findings)
+│   │   ├── fetchxmlRules.ts      # Query-level rules shared by the parser and editors
+│   │   ├── attributeCapabilities.ts # What each attribute type supports (sort, group by, aggregates)
 │   │   ├── fetchxmlIntellisense.ts # Intellisense / autocomplete helpers
 │   │   ├── layoutxml.ts          # LayoutXML generation
 │   │   ├── operators.ts          # Operator definitions by attribute type
 │   │   ├── displaySettings.ts    # Display settings types and defaults
-│   │   └── treeUtils.ts          # Tree traversal utilities
+│   │   ├── treeUtils.ts          # Tree traversal utilities
+│   │   └── __fixtures__/         # FetchXML examples from Microsoft Learn (MIT) for round-trip tests
 │   ├── engine/
 │   │   ├── queryExpressionTypes.ts   # QE JSON schema interfaces (number | string enums)
 │   │   ├── queryExpressionCodegen.ts # C# SDK code emitter (resolveEnum, unwrapODataValue)
@@ -267,6 +296,11 @@ src/
 | Entity name on conditions | ✅ |
 | Filter link-entity (any/all) | ✅ |
 | Query hints | ✅ |
+| Order by alias (aggregate) | ✅ |
+| Quick find, union hint | ✅ |
+| Row aggregate (hierarchy child count) | ✅ |
+| Long-term retention (`datasource`) | ✅ |
+| Validation against Dataverse rules | ✅ |
 
 ## 🔗 Callee Contract (`pptb.config.json`)
 
