@@ -23,6 +23,7 @@ const BOOLEAN_DEFAULTS: Record<string, Record<string, boolean>> = {
 		latematerialize: false,
 		useraworderby: false,
 	},
+	entity: { enableprefiltering: false },
 	attribute: { groupby: false, distinct: false, usertimezone: true },
 	order: { descending: false },
 	"link-entity": { intersect: false },

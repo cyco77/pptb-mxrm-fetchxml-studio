@@ -19,6 +19,7 @@ import type {
 } from "./nodes";
 import { isValidAlias, sanitizeAlias } from "./aliasUtils";
 import { ALL_OPERATORS } from "./operators";
+import { validateQueryRules } from "./fetchxmlRules";
 
 // ID generator for parsed nodes
 let parseIdCounter = 0;
@@ -76,6 +77,8 @@ export interface ParseWarning {
 	attribute?: string;
 	severity: ParseWarningSeverity;
 	kind: ParseWarningKind;
+	/** Tree node the finding refers to (query-level rules only, #90b) */
+	nodeId?: NodeId;
 }
 
 /** Internal: "fatal" findings prevent building a tree and are moved to `errors`. */
@@ -359,7 +362,7 @@ export function parseFetchXml(xmlString: string): ParseResult {
 			...(fetchExtras ? { extraAttributes: fetchExtras } : {}),
 		};
 
-		validateOrders(fetchNode, issues);
+		issues.push(...validateQueryRules(fetchNode));
 
 		const errors: ParseError[] = issues
 			.filter((i) => i.severity === "fatal")
@@ -384,17 +387,27 @@ export function parseFetchXml(xmlString: string): ParseResult {
 function parseFetchOptions(fetchElement: Element, issues: ParseIssue[]): FetchNode["options"] {
 	const options: FetchNode["options"] = {};
 
-	// Boolean options
-	if (fetchElement.getAttribute("aggregate") === "true") {
+	// Boolean options. Dataverse accepts true/1 in any case for these (verified), except
+	// 'aggregate', which only makes an aggregate query when it is exactly "true".
+	const aggregateAttr = fetchElement.getAttribute("aggregate");
+	if (aggregateAttr === "true") {
 		options.aggregate = true;
+	} else if (aggregateAttr !== null && parseBooleanAttr(aggregateAttr) !== false) {
+		issues.push({
+			message: `aggregate="${aggregateAttr}" doesn't make an aggregate query; Dataverse only recognises "true". Parse to Tree treats the query as non-aggregate.`,
+			element: "fetch",
+			attribute: "aggregate",
+			severity: "info",
+			kind: "corrected",
+		});
 	}
-	if (fetchElement.getAttribute("distinct") === "true") {
+	if (parseBooleanAttr(fetchElement.getAttribute("distinct"))) {
 		options.distinct = true;
 	}
-	if (fetchElement.getAttribute("returntotalrecordcount") === "true") {
+	if (parseBooleanAttr(fetchElement.getAttribute("returntotalrecordcount"))) {
 		options.returnTotalRecordCount = true;
 	}
-	if (fetchElement.getAttribute("no-lock") === "true") {
+	if (parseBooleanAttr(fetchElement.getAttribute("no-lock"))) {
 		options.noLock = true;
 	}
 	if (parseBooleanAttr(fetchElement.getAttribute("latematerialize"))) {
@@ -581,7 +594,8 @@ function parseEntity(entityElement: Element, issues: ParseIssue[]): EntityNode {
 	};
 
 	// Parse optional entity attributes
-	if (entityElement.getAttribute("enableprefiltering") === "true") {
+	// Report prefiltering is documented as enableprefiltering="1"
+	if (parseBooleanAttr(entityElement.getAttribute("enableprefiltering"))) {
 		entity.enablePrefiltering = true;
 	}
 	const prefilterParam = entityElement.getAttribute("prefilterparametername");
@@ -679,7 +693,7 @@ function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNo
 		}
 	}
 
-	if (attrElement.getAttribute("groupby") === "true") {
+	if (parseBooleanAttr(attrElement.getAttribute("groupby"))) {
 		attr.groupby = true;
 	}
 
@@ -732,8 +746,10 @@ function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNo
 		}
 	}
 
-	if (attrElement.hasAttribute("usertimezone")) {
-		attr.usertimezone = attrElement.getAttribute("usertimezone") === "true";
+	// "1"/"0" mean true/false here too (verified: same groupings as "true"/"false")
+	const usertimezone = parseBooleanAttr(attrElement.getAttribute("usertimezone"));
+	if (usertimezone !== undefined) {
+		attr.usertimezone = usertimezone;
 	}
 
 	if (parseBooleanAttr(attrElement.getAttribute("distinct"))) {
@@ -783,8 +799,18 @@ function parseOrder(orderElement: Element, issues: ParseIssue[]): OrderNode | nu
 		...(extraAttributes ? { extraAttributes } : {}),
 	};
 
-	if (orderElement.getAttribute("descending") === "true") {
+	// Dataverse accepts exactly 'true', 'false', '1' or '0' here (0x80041119 otherwise)
+	const descending = orderElement.getAttribute("descending");
+	if (descending === "true" || descending === "1") {
 		order.descending = true;
+	} else if (descending !== null && descending !== "false" && descending !== "0") {
+		issues.push({
+			message: `Invalid descending value '${descending}'; Dataverse only accepts 'true', 'false', '1' or '0' (0x80041119). Parse to Tree sorts ascending.`,
+			element: "order",
+			attribute: "descending",
+			severity: "error",
+			kind: "corrected",
+		});
 	}
 
 	const entityname = orderElement.getAttribute("entityname");
@@ -793,38 +819,6 @@ function parseOrder(orderElement: Element, issues: ParseIssue[]): OrderNode | nu
 	}
 
 	return order;
-}
-
-/**
- * Order rules that depend on the whole query (verified against Dataverse):
- *  - aggregate queries must order by alias (0x80041131 when 'attribute' is used)
- *  - non-aggregate queries must order by attribute (0x80041132 when 'alias' is used)
- */
-function validateOrders(fetchNode: FetchNode, issues: ParseIssue[]): void {
-	const aggregate = fetchNode.options.aggregate === true;
-	const visit = (orders: OrderNode[], links: LinkEntityNode[]) => {
-		for (const order of orders) {
-			if (aggregate && order.attribute) {
-				issues.push({
-					message: `In an aggregate query, order by the attribute's alias instead of attribute '${order.attribute}' (Dataverse rejects it).`,
-					element: "order",
-					attribute: "attribute",
-					severity: "error",
-					kind: "invalid",
-				});
-			} else if (!aggregate && order.alias) {
-				issues.push({
-					message: `Ordering by alias '${order.alias}' only works in aggregate queries; use 'attribute' instead (Dataverse rejects it).`,
-					element: "order",
-					attribute: "alias",
-					severity: "error",
-					kind: "invalid",
-				});
-			}
-		}
-		for (const link of links) visit(link.orders, link.links);
-	};
-	visit(fetchNode.entity.orders, fetchNode.entity.links);
 }
 
 /**
@@ -852,9 +846,18 @@ function parseFilter(filterElement: Element, issues: ParseIssue[]): FilterNode {
 		links: [],
 	};
 
+	// The only valid hint is "union" (case-sensitive; anything else is rejected: 0x80041122)
 	const hint = filterElement.getAttribute("hint");
 	if (hint === "union") {
 		filter.hint = "union";
+	} else if (hint !== null) {
+		issues.push({
+			message: `Invalid filter hint '${hint}'; the only valid value is 'union' (Dataverse rejects it: 0x80041122). Parse to Tree drops it.`,
+			element: "filter",
+			attribute: "hint",
+			severity: "error",
+			kind: "dropped",
+		});
 	}
 	if (extraAttributes) filter.extraAttributes = extraAttributes;
 	if (parseBooleanAttr(filterElement.getAttribute("isquickfindfields"))) {
@@ -1094,12 +1097,13 @@ function parseLinkEntity(linkElement: Element, issues: ParseIssue[]): LinkEntity
 	const extraAttributes = collectElementAttributes(linkElement, "link-entity", issues);
 	if (extraAttributes) link.extraAttributes = extraAttributes;
 
-	if (linkElement.getAttribute("intersect") === "true") {
+	if (parseBooleanAttr(linkElement.getAttribute("intersect"))) {
 		link.intersect = true;
 	}
 
-	if (linkElement.hasAttribute("visible")) {
-		link.visible = linkElement.getAttribute("visible") === "true";
+	const visible = parseBooleanAttr(linkElement.getAttribute("visible"));
+	if (visible !== undefined) {
+		link.visible = visible;
 	}
 
 	// Parse child elements

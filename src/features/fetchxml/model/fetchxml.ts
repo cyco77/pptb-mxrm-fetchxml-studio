@@ -15,6 +15,7 @@ import type {
 	ExtraAttributes,
 } from "./nodes";
 import { operatorRequiresValue } from "./operators";
+import { AGGREGATE_FUNCTIONS } from "./attributeCapabilities";
 
 /**
  * Convert a value to string for FetchXML, avoiding scientific notation for numbers
@@ -96,7 +97,8 @@ function generateEntity(entity: EntityNode, indent: number): string[] {
 	const spaces = "  ".repeat(indent);
 
 	const entityAttrs: string[] = [`name="${entity.name}"`];
-	if (entity.enablePrefiltering) entityAttrs.push('enableprefiltering="true"');
+	// Documented form for report prefiltering: "You must set the value of the enableprefiltering parameter to 1"
+	if (entity.enablePrefiltering) entityAttrs.push('enableprefiltering="1"');
 	if (entity.prefilterParameterName)
 		entityAttrs.push(`prefilterparametername="${escapeXml(entity.prefilterParameterName)}"`);
 	entityAttrs.push(...extraAttrs(entity.extraAttributes));
@@ -140,6 +142,10 @@ function generateAllAttributes(_allAttr: AllAttributesNode, indent: number): str
 	return [`${spaces}<all-attributes />`];
 }
 
+/** Documented values (FetchXML attribute reference); anything else is never written (#88). */
+const AGGREGATES: ReadonlySet<string> = new Set(AGGREGATE_FUNCTIONS);
+const DATE_GROUPINGS: ReadonlySet<string> = new Set(["day", "week", "month", "quarter", "year", "fiscal-period", "fiscal-year"]);
+
 /**
  * Generate attribute element
  */
@@ -148,9 +154,10 @@ function generateAttribute(attr: AttributeNode, indent: number): string[] {
 	const attrs: string[] = [`name="${attr.name}"`];
 
 	if (attr.alias) attrs.push(`alias="${attr.alias}"`);
-	if (attr.aggregate) attrs.push(`aggregate="${attr.aggregate}"`);
+	if (attr.aggregate && AGGREGATES.has(attr.aggregate)) attrs.push(`aggregate="${attr.aggregate}"`);
 	if (attr.groupby) attrs.push('groupby="true"');
-	if (attr.dategrouping) attrs.push(`dategrouping="${attr.dategrouping}"`);
+	if (attr.dategrouping && DATE_GROUPINGS.has(attr.dategrouping))
+		attrs.push(`dategrouping="${attr.dategrouping}"`);
 	if (attr.usertimezone !== undefined) attrs.push(`usertimezone="${attr.usertimezone}"`);
 	if (attr.distinct) attrs.push('distinct="true"');
 	if (attr.rowAggregate) attrs.push(`rowaggregate="${escapeXml(attr.rowAggregate)}"`);
@@ -226,7 +233,8 @@ function generateCondition(condition: ConditionNode, indent: number): string[] {
 	];
 
 	if (condition.entityname) attrs.push(`entityname="${condition.entityname}"`);
-	if (condition.aggregate) attrs.push(`aggregate="${condition.aggregate}"`);
+	if (condition.aggregate && AGGREGATES.has(condition.aggregate))
+		attrs.push(`aggregate="${condition.aggregate}"`);
 	// Note: ConditionNode doesn't have alias in our type definition
 	if (condition.valueof) attrs.push(`valueof="${condition.valueof}"`);
 	attrs.push(...extraAttrs(condition.extraAttributes));

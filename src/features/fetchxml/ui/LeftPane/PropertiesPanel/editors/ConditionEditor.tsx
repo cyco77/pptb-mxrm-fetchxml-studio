@@ -39,6 +39,7 @@ import {
 	isConditionInRootEntityFilter,
 } from "../../../../model/treeUtils";
 import { ValueOfPicker } from "./ValueOfPicker";
+import { NONE_OPTION, optionalValue } from "./optionalValue";
 
 const useStyles = makeStyles({
 	container: {
@@ -208,7 +209,7 @@ export function ConditionEditor({
 	};
 
 	const handleDropdownChange = (field: string) => (_: unknown, data: { optionValue?: string }) => {
-		onUpdate({ [field]: data.optionValue });
+		onUpdate({ [field]: optionalValue(data.optionValue) });
 	};
 
 	const handleAttributeChange = (logicalName: string | undefined) => {
@@ -505,12 +506,12 @@ export function ConditionEditor({
 					<Field label="Aggregate Function (optional)">
 						<div className={styles.fieldWithTooltip}>
 							<Dropdown
-								value={node.aggregate ?? "none"}
-								selectedOptions={[node.aggregate ?? "none"]}
+								value={node.aggregate ?? "None"}
+								selectedOptions={[node.aggregate ?? NONE_OPTION]}
 								onOptionSelect={handleDropdownChange("aggregate")}
 								placeholder="None"
 							>
-								<Option value="none">None</Option>
+								<Option value={NONE_OPTION}>None</Option>
 								<Option value="count">Count</Option>
 								<Option value="countcolumn">Count Column</Option>
 								<Option value="sum">Sum</Option>
