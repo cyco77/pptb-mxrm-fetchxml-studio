@@ -30,7 +30,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 ### 📝 FetchXML Editor
 - **Monaco editor** — Full-featured XML editor with XML syntax highlighting and line numbers
 - **Bi-directional editing** — Edit XML directly and parse back to the visual builder
-- **Editor mode actions run what you see** — In editor mode, **Execute**, **Save** and **Send to Tool** first load your FetchXML into the tree, so results, saved views and sent queries always match the editor. Execute is available as soon as the editor has content, even before an entity is chosen. If the tree would change anything, a confirmation lists the changes first; invalid FetchXML is reported and nothing runs.
+- **Editor mode actions run what you see** — In editor mode, **Execute**, **Save** and **Send to Tool** first load your FetchXML into the tree, so results, saved views and sent queries always match the editor. Execute is available as soon as the editor has content, even before an entity is chosen. If the tree would change anything, a confirmation lists the changes first, and the editor then shows the cleaned FetchXML that ran. Invalid FetchXML is reported and nothing runs.
 - **What you build is what runs** — The generated FetchXML contains exactly what is in the tree; nothing is injected, so what you copy, save as a view, or send to another tool matches what executes
 - **Copy to clipboard** — One-click copy of generated FetchXML, available in both read-only and editor modes
 - **Alias validation** — Invalid alias characters are sanitized in real time in the property editors; Parse to Tree corrects invalid aliases and lists each correction

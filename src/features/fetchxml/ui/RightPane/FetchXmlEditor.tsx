@@ -4,7 +4,7 @@
  * - Editor mode: Editable with Paste, Load File, Reset, Validate, Parse to Tree buttons
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Editor from "@monaco-editor/react";
 import type * as MonacoEditor from "monaco-editor";
 import {
@@ -119,9 +119,19 @@ interface FetchXmlEditorProps {
 	 * `isActive=true` means editor mode is on; `xml` is the current editor content.
 	 */
 	onEditorStateChange?: (isActive: boolean, xml: string) => void;
+	/**
+	 * Replace the editor buffer (editor mode only), e.g. after an editor-mode action loaded the
+	 * FetchXML into the tree and the tree changed it (#102). A new `id` triggers the replacement.
+	 */
+	replaceRequest?: { xml: string; id: number } | null;
 }
 
-export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: FetchXmlEditorProps) {
+export function FetchXmlEditor({
+	xml,
+	onParseToTree,
+	onEditorStateChange,
+	replaceRequest,
+}: FetchXmlEditorProps) {
 	const styles = useStyles();
 	const { isDark } = useTheme();
 	const editorRef = useRef<MonacoEditor.editor.IStandaloneCodeEditor | null>(null);
@@ -164,6 +174,20 @@ export function FetchXmlEditor({ xml, onParseToTree, onEditorStateChange }: Fetc
 	const clearMessages = useCallback(() => {
 		setMessages([]);
 	}, []);
+
+	// Show what the tree loaded when an editor-mode action changed the query (#102)
+	useEffect(() => {
+		if (!replaceRequest || !isEditorMode) return;
+		setEditedXml(replaceRequest.xml);
+		onEditorStateChange?.(true, replaceRequest.xml);
+		addMessage(
+			"info",
+			"Editor updated",
+			"The editor now shows the FetchXML that was loaded into the tree, with the changes you confirmed.",
+		);
+		// Only a new request replaces the buffer
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [replaceRequest?.id]);
 
 	// Toggle editor mode
 	const handleToggleEditorMode = useCallback(

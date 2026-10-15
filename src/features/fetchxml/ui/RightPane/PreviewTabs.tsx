@@ -369,6 +369,8 @@ export function PreviewTabs({
 	} | null>(null);
 	// Whether the editor buffer has any content (Execute is enabled on it in editor mode, #102)
 	const [editorHasContent, setEditorHasContent] = useState(false);
+	// Cleaned FetchXML to show in the editor after a sync changed the query (#102)
+	const [editorReplace, setEditorReplace] = useState<{ xml: string; id: number } | null>(null);
 	// Editor sync awaiting confirmation because loading into the tree would change the query
 	const [pendingSync, setPendingSync] = useState<{
 		action: EditorSyncAction;
@@ -444,7 +446,13 @@ export function PreviewTabs({
 				setEditorValidationError(result?.errors ?? [{ message: "The FetchXML couldn't be loaded into the tree." }]);
 				return { status: "cancelled" };
 			}
-			return { status: "synced", fetchXml: generateFetchXml(result.fetchNode), fetchQuery: result.fetchNode };
+			const syncedXml = generateFetchXml(result.fetchNode);
+			// The tree changed the query (the user confirmed it): show what actually runs in the editor
+			if (changes.length > 0) {
+				editorXmlRef.current = syncedXml;
+				setEditorReplace({ xml: syncedXml, id: Date.now() });
+			}
+			return { status: "synced", fetchXml: syncedXml, fetchQuery: result.fetchNode };
 		},
 		[isEditorModeActive, xml, onParseToTree],
 	);
@@ -671,6 +679,7 @@ export function PreviewTabs({
 							xml={xml}
 							onParseToTree={onParseToTree}
 							onEditorStateChange={handleEditorStateChange}
+							replaceRequest={editorReplace}
 						/>
 					</div>
 					{selectedTab === "layout" && (

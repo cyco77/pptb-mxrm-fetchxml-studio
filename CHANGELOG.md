@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Now:**
     - Execute is enabled as soon as the editor has content.
     - The tree always matches what ran, was saved or was sent, so the results grid, column picker, sorting and record actions all match too.
-    - Editor mode stays on with your text, and your column widths and order are kept.
+    - Editor mode stays on, and your column widths and order are kept. Your text is kept as typed, unless loading changed the query; then the editor shows the cleaned FetchXML that ran, with an "Editor updated" note.
     - When the editor already matches the tree, nothing is reloaded.
   - **No silent changes:** if loading into the tree would change the query (for example, dropping a second `<entity>`), a confirmation lists the changes first ("Load and execute" / "Load and save" / "Load and send"). Invalid FetchXML is reported and nothing runs. Cancel leaves the editor and tree untouched.
   - Loading a different query clears the loaded-view link, as any tree edit does, so Save then saves a new view.
