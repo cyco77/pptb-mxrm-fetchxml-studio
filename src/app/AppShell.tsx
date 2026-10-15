@@ -76,6 +76,11 @@ import { useAccessMode } from "../shared/hooks/useAccessMode";
 // because Fluent UI v9 uses CSS variables under the hood
 const useStyles = makeStyles({
 	root: {
+		// The theme background covers the whole tool; without it, surfaces with no background of
+		// their own showed the page's white canvas in dark mode (#67). (Not on the FluentProvider:
+		// Fluent copies its className onto portal containers.)
+		backgroundColor: tokens.colorNeutralBackground1,
+		color: tokens.colorNeutralForeground1,
 		display: "flex",
 		flexDirection: "row",
 		height: "100%",
@@ -191,15 +196,13 @@ const useStyles = makeStyles({
 
 export function AppShell() {
 	const { theme } = usePptbContext();
-	// Use theme from PPTB host context
+	// The PPTB host's theme (light / dark), resolved by the host (#67)
 	const isDark = theme === "dark";
 
-	console.log("🎨 AppShell rendering:");
-	console.log("  - theme from context:", theme);
-	console.log("  - isDark:", isDark);
-	console.log("  - will use Fluent theme:", isDark ? "webDarkTheme" : "webLightTheme");
-	console.log("  - tokens.colorNeutralBackground1:", tokens.colorNeutralBackground1);
-	console.log("  - tokens.colorNeutralForeground1:", tokens.colorNeutralForeground1);
+	// Native controls (scrollbars, date inputs, autofill) follow the theme too
+	useEffect(() => {
+		document.documentElement.style.colorScheme = isDark ? "dark" : "light";
+	}, [isDark]);
 
 	return (
 		<FluentProvider theme={isDark ? webDarkTheme : webLightTheme}>
