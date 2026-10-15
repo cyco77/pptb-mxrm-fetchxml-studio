@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.4] - 2026-10-13
+
+### 📦 Dependencies
+
+- **Fluent UI React v9 upgraded (#104)** ahead of the property-panel work in #90b:
+  - `@fluentui/react-components` 9.72.4 → 9.74.9;
+  - `@fluentui/react-icons` 2.0.313 → 2.0.343;
+  - `@fluentui/react-calendar-compat` 0.3.16 → 0.4.7 (required by the date picker);
+  - `@fluentui/react-datepicker-compat` 0.6.19 → 0.6.39;
+  - `@fluentui/react-timepicker-compat` 0.4.24 → 0.4.41;
+  - `@fluentui-contrib/react-data-grid-react-window` 1.4.1 → 1.4.2.
+- Every new version was published at least two weeks ago. `react-icons` is pinned to 2.0.343 instead of 2.0.344 (published 2026-10-09) for that reason.
+- The dependency tree has a single copy of each Fluent package. `npm audit` drops from 29 findings to 26 (three fewer high); the rest are tracked in #77.
+
+### 🏗️ Technical
+
+- `npm-shrinkwrap.json` was regenerated with npm 11.20.0. npm 12 no longer has `npm shrinkwrap`, and it writes a `package-lock.json` (without integrity hashes) instead of updating the shrinkwrap. Use npm 11 for dependency changes until the release tooling in #75 handles this.
+
 ## [1.4.1-beta.3] - 2026-10-13
 
 ### 🔧 Fixed
