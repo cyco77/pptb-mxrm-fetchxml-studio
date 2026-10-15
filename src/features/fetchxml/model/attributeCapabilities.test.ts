@@ -9,6 +9,7 @@ import {
 	getDataSourceIssue,
 	getOrderMetadataIssue,
 	getUnsupportedFunctionReason,
+	getValueOfCompatibleTypes,
 	toAttributeTypeInfo,
 } from "./attributeCapabilities";
 
@@ -87,5 +88,34 @@ describe("editor messages", () => {
 		expect(getDataSourceIssue("retained", { logicalName: "account", isRetentionEnabled: false })).toMatch(/IsRetentionEnabled/);
 		expect(getDataSourceIssue("retained", { logicalName: "account", isRetentionEnabled: true })).toBeUndefined();
 		expect(getDataSourceIssue("retained", { logicalName: "account" })).toBeUndefined();
+	});
+});
+
+describe("getValueOfCompatibleTypes (valueof type pairs run live, 2026-10-14)", () => {
+	it.each([
+		// accepted by Dataverse
+		["Integer", "Picklist", true],
+		["State", "Status", true],
+		["EntityName", "Picklist", true],
+		["Money", "Decimal", true],
+		["Lookup", "Uniqueidentifier", true],
+		["Customer", "Owner", true],
+		["Memo", "String", true],
+		["DateTime", "DateTime", true],
+		// rejected with 0x80040203
+		["Integer", "BigInt", false],
+		["Double", "Decimal", false],
+		["Boolean", "Integer", false],
+		["String", "Uniqueidentifier", false],
+		["String", "State", false],
+		["Integer", "Decimal", false],
+		["Integer", "Double", false],
+	])("%s compared to %s: %s", (a, b, ok) => {
+		expect(getValueOfCompatibleTypes(a).includes(b)).toBe(ok);
+		expect(getValueOfCompatibleTypes(b).includes(a)).toBe(ok);
+	});
+	it("unknown types only compare to themselves; no type means no filter", () => {
+		expect(getValueOfCompatibleTypes("ManagedProperty")).toEqual(["ManagedProperty"]);
+		expect(getValueOfCompatibleTypes(undefined)).toEqual([]);
 	});
 });

@@ -125,3 +125,26 @@ export function getDataSourceIssue(
 	if (dataSource !== "retained" || entity.isRetentionEnabled !== false) return undefined;
 	return `Long-term retention isn't enabled for ${entity.logicalName} (IsRetentionEnabled is false), so Dataverse can't query its retained data.`;
 }
+
+/**
+ * AttributeType groups a `valueof` comparison accepts. The docs say "the columns must be the same
+ * type"; verified live, Dataverse compares by the underlying .NET type, so these groups compare
+ * (e.g. Money with Decimal, Lookup with Uniqueidentifier, Memo with String) and anything across
+ * groups fails with 0x80040203 (e.g. Integer with BigInt, Double with Decimal, String with Guid).
+ */
+const VALUEOF_TYPE_GROUPS: readonly (readonly string[])[] = [
+	["Integer", "Picklist", "State", "Status", "EntityName"], // Int32
+	["BigInt"], // Int64
+	["Decimal", "Money"],
+	["Double"],
+	["Boolean"],
+	["DateTime"],
+	["Lookup", "Customer", "Owner", "Uniqueidentifier"], // Guid
+	["String", "Memo"],
+];
+
+/** AttributeTypes a `valueof` attribute can have for a condition on `attributeType`. */
+export function getValueOfCompatibleTypes(attributeType: string | undefined): string[] {
+	if (!attributeType) return [];
+	return [...(VALUEOF_TYPE_GROUPS.find((g) => g.includes(attributeType)) ?? [attributeType])];
+}

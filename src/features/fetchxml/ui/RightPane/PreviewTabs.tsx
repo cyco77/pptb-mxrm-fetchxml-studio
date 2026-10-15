@@ -747,7 +747,7 @@ export function PreviewTabs({
 									workflowDisabled={isAggregateQuery || hasOneToManyRelationship}
 									recordActionsDisabledReason={recordActionsDisabledReason}
 									onFetchWorkflows={onFetchWorkflows}
-									onExport={onExport || (() => console.log("Export not yet implemented"))}
+									onExport={onExport}
 									onExportLocal={onExportLocal}
 									canExport={canExport}
 									isExporting={isExporting}
