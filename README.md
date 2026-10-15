@@ -156,7 +156,7 @@ npm run preview
 # Validate package manifest against PPTB registry rules
 npm run validate
 
-# Finalize for publishing (build + shrinkwrap)
+# Finalize for publishing (validate + build)
 npm run finalize-package
 ```
 

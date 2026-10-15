@@ -65,7 +65,7 @@
 		"test:watch": "vitest",
 		"coverage": "vitest run --coverage",
 		"preview": "vite preview",
-		"finalize-package": "npm run validate && npm run build && npm shrinkwrap"
+		"finalize-package": "npm run validate && npm run build"
 	},
 	"dependencies": {
 		"@fluentui-contrib/react-data-grid-react-window": "^1.4.2",

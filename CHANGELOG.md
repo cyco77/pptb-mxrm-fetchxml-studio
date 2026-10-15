@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Example: multi-select option sets can't be sorted or grouped.
 - `AttributeNode.aggregate` no longer allows `"rowaggregate"`.
 - 280 unit tests.
+- `npm-shrinkwrap.json` removed, and `finalize-package` no longer runs `npm shrinkwrap` (npm 12 dropped that command). The local `.claude/` workspace folder is git-ignored.
 
 ## [1.4.1-beta.5] - 2026-10-13
 
