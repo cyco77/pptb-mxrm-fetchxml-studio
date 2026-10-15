@@ -20,7 +20,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
   - **Safe mode changes** — Turning off aggregate, or switching a link-entity to a type that returns no attributes, lists what has to change and asks first.
 - **Full FetchXML support** — Aggregate queries, grouping, distinct, top/count, paging, and advanced hints
 - **Nested filters** — Create complex AND/OR filter groups with unlimited nesting
-- **Link-entity relationships** — Browse and add 1:N, N:1, and N:N relationships with inner/outer joins
+- **Link-entity relationships** — Browse and add 1:N, N:1, and N:N relationships with inner/outer joins; N:N relationships join through their intersect entity, as documented
 
 ### 📊 Results Grid
 - **Virtualized DataGrid** — Handle large result sets with smooth scrolling (powered by react-window)
@@ -303,7 +303,7 @@ src/
 | All condition operators | ✅ |
 | Link-entity (joins) | ✅ |
 | Inner/outer joins | ✅ |
-| N:N relationships | ⚠️ The documented intersect pattern parses and runs; the relationship picker's N:N join is being fixed (#85) |
+| N:N relationships (through the intersect entity) | ✅ |
 | Orders (sorting) | ✅ |
 | Multi-column sort | ✅ |
 | Aggregate queries | ✅ |

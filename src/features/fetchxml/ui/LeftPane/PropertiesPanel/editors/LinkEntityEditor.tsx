@@ -28,7 +28,10 @@ import type { RuleFinding } from "../../../../model/fetchxmlRules";
 import { NON_RETURNING_LINK_TYPES } from "../../../../model/fetchxmlRules";
 import { sanitizeAlias } from "../../../../model/aliasUtils";
 import { AttributePicker } from "../../../../../../shared/components/AttributePicker";
-import { RelationshipPicker } from "../../../../../../shared/components/RelationshipPicker";
+import { RelationshipPicker, type RelationshipOption } from "../../../../../../shared/components/RelationshipPicker";
+import { planManyToManyJoin } from "../../../../model/manyToMany";
+import { loadEntityMetadata } from "../../../../api/dataverseMetadata";
+import { useBuilder } from "../../../../state/builderContext";
 import { DOCS } from "../docLinks";
 import { useEditorStyles } from "../editorStyles";
 import { Info, InfoCheckbox, InfoField, LeftoverSetting, SectionHeading, type Validation } from "../fields";
@@ -70,7 +73,9 @@ interface LinkEntityEditorProps {
 
 export function LinkEntityEditor({ node, parentEntityName, inFilter, findings, onUpdate }: LinkEntityEditorProps) {
 	const styles = useEditorStyles();
+	const { addLinkEntityWithConfig } = useBuilder();
 	const [pendingLinkType, setPendingLinkType] = useState<LinkType | null>(null);
+	const [relationshipError, setRelationshipError] = useState<string | null>(null);
 
 	// Offer the relationship picker until the link-entity has been set up
 	const shouldShowPicker = node.name === "new_entity" || (!node.name && !node.from && !node.to);
@@ -103,14 +108,56 @@ export function LinkEntityEditor({ node, parentEntityName, inFilter, findings, o
 		setPendingLinkType(null);
 	};
 
-	const handleRelationshipSelect = (relationship: {
-		schemaName: string;
-		referencedEntity: string;
-		referencingEntity: string;
-		referencedAttribute: string;
-		referencingAttribute: string;
-		type: "1N" | "N1" | "NN";
-	}) => {
+	/**
+	 * N:N (#85): join through the intersect entity with two nested link-entities, as documented
+	 * (join-tables#many-to-many-relationships). This link-entity becomes the intersect entity and the
+	 * related entity is added inside it, with the alias, so its attributes go there.
+	 */
+	const applyManyToMany = async (relationship: RelationshipOption) => {
+		setRelationshipError(null);
+		try {
+			if (!relationship.intersectEntity) throw new Error("the relationship has no intersect entity.");
+			const target =
+				relationship.referencingEntity === parentEntityName ? relationship.referencedEntity : relationship.referencingEntity;
+			const [parentMetadata, targetMetadata] = await Promise.all([
+				loadEntityMetadata(parentEntityName),
+				loadEntityMetadata(target),
+			]);
+			const join = planManyToManyJoin(
+				parentEntityName,
+				parentMetadata.PrimaryIdAttribute,
+				{
+					Entity1LogicalName: relationship.referencingEntity,
+					Entity2LogicalName: relationship.referencedEntity,
+					Entity1IntersectAttribute: relationship.referencingAttribute,
+					Entity2IntersectAttribute: relationship.referencedAttribute,
+					IntersectEntityName: relationship.intersectEntity,
+				},
+				() => targetMetadata.PrimaryIdAttribute,
+			);
+			if (!join) throw new Error(`${parentEntityName} isn't part of ${relationship.schemaName}.`);
+			onUpdate({
+				name: join.intersect.name,
+				from: join.intersect.from,
+				to: join.intersect.to,
+				intersect: true,
+				alias: undefined,
+				relationshipType: "NN",
+			});
+			addLinkEntityWithConfig(node.id, join.target.name, join.target.from, join.target.to, "inner", "NN");
+			setUseRelationshipPicker(false);
+		} catch (error) {
+			setRelationshipError(
+				`Couldn't build the many-to-many join: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	};
+
+	const handleRelationshipSelect = (relationship: RelationshipOption) => {
+		if (relationship.type === "NN") {
+			void applyManyToMany(relationship);
+			return;
+		}
 		debugLog("linkEntityEditor", "Relationship selected:", { nodeId: node.id, parentEntityName, relationship });
 		const updates: Record<string, unknown> = { name: "", from: "", to: "", relationshipType: relationship.type };
 
@@ -135,13 +182,6 @@ export function LinkEntityEditor({ node, parentEntityName, inFilter, findings, o
 				updates.from = relationship.referencingAttribute;
 				updates.to = relationship.referencedAttribute;
 			}
-		} else if (relationship.type === "NN") {
-			// Known issue #85: N:N should join through the intersect entity
-			updates.name =
-				relationship.referencedEntity === parentEntityName ? relationship.referencingEntity : relationship.referencedEntity;
-			updates.from = relationship.referencingAttribute;
-			updates.to = relationship.referencedAttribute;
-			updates.intersect = true;
 		}
 		onUpdate(updates);
 		setUseRelationshipPicker(false);
@@ -177,7 +217,8 @@ export function LinkEntityEditor({ node, parentEntityName, inFilter, findings, o
 					<SectionHeading>Relationship</SectionHeading>
 					<InfoField
 						label="Relationship"
-						hint="Fills in the entity and the attributes to match. Or set them below."
+						hint="Fills in the entity and the attributes to match. A many-to-many relationship adds its intersect entity with the related entity inside it. Or set them below."
+						validation={relationshipError ? { state: "error", message: relationshipError } : undefined}
 						info={<Info text={`The relationships of ${parentEntityName}.`} href={DOCS.joinTables} />}
 					>
 						<RelationshipPicker

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.11] - 2026-10-15
+
+### 🔧 Fixed
+
+- **Many-to-many relationships from the relationship picker return the right rows (#85).** Choosing an N:N relationship built a single link-entity straight to the related entity, using the intersect entity's attribute names. That silently returned 0 rows (or failed, depending on the side).
+  - It now builds the [documented pattern](https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/join-tables#many-to-many-relationships): the link-entity becomes the intersect entity (`intersect="true"`, joined on the parent's primary key), and the related entity is nested inside it, with the alias, so attributes are added there.
+  - The attributes come from the relationship metadata (`IntersectEntityName`, `Entity1/2IntersectAttribute`) and both entities' primary keys. It works from either side, and for self-referential relationships.
+  - **Verified live:** for every many-to-many relationship with data in the sandbox (47 checks from both sides, system, custom and self-referential), the join returned exactly the intersect entity's pairs.
+
+- **Attribute pickers show their value even when it isn't in the attribute list.** For example, intersect entities usually have no Advanced Find attributes, so the From / To pickers on an N:N join looked empty.
+
+### 🏗️ Technical
+
+- `model/manyToMany.ts`: `planManyToManyJoin`, with tests.
+
 ## [1.4.1-beta.10] - 2026-10-15
 
 ### 🔧 Fixed

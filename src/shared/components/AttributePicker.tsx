@@ -59,9 +59,10 @@ export function AttributePicker({
 			});
 	}, [entityLogicalName, filterByTypes]);
 
-	// Sync query with value when value changes or attributes load
+	// Sync query with value when value changes or attributes load. The value shows even when it isn't
+	// in the list (e.g. intersect entities, which usually have no Advanced Find attributes, #85).
 	useEffect(() => {
-		if (value && value !== "new_attribute" && attributes.length > 0) {
+		if (value && value !== "new_attribute") {
 			const attr = attributes.find((a) => a.LogicalName === value);
 			if (attr) {
 				const displayName = attr.DisplayName?.UserLocalizedLabel?.Label || attr.SchemaName;
