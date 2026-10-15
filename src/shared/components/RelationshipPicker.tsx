@@ -16,7 +16,7 @@ import { debugLog } from "../utils/debug";
 import { loadEntityRelationships } from "../../features/fetchxml/api/dataverseMetadata";
 import type { RelationshipMetadata } from "../../features/fetchxml/api/pptbClient";
 
-interface RelationshipOption {
+export interface RelationshipOption {
 	schemaName: string;
 	displayText: string;
 	referencedEntity: string;
@@ -25,6 +25,8 @@ interface RelationshipOption {
 	referencingAttribute: string;
 	type: "1N" | "N1" | "NN";
 	category: string;
+	/** N:N only: the intersect entity the join goes through (#85) */
+	intersectEntity?: string;
 }
 
 interface RelationshipPickerProps {
@@ -128,6 +130,7 @@ export function RelationshipPicker({
 						referencingAttribute: attr1,
 						type: "NN",
 						category: "Many-to-Many (N:N)",
+						intersectEntity: rel.IntersectEntityName,
 					});
 				});
 

@@ -28,7 +28,13 @@ import { Info16Regular } from "@fluentui/react-icons";
 import { debugLog } from "../../../../../../shared/utils/debug";
 import type { LinkEntityNode, LinkType } from "../../../../model/nodes";
 import { sanitizeAlias } from "../../../../model/aliasUtils";
-import { RelationshipPicker } from "../../../../../../shared/components/RelationshipPicker";
+import {
+	RelationshipPicker,
+	type RelationshipOption,
+} from "../../../../../../shared/components/RelationshipPicker";
+import { planManyToManyJoin } from "../../../../model/manyToMany";
+import { loadEntityMetadata } from "../../../../api/dataverseMetadata";
+import { useBuilder } from "../../../../state/builderContext";
 
 const useStyles = makeStyles({
 	container: {
@@ -93,6 +99,8 @@ interface LinkEntityEditorProps {
 
 export function LinkEntityEditor({ node, parentEntityName, onUpdate }: LinkEntityEditorProps) {
 	const styles = useStyles();
+	const { addLinkEntityWithConfig } = useBuilder();
+	const [relationshipError, setRelationshipError] = useState<string | null>(null);
 
 	// Dialog state for confirming link-type change
 	const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -176,14 +184,57 @@ export function LinkEntityEditor({ node, parentEntityName, onUpdate }: LinkEntit
 			onUpdate({ [field]: data.checked === true ? true : undefined });
 		};
 
-	const handleRelationshipSelect = (relationship: {
-		schemaName: string;
-		referencedEntity: string;
-		referencingEntity: string;
-		referencedAttribute: string;
-		referencingAttribute: string;
-		type: "1N" | "N1" | "NN";
-	}) => {
+	/**
+	 * N:N (#85): join through the intersect entity with two nested link-entities, as documented
+	 * (join-tables#many-to-many-relationships). This link-entity becomes the intersect entity and the
+	 * related entity is added inside it, with the alias, so its attributes go there.
+	 */
+	const applyManyToMany = async (relationship: RelationshipOption) => {
+		setRelationshipError(null);
+		try {
+			if (!relationship.intersectEntity) throw new Error("the relationship has no intersect entity.");
+			const target =
+				relationship.referencingEntity === parentEntityName ? relationship.referencedEntity : relationship.referencingEntity;
+			const [parentMetadata, targetMetadata] = await Promise.all([
+				loadEntityMetadata(parentEntityName),
+				loadEntityMetadata(target),
+			]);
+			const join = planManyToManyJoin(
+				parentEntityName,
+				parentMetadata.PrimaryIdAttribute,
+				{
+					Entity1LogicalName: relationship.referencingEntity,
+					Entity2LogicalName: relationship.referencedEntity,
+					Entity1IntersectAttribute: relationship.referencingAttribute,
+					Entity2IntersectAttribute: relationship.referencedAttribute,
+					IntersectEntityName: relationship.intersectEntity,
+				},
+				() => targetMetadata.PrimaryIdAttribute,
+			);
+			if (!join) throw new Error(`${parentEntityName} isn't part of ${relationship.schemaName}.`);
+			onUpdate({
+				name: join.intersect.name,
+				from: join.intersect.from,
+				to: join.intersect.to,
+				intersect: true,
+				alias: undefined,
+				relationshipType: "NN",
+			});
+			addLinkEntityWithConfig(node.id, join.target.name, join.target.from, join.target.to, "inner", "NN");
+			setUseRelationshipPicker(false);
+		} catch (error) {
+			setRelationshipError(
+				`Couldn't build the many-to-many join: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	};
+
+	const handleRelationshipSelect = (relationship: RelationshipOption) => {
+		if (relationship.type === "NN") {
+			void applyManyToMany(relationship);
+			return;
+		}
+
 		debugLog("linkEntityEditor", "Relationship selected:", {
 			nodeId: node.id,
 			parentEntityName,
@@ -231,18 +282,6 @@ export function LinkEntityEditor({ node, parentEntityName, onUpdate }: LinkEntit
 				updates.from = relationship.referencingAttribute;
 				updates.to = relationship.referencedAttribute;
 			}
-		} else if (relationship.type === "NN") {
-			// Many-to-Many
-			// Determine target entity (the one that's not parentEntityName)
-			const targetEntity =
-				relationship.referencedEntity === parentEntityName
-					? relationship.referencingEntity
-					: relationship.referencedEntity;
-
-			updates.name = targetEntity;
-			updates.from = relationship.referencingAttribute;
-			updates.to = relationship.referencedAttribute;
-			updates.intersect = true;
 		}
 
 		debugLog("linkEntityEditor", "Applying updates:", updates);
@@ -266,6 +305,11 @@ export function LinkEntityEditor({ node, parentEntityName, onUpdate }: LinkEntit
 							placeholder="Select a relationship..."
 						/>
 					</Field>
+					{relationshipError && (
+						<MessageBar intent="error">
+							<MessageBarBody>{relationshipError}</MessageBarBody>
+						</MessageBar>
+					)}
 				</div>
 			)}
 

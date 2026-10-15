@@ -16,7 +16,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **Smart property editors** — Context-aware panels for each node type (fetch options, conditions, relationships)
 - **Full FetchXML support** — Aggregate queries, grouping, distinct, top/count, paging, and advanced hints
 - **Nested filters** — Create complex AND/OR filter groups with unlimited nesting
-- **Link-entity relationships** — Browse and add 1:N, N:1, and N:N relationships with inner/outer joins
+- **Link-entity relationships** — Browse and add 1:N, N:1, and N:N relationships with inner/outer joins; N:N relationships join through their intersect entity, as documented
 
 ### 📊 Results Grid
 - **Virtualized DataGrid** — Handle large result sets with smooth scrolling (powered by react-window)
