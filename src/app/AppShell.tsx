@@ -62,6 +62,7 @@ import type {
 } from "../features/fetchxml/api/pptbClient";
 import { generateFetchXml, addPagingToFetchXml } from "../features/fetchxml/model/fetchxml";
 import { getQueryEntities } from "../features/fetchxml/model/treeUtils";
+import { NON_RETURNING_LINK_TYPES } from "../features/fetchxml/model/fetchxmlRules";
 import type { FetchNode } from "../features/fetchxml/model/nodes";
 import { generateLayoutXml } from "../features/fetchxml/model/layoutxml";
 import { collectAttributesFromFetchXml } from "../features/fetchxml/model/layoutxml";
@@ -1715,9 +1716,14 @@ function AppContent() {
 								relTypeForBuilder = "1N";
 							}
 
-							// Check if link-entity already exists for this relationship
+							// Reuse a link-entity for this relationship, unless its type returns no attributes
+							// (exists / in / any / not any / all / not all reject them: 0x80041121)
 							const existingLinkEntity = builder.fetchQuery.entity.links.find(
-								(le) => le.from === fromAttr && le.to === toAttr && le.name === relatedEntity,
+								(le) =>
+									le.from === fromAttr &&
+									le.to === toAttr &&
+									le.name === relatedEntity &&
+									!NON_RETURNING_LINK_TYPES.has(le.linkType),
 							);
 
 							let linkEntityId: string;

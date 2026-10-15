@@ -2,7 +2,7 @@
  * Utility functions for traversing and querying FetchXML tree nodes
  */
 
-import type { FetchNode, EntityNode, LinkEntityNode, NodeId, FilterNode } from "./nodes";
+import type { FetchNode, EntityNode, LinkEntityNode, NodeId, FilterNode, OrderNode } from "./nodes";
 
 /**
  * Information about a link-entity that can be referenced in entityname attribute
@@ -212,4 +212,97 @@ export function getQueryEntities(fetchQuery: FetchNode | null): QueryEntities {
 	const entityNames = Array.from(names);
 	const key = `${rootEntityName}|${[...entityNames].sort().join(",")}`;
 	return { rootEntityName, entityNames, key };
+}
+
+/** Where a node sits in the query (#90b property editors). */
+export interface NodeContainer {
+	/** The entity or link-entity whose attributes / orders / filters hold the node */
+	container: EntityNode | LinkEntityNode;
+	/** The container is the root <entity> */
+	isRoot: boolean;
+	/** For filters: nesting level within the container, starting at 1 for its own filter */
+	filterDepth?: number;
+}
+
+/**
+ * Find the entity or link-entity that holds a node (attribute, order, filter or condition),
+ * including link-entities nested in filters (any / not any / all / not all).
+ */
+export function findNodeContainer(fetchNode: FetchNode | null, nodeId: NodeId): NodeContainer | null {
+	if (!fetchNode?.entity) return null;
+	let found: NodeContainer | null = null;
+
+	const visitFilter = (filter: FilterNode, container: EntityNode | LinkEntityNode, isRoot: boolean, depth: number) => {
+		if (found) return;
+		if (filter.id === nodeId || filter.conditions.some((c) => c.id === nodeId)) {
+			found = { container, isRoot, filterDepth: depth };
+			return;
+		}
+		filter.subfilters.forEach((f) => visitFilter(f, container, isRoot, depth + 1));
+		filter.links?.forEach((l) => visitContainer(l, false));
+	};
+	const visitContainer = (container: EntityNode | LinkEntityNode, isRoot: boolean) => {
+		if (found) return;
+		if (container.attributes.some((a) => a.id === nodeId) || container.orders.some((o) => o.id === nodeId)) {
+			found = { container, isRoot };
+			return;
+		}
+		container.filters.forEach((f) => visitFilter(f, container, isRoot, 1));
+		container.links.forEach((l) => visitContainer(l, false));
+	};
+	visitContainer(fetchNode.entity, true);
+	return found;
+}
+
+/** Every link-entity in the query, including those nested in other links and in filters. */
+export function collectAllLinkEntities(fetchNode: FetchNode | null): LinkEntityNode[] {
+	if (!fetchNode?.entity) return [];
+	const out: LinkEntityNode[] = [];
+	const visitFilter = (filter: FilterNode) => {
+		filter.subfilters.forEach(visitFilter);
+		filter.links?.forEach(visitContainer);
+	};
+	const visitContainer = (container: EntityNode | LinkEntityNode) => {
+		if (container.type === "link-entity") out.push(container);
+		container.filters.forEach(visitFilter);
+		container.links.forEach(visitContainer);
+	};
+	visitContainer(fetchNode.entity);
+	return out;
+}
+
+/** Every filter in the query (any container). */
+export function collectAllFilters(fetchNode: FetchNode | null): FilterNode[] {
+	if (!fetchNode?.entity) return [];
+	const out: FilterNode[] = [];
+	const visitFilter = (filter: FilterNode) => {
+		out.push(filter);
+		filter.subfilters.forEach(visitFilter);
+		filter.links?.forEach(visitContainer);
+	};
+	const visitContainer = (container: EntityNode | LinkEntityNode) => {
+		container.filters.forEach(visitFilter);
+		container.links.forEach(visitContainer);
+	};
+	visitContainer(fetchNode.entity);
+	return out;
+}
+
+/**
+ * Orders that sort by `alias` from a container's attributes, using the scope Dataverse applies to
+ * aggregate order aliases: orders in the same entity / link-entity, plus root orders whose
+ * `entityname` names that link-entity (#90b: renaming an alias updates these orders).
+ */
+export function findOrdersUsingAlias(
+	fetchNode: FetchNode | null,
+	container: EntityNode | LinkEntityNode,
+	alias: string,
+): OrderNode[] {
+	if (!fetchNode?.entity || !alias) return [];
+	const inScope = container.orders.filter((o) => o.alias === alias && (container.type === "link-entity" || !o.entityname));
+	if (container.type === "link-entity") {
+		const names = new Set([container.alias, container.name].filter(Boolean));
+		inScope.push(...fetchNode.entity.orders.filter((o) => o.alias === alias && o.entityname && names.has(o.entityname)));
+	}
+	return inScope;
 }

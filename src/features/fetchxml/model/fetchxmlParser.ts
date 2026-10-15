@@ -536,36 +536,7 @@ function parseFetchOptions(fetchElement: Element, issues: ParseIssue[]): FetchNo
 		}
 	}
 
-	if (options.top !== undefined) {
-		const conflicts = [
-			options.count !== undefined && "count",
-			options.page !== undefined && "page",
-			options.returnTotalRecordCount && "returntotalrecordcount",
-		].filter(Boolean);
-		if (conflicts.length > 0) {
-			issues.push({
-				message: `'top' can't be combined with ${conflicts.map((c) => `'${c}'`).join(", ")} (Dataverse rejects it).`,
-				element: "fetch",
-				attribute: "top",
-				severity: "error",
-				kind: "invalid",
-			});
-		}
-	}
-	for (const [name, value] of [
-		["top", options.top],
-		["count", options.count],
-	] as const) {
-		if (value !== undefined && value > 5000) {
-			issues.push({
-				message: `'${name}' is ${value}, but Dataverse returns at most 5,000 rows per request.`,
-				element: "fetch",
-				attribute: name,
-				severity: "info",
-				kind: "advice",
-			});
-		}
-	}
+	// top vs paging and the 5,000-row limit are query-level rules (fetchxmlRules.ts)
 
 	// String options
 	const pagingCookie = fetchElement.getAttribute("paging-cookie");
