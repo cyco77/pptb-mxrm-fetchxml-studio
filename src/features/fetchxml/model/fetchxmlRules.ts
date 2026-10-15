@@ -10,13 +10,14 @@
 
 import type {
 	AttributeNode,
+	ConditionNode,
 	EntityNode,
 	FetchNode,
 	FilterNode,
 	LinkEntityNode,
 	OrderNode,
 } from "./nodes";
-import { operatorRequiresValue } from "./operators";
+import { operatorRequiresValue, operatorValueShape } from "./operators";
 
 export type RuleSeverity = "error" | "warning" | "info";
 export type RuleKind = "invalid" | "ignored" | "advice";
@@ -380,6 +381,14 @@ export function validateQueryRules(fetch: FetchNode): RuleFinding[] {
 							: `'${qualifier}' isn't the alias of a joined link-entity. To compare to another entity's attribute, give its link-entity an alias and use alias.attribute (Dataverse rejects it: 0x80040216).` });
 				}
 			}
+			// Value shape per operator (verified live 2026-10-15, #87)
+			for (const condition of filter.conditions) {
+				const issue = conditionValueIssue(condition);
+				if (issue) {
+					push({ element: "condition", attribute: "value", nodeId: condition.id, severity: issue.severity, kind: issue.severity === "error" ? "invalid" : "ignored",
+						message: issue.message });
+				}
+			}
 			// condition/@aggregate isn't in the condition reference. Verified live: Dataverse runs the
 			// condition as a plain row condition (the value is converted to the attribute's type), so
 			// FetchXML has no HAVING and removing it doesn't change the results.
@@ -397,4 +406,53 @@ export function validateQueryRules(fetch: FetchNode): RuleFinding[] {
 	}
 
 	return findings;
+}
+
+const isWholeNumber = (v: unknown): boolean =>
+	(typeof v === "number" && Number.isInteger(v)) || (typeof v === "string" && /^-?\d+$/.test(v.trim()));
+const isFourDigitYear = (v: unknown): boolean => isWholeNumber(v) && Number(v) >= 1000 && Number(v) <= 9999;
+const isEmptyValue = (v: unknown): boolean => v === undefined || v === null || v === "";
+
+/**
+ * Whether a condition's value has the shape its operator needs. Verified live (2026-10-15):
+ * - single-value operators need the value attribute (<value> elements: 0x8004111e);
+ * - "x" operators need a whole number above 0 (0x80041139 not a number, 0x80040203 zero or less);
+ * - in-fiscal-year needs a four-digit year (0x80040203);
+ * - between and the fiscal period-and-year operators need exactly two values (0x80041106);
+ * - in / not-in / contain-values need at least one <value> (0x80040203);
+ * - operators without a value ignore one.
+ */
+export function conditionValueIssue(condition: ConditionNode): { severity: RuleSeverity; message: string } | undefined {
+	const op = condition.operator;
+	const value = condition.value;
+	const values = Array.isArray(value) ? value : undefined;
+	switch (operatorValueShape(op)) {
+		case "none":
+			return isEmptyValue(value) || (values && values.length === 0)
+				? undefined
+				: { severity: "info", message: `Dataverse ignores the value: the '${op}' operator doesn't take one.` };
+		case "single":
+			if (condition.valueof) return undefined;
+			if (values) return { severity: "error", message: `The '${op}' operator takes one value in the value attribute, not <value> elements (Dataverse rejects it: 0x8004111e).` };
+			return isEmptyValue(value) ? { severity: "error", message: `The '${op}' operator needs a value (Dataverse rejects it without one: 0x8004111e).` } : undefined;
+		case "integer":
+			if (values || isEmptyValue(value)) return { severity: "error", message: `The '${op}' operator needs a whole number above 0 in the value attribute (0x8004111e).` };
+			if (!isWholeNumber(value)) return { severity: "error", message: `The '${op}' operator needs a whole number, not '${String(value)}' (Dataverse rejects it: 0x80041139).` };
+			return Number(value) < 1 ? { severity: "error", message: `The '${op}' operator needs a number above 0 (Dataverse rejects it: 0x80040203).` } : undefined;
+		case "year":
+			if (values || isEmptyValue(value)) return { severity: "error", message: `The '${op}' operator needs a fiscal year in the value attribute (0x8004111e).` };
+			return isFourDigitYear(value) ? undefined : { severity: "error", message: `The '${op}' operator needs a four-digit fiscal year, not '${String(value)}' (Dataverse rejects it: 0x80040203).` };
+		case "two":
+			return values && values.length === 2 && values.every((v) => !isEmptyValue(v))
+				? undefined
+				: { severity: "error", message: `The '${op}' operator needs exactly two <value> elements (Dataverse rejects it: 0x80041106).` };
+		case "fiscalPeriodYear":
+			if (!values || values.length !== 2) return { severity: "error", message: `The '${op}' operator needs two <value> elements, the period and the year (Dataverse rejects it: 0x80041106).` };
+			if (!isWholeNumber(values[0]) || Number(values[0]) < 1) return { severity: "error", message: `The fiscal period for '${op}' must be a whole number from 1.` };
+			return isFourDigitYear(values[1]) ? undefined : { severity: "error", message: `The fiscal year for '${op}' must be a four-digit year.` };
+		case "multiple":
+			return values && values.length > 0
+				? undefined
+				: { severity: "error", message: `The '${op}' operator needs at least one <value> element (Dataverse rejects a value attribute or no value: 0x80040203).` };
+	}
 }

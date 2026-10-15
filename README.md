@@ -300,7 +300,7 @@ src/
 | All-attributes | ✅ |
 | Filters (and/or) | ✅ |
 | Nested filters | ✅ |
-| All condition operators | ✅ |
+| All condition operators (offered per attribute from the documented data types and a live operator × attribute-type matrix; value inputs match each operator: whole numbers for "x" operators, period + year for fiscal period operators) | ✅ |
 | Link-entity (joins) | ✅ |
 | Inner/outer joins | ✅ |
 | N:N relationships (through the intersect entity) | ✅ |

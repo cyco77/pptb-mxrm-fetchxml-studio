@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.14] - 2026-10-15
+
+### 🔧 Fixed
+
+Condition operators and their values (#87). Every operator in the [operators reference](https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/reference/operators) was run against every Advanced Find attribute type on the sandbox (1,640 queries), plus the value shapes each operator takes.
+- **"x" and fiscal operators showed a date picker.** `last-x-days`, `olderthan-x-months`, `in-fiscal-period` and the rest wrote an ISO date, which Dataverse rejects (`0x80041139`).
+  - They now take a whole number above 0. Verified: 0, negatives, decimals and dates fail.
+  - `in-fiscal-year` takes a four-digit year (verified: `23` fails).
+  - The three period-and-year operators take a **Fiscal period** and a **Fiscal year**, written as two `<value>` elements, as documented.
+- **Four documented operators were missing:** `last-x-fiscal-years`, `last-x-fiscal-periods`, `next-x-fiscal-years` and `next-x-fiscal-periods` are now selectable.
+- **Changing the operator kept a value of the wrong shape** (a date for a number, a list for a single value). The value is now kept only when the new operator takes the same shape.
+- **Operators offered per attribute follow what Dataverse accepts:**
+  - `contain-values` / `not-contain-values` only for multi-select choices (single choices fail: `0x80048415`); multi-select choices get their own list instead of every operator, and their option values are offered.
+  - The user / team operators (`eq-userid`, `eq-userteams`, …) aren't offered for Customer lookups (`0x8004034b`).
+  - The hierarchy operators (`under`, `above`, …) only for the primary key of a hierarchical entity (lookups fail: `0x80040203`).
+  - Hour and minute operators are left out for date-only *behaviour* (`0x80048415`), but no longer for a date-only *format* with user-local behaviour, which accepts them (verified).
+  - Strings get `gt` / `ge` / `lt` / `le`, as documented.
+- **New checks (Validate / Execute), verified live:**
+  - an "x" operator without a whole number above 0;
+  - a fiscal year that isn't four digits;
+  - `between` or a period-and-year operator without exactly two values;
+  - `in` / `not-in` / `contain-values` without `<value>` elements;
+  - a single-value operator with `<value>` elements or no value.
+  - A value on an operator that takes none is a note: Dataverse ignores it.
+  - None of the 60 Microsoft Learn examples trigger them.
+
+### 🏗️ Technical
+
+- `operators.ts`: `getOperatorsForAttribute` (type, multi-select, primary key, date-only behaviour, hierarchical entity), `operatorValueShape` and `adaptValueForOperator`; new value types `integer`, `year`, `fiscalPeriodYear`.
+- `fetchxmlRules.ts`: `conditionValueIssue`.
+- The option set request also casts to `MultiSelectPicklistAttributeMetadata`.
+
 ## [1.4.1-beta.11] - 2026-10-15
 
 ### 🔧 Fixed

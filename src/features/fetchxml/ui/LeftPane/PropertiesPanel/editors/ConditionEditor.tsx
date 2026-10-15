@@ -18,24 +18,29 @@ import { DateTimeInputPicker } from "../../../../../../shared/components/DateTim
 import { BetweenInputPicker } from "../../../../../../shared/components/BetweenInputPicker";
 import { MultiValuePicker } from "../../../../../../shared/components/MultiValuePicker";
 import {
-	getOperatorsForAttributeType,
+	adaptValueForOperator,
+	getOperatorsForAttribute,
 	operatorRequiresValue,
-	type OperatorDefinition,
+	operatorValueShape,
 } from "../../../../model/operators";
 import { loadEntityAttributes, loadAttributeDetailedMetadata } from "../../../../api/dataverseMetadata";
 import type { AttributeMetadata } from "../../../../api/pptbClient";
 import { collectLinkEntityReferences, isConditionInRootEntityFilter } from "../../../../model/treeUtils";
 import { DOCS } from "../docLinks";
 import { useEditorStyles } from "../editorStyles";
-import { Info, InfoField, LeftoverSetting, SectionHeading } from "../fields";
+import { Info, InfoField, LeftoverSetting, NumberField, SectionHeading } from "../fields";
+import { useEntityInfo } from "../useEditorMetadata";
 import { findingFor } from "../ruleFindings";
 import { ValueOfPicker } from "./ValueOfPicker";
 
 const THIS_ENTITY = "__this";
 const OPTION_SET_TYPES = new Set(["Picklist", "State", "Status"]);
 const NUMERIC_TYPES = new Set(["Integer", "BigInt", "Decimal", "Double"]);
-/** Operators that need hours or minutes, which date-only attributes don't have */
-const TIME_OPERATORS = new Set(["last-x-hours", "next-x-hours", "olderthan-x-hours", "olderthan-x-minutes"]);
+/** Whole number from a stored value (parsed FetchXML keeps numbers as numbers; strings are possible) */
+const toInteger = (v: unknown): number | undefined => {
+	const n = typeof v === "number" ? v : typeof v === "string" && /^-?\d+$/.test(v.trim()) ? Number(v) : NaN;
+	return Number.isInteger(n) ? n : undefined;
+};
 
 interface ConditionEditorProps {
 	node: ConditionNode;
@@ -49,7 +54,6 @@ interface ConditionEditorProps {
 
 export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpdate }: ConditionEditorProps) {
 	const styles = useEditorStyles();
-	const [availableOperators, setAvailableOperators] = useState<OperatorDefinition[]>([]);
 	const [selectedAttribute, setSelectedAttribute] = useState<AttributeMetadata | null>(null);
 
 	const linkEntityReferences = useMemo(() => collectLinkEntityReferences(fetchQuery), [fetchQuery]);
@@ -62,6 +66,13 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 
 	// What "alias.attribute" can reach from where this condition is
 	const valueofScope = useMemo(() => valueofScopes(fetchQuery).get(node.id), [fetchQuery, node.id]);
+	// Hierarchy operators need a hierarchical entity (#87)
+	const { isHierarchical } = useEntityInfo(effectiveEntityName);
+	// Operators from the attribute's metadata: type, multi-select, primary key, date-only behaviour (#87)
+	const availableOperators = useMemo(
+		() => getOperatorsForAttribute(selectedAttribute ?? undefined, isHierarchical),
+		[selectedAttribute, isHierarchical],
+	);
 	const compatibleTypes = useMemo(
 		() => getValueOfCompatibleTypes(selectedAttribute?.AttributeType),
 		[selectedAttribute?.AttributeType],
@@ -71,7 +82,6 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 	useEffect(() => {
 		let cancelled = false;
 		if (!node.attribute || !effectiveEntityName) {
-			setAvailableOperators(getOperatorsForAttributeType(undefined));
 			setSelectedAttribute(null);
 			return;
 		}
@@ -90,17 +100,10 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 				}
 				if (cancelled) return;
 				setSelectedAttribute(detailed ?? null);
-				let operators = getOperatorsForAttributeType(type);
-				if (type === "DateTime" && detailed) {
-					const isDateOnly = detailed.Format === "DateOnly" || detailed.DateTimeBehavior?.Value === "DateOnly";
-					if (isDateOnly) operators = operators.filter((op) => !TIME_OPERATORS.has(op.value));
-				}
-				setAvailableOperators(operators);
 			})
 			.catch((error) => {
 				console.error("Failed to load attribute metadata for operator filtering:", error);
 				if (cancelled) return;
-				setAvailableOperators(getOperatorsForAttributeType(undefined));
 				setSelectedAttribute(null);
 			});
 		return () => {
@@ -110,9 +113,11 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 
 	const requiresValue = operatorRequiresValue(node.operator);
 	const operatorDef = availableOperators.find((op) => op.value === node.operator);
-	const requiresTwoValues = operatorDef?.requiresTwoValues ?? false;
-	const requiresMultipleValues = operatorDef?.requiresMultipleValues ?? false;
-	const isSingleValue = requiresValue && !(requiresMultipleValues && selectedAttribute) && !(requiresTwoValues && selectedAttribute);
+	// The operator decides the value's shape first, then the attribute's type (#87)
+	const shape = operatorValueShape(node.operator);
+	const requiresTwoValues = shape === "two";
+	const requiresMultipleValues = shape === "multiple";
+	const isSingleValue = shape === "single" || (shape === "two" && !selectedAttribute) || (shape === "multiple" && !selectedAttribute);
 	const comparesToAttribute = node.valueof !== undefined;
 	const operatorComparesAttributes = VALUEOF_OPERATORS.has(node.operator);
 	// Only type pairs verified to work are offered (getValueOfCompatibleTypes)
@@ -262,14 +267,16 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 					<Dropdown
 						value={operatorDef?.label ?? node.operator ?? ""}
 						selectedOptions={node.operator ? [node.operator] : []}
-						onOptionSelect={(_, data) =>
-							// Only eq / ne / gt / ge / lt / le compare to another attribute (0x80048415)
-							onUpdate(
-								comparesToAttribute && !VALUEOF_OPERATORS.has(data.optionValue ?? "")
-									? { operator: data.optionValue, valueof: undefined, value: undefined }
-									: { operator: data.optionValue },
-							)
-						}
+						onOptionSelect={(_, data) => {
+							const operator = data.optionValue ?? "";
+							// Keep the value only when the new operator takes the same shape (#87); only eq / ne /
+							// gt / ge / lt / le compare to another attribute (0x80048415)
+							onUpdate({
+								operator,
+								value: adaptValueForOperator(node.operator, operator, node.value),
+								...(comparesToAttribute && !VALUEOF_OPERATORS.has(operator) ? { valueof: undefined } : {}),
+							});
+						}}
 						placeholder="Select an operator"
 					>
 						{node.operator && !operatorDef && availableOperators.length > 0 && (
@@ -287,6 +294,58 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 						))}
 					</Dropdown>
 				</InfoField>
+
+				{(shape === "integer" || shape === "year") && (
+					<NumberField
+						label={shape === "year" ? "Fiscal year" : "Number"}
+						value={toInteger(node.value)}
+						min={shape === "year" ? 1000 : 1}
+						max={shape === "year" ? 9999 : undefined}
+						onChange={(value) => onUpdate({ value })}
+						validation={toInteger(node.value) === undefined ? { state: "error", message: shape === "year" ? "Enter a four-digit fiscal year." : "Enter a whole number above 0." } : undefined}
+						info={
+							<Info
+								text={
+									shape === "year"
+										? "A four-digit fiscal year, per the environment's fiscal year settings."
+										: "A whole number above 0 (for example 7 for the last 7 days). Dataverse rejects 0, negative numbers and dates."
+								}
+								href={DOCS.operators}
+							/>
+						}
+					/>
+				)}
+
+				{shape === "fiscalPeriodYear" && (
+					<>
+						<NumberField
+							label="Fiscal period"
+							value={Array.isArray(node.value) ? toInteger(node.value[0]) : undefined}
+							min={1}
+							onChange={(period) =>
+								onUpdate({ value: [period ?? "", Array.isArray(node.value) ? (node.value[1] ?? "") : ""] })
+							}
+							validation={!Array.isArray(node.value) || toInteger(node.value[0]) === undefined ? { state: "error", message: "Enter the fiscal period (1 or more)." } : undefined}
+							info={
+								<Info
+									text="The period number within the fiscal year: a month, quarter or semester, depending on the environment's fiscal year settings. A period that doesn't exist returns no records."
+									href={DOCS.operators}
+								/>
+							}
+						/>
+						<NumberField
+							label="Fiscal year"
+							value={Array.isArray(node.value) ? toInteger(node.value[1]) : undefined}
+							min={1000}
+							max={9999}
+							onChange={(year) =>
+								onUpdate({ value: [Array.isArray(node.value) ? (node.value[0] ?? "") : "", year ?? ""] })
+							}
+							validation={!Array.isArray(node.value) || toInteger(node.value[1]) === undefined ? { state: "error", message: "Enter a four-digit fiscal year." } : undefined}
+							info={<Info text="A four-digit fiscal year." href={DOCS.operators} />}
+						/>
+					</>
+				)}
 
 				{requiresValue && requiresMultipleValues && selectedAttribute && (
 					<InfoField
