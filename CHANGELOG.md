@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The attributes come from the relationship metadata (`IntersectEntityName`, `Entity1/2IntersectAttribute`) and both entities' primary keys. It works from either side, and for self-referential relationships.
   - **Verified live:** for every many-to-many relationship with data in the sandbox (47 checks from both sides, system, custom and self-referential), the join returned exactly the intersect entity's pairs.
 
+- **Attribute pickers show their value even when it isn't in the attribute list.** For example, intersect entities usually have no Advanced Find attributes, so the From / To pickers on an N:N join looked empty.
+
 ### 🏗️ Technical
 
 - `model/manyToMany.ts`: `planManyToManyJoin`, with tests.
