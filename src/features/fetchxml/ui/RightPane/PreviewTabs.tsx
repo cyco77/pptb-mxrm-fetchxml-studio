@@ -36,6 +36,7 @@ import { ResultsGrid, type QueryResult, type SortChangeData } from "./ResultsGri
 import { ResultsCommandBar } from "./ResultsCommandBar";
 import type { RelatedEntityColumn } from "./AddColumnsPanel";
 import type { PagingNotice } from "../../api/paging";
+import { isAttributeInScope, useAdvancedFindOnly } from "../../state/metadataScope";
 import { NON_RETURNING_LINK_TYPES } from "../../model/fetchxmlRules";
 import type { AttributeMetadata, RelationshipMetadata } from "../../api/pptbClient";
 import type { FetchNode } from "../../model/nodes";
@@ -364,6 +365,7 @@ export function PreviewTabs({
 	primaryIdAttribute,
 }: PreviewTabsProps) {
 	const styles = useStyles();
+	const advancedFindOnly = useAdvancedFindOnly();
 	const [selectedTab, setSelectedTab] = useState<"xml" | "layout" | "results" | "code">("xml");
 	const [toolbarSelectedCount, setToolbarSelectedCount] = useState(0);
 	const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
@@ -782,9 +784,11 @@ export function PreviewTabs({
 									onReorderColumns={onReorderColumns}
 									onRemoveColumns={onRemoveColumns}
 									availableAttributes={
-										// Get root entity attributes from multi-entity map
+										// Root entity attributes to offer, per "Advanced Find only" (#57)
 										attributeMetadata && fetchQuery?.entity?.name
-											? Array.from(attributeMetadata.get(fetchQuery.entity.name)?.values() || [])
+											? Array.from(attributeMetadata.get(fetchQuery.entity.name)?.values() || []).filter((a) =>
+													isAttributeInScope(a, advancedFindOnly),
+												)
 											: undefined
 									}
 									selectedAttributes={fetchQuery?.entity.attributes.map((a) => a.name)}

@@ -14,6 +14,7 @@ import {
 } from "@fluentui/react-components";
 import { debugLog } from "../utils/debug";
 import { loadEntityRelationships } from "../../features/fetchxml/api/dataverseMetadata";
+import { useAdvancedFindOnly } from "../../features/fetchxml/state/metadataScope";
 import type { RelationshipMetadata } from "../../features/fetchxml/api/pptbClient";
 
 export interface RelationshipOption {
@@ -49,6 +50,8 @@ export function RelationshipPicker({
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [query, setQuery] = useState<string>("");
+	// Reload when the "Advanced Find only" setting changes (#57)
+	const advancedFindOnly = useAdvancedFindOnly();
 
 	// Load relationships when entity changes
 	useEffect(() => {
@@ -62,7 +65,7 @@ export function RelationshipPicker({
 		setLoading(true);
 		setError(null);
 
-		loadEntityRelationships(entityLogicalName)
+		loadEntityRelationships(entityLogicalName, advancedFindOnly)
 			.then((data) => {
 				debugLog("relationshipPicker", "Received relationship data:", {
 					entityLogicalName,
@@ -149,7 +152,7 @@ export function RelationshipPicker({
 				setError("Failed to load relationships");
 				setLoading(false);
 			});
-	}, [entityLogicalName]);
+	}, [entityLogicalName, advancedFindOnly]);
 
 	// Sync query with selected value
 	useEffect(() => {

@@ -5,7 +5,8 @@
  * every AttributeTypeName, plus an org-wide scan for rare types), through both
  * dataverseAPI.fetchXmlQuery and queryData with the metadata EntitySetName, with identical results.
  *
- * Only attributes the pickers offer (IsValidForAdvancedFind) are in scope.
+ * Attributes Advanced Find hides (offered with "Advanced Find only" off, #57) were checked too:
+ * the "...name" label attributes (VirtualType) sort, but can't be grouped or aggregated.
  */
 
 import type { AttributeNode } from "./nodes";
@@ -33,7 +34,7 @@ export interface AttributeCapabilities {
 }
 
 const NUMERIC = new Set(["IntegerType", "BigIntType", "DecimalType", "DoubleType", "MoneyType"]);
-const NOT_QUERYABLE = new Set(["ImageType", "FileType", "VirtualType"]);
+const NOT_QUERYABLE = new Set(["ImageType", "FileType"]);
 
 export function toAttributeTypeInfo(metadata: {
 	AttributeType?: string;
@@ -52,6 +53,12 @@ export function getAttributeCapabilities(type: AttributeTypeInfo): AttributeCapa
 		// order / groupby: 0x80050224; count / countcolumn: 0x80060888; others: 0x8004112f
 		return { order: false, groupby: false, groupbyNeedsDateGrouping: false, functions: [],
 			reason: "Dataverse can't sort, group or aggregate multi-select option set attributes." };
+	}
+	if (t === "VirtualType") {
+		// The "...name" label attributes: order works (304 of 312 on the sandbox); group by
+		// 0x8004e01d, aggregates 0x80044150 (#57)
+		return { order: true, groupby: false, groupbyNeedsDateGrouping: false, functions: [],
+			reason: "Label attributes (such as statuscodename) can't be grouped or aggregated." };
 	}
 	if (NOT_QUERYABLE.has(t)) {
 		return { order: false, groupby: false, groupbyNeedsDateGrouping: false, functions: [],

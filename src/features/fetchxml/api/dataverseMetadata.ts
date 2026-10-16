@@ -5,39 +5,15 @@
 
 import * as pptbClient from "../api/pptbClient";
 import { metadataCache } from "../state/cache";
+import { isAttributeInScope, isRelationshipInScope, metadataScope } from "../state/metadataScope";
 import type { EntityMetadata, AttributeMetadata, RelationshipMetadata } from "../api/pptbClient";
 
 /**
- * Load all entities (with caching and de-duplication)
+ * Load all entities (cached and de-duplicated; the same list the Publisher/Solution scopes use).
+ * Not filtered: the entity picker applies "Advanced Find only" locally, so toggling it is instant.
  */
 export async function loadAllEntities(): Promise<EntityMetadata[]> {
-	// Always fetch ALL entities (advancedFindOnly=false) — callers apply a local
-	// filter when needed so that toggling the setting is instant without re-fetching.
-	const cached = metadataCache.getAllEntities();
-	if (cached) {
-		return cached;
-	}
-
-	// Check if request is already in-flight
-	const inFlight = metadataCache.getAllEntitiesPromise();
-	if (inFlight) {
-		return inFlight;
-	}
-
-	// Make new request — no server-side AF filter; filter locally at display time
-	const promise = pptbClient.getAllEntities(false);
-	metadataCache.setAllEntitiesPromise(promise);
-
-	try {
-		const entities = await promise;
-		metadataCache.setAllEntities(entities);
-		metadataCache.clearAllEntitiesPromise();
-		return entities;
-	} catch (error) {
-		console.error("loadAllEntities: API error:", error);
-		metadataCache.clearAllEntitiesPromise();
-		throw error;
-	}
+	return pptbClient.getAllEntitiesForScopes();
 }
 
 /**
@@ -57,29 +33,22 @@ export async function loadEntityMetadata(logicalName: string): Promise<EntityMet
 }
 
 /**
- * Load entity attributes (with caching and de-duplication)
- * @param logicalName - Entity logical name
- * @param advancedFindOnly - Filter to only attributes valid for advanced find (default: true)
+ * Every attribute of an entity (cached and de-duplicated), for metadata lookups of attributes
+ * already in a query: operators, value inputs, capabilities, grid formatting (#57).
  */
-export async function loadEntityAttributes(
-	logicalName: string,
-	advancedFindOnly: boolean = true,
-): Promise<AttributeMetadata[]> {
-	// Check cache first
-	const cacheKey = `${logicalName}_${advancedFindOnly}`;
+export async function loadAllEntityAttributes(logicalName: string): Promise<AttributeMetadata[]> {
+	const cacheKey = `${logicalName}__all`;
 	const cached = metadataCache.getEntityAttributes(cacheKey);
 	if (cached) {
 		return cached;
 	}
 
-	// Check if request is already in-flight
 	const inFlight = metadataCache.getAttributesPromise(cacheKey);
 	if (inFlight) {
 		return inFlight;
 	}
 
-	// Make new request
-	const promise = pptbClient.getEntityAttributes(logicalName, advancedFindOnly);
+	const promise = pptbClient.getEntityAttributes(logicalName, false);
 	metadataCache.setAttributesPromise(cacheKey, promise);
 
 	try {
@@ -91,6 +60,19 @@ export async function loadEntityAttributes(
 		metadataCache.clearAttributesPromise(cacheKey);
 		throw error;
 	}
+}
+
+/**
+ * The attributes the pickers offer (#57): readable ones, and only those Advanced Find shows while
+ * "Advanced Find only" is on.
+ * @param advancedFindOnly - Defaults to the current setting
+ */
+export async function loadEntityAttributes(
+	logicalName: string,
+	advancedFindOnly: boolean = metadataScope.advancedFindOnly,
+): Promise<AttributeMetadata[]> {
+	const attributes = await loadAllEntityAttributes(logicalName);
+	return attributes.filter((attribute) => isAttributeInScope(attribute, advancedFindOnly));
 }
 
 /**
@@ -152,30 +134,33 @@ export async function loadAttributeDetailedMetadata(
 	return attribute;
 }
 
-/**
- * Load entity relationships (with caching)
- * @param logicalName - Entity logical name
- * @param advancedFindOnly - Filter to only relationships valid for advanced find (default: true)
- */
-export async function loadEntityRelationships(
-	logicalName: string,
-	advancedFindOnly: boolean = true,
-): Promise<{
+type EntityRelationships = {
 	oneToMany: RelationshipMetadata[];
 	manyToOne: RelationshipMetadata[];
 	manyToMany: RelationshipMetadata[];
-}> {
-	// Check cache first
-	const cacheKey = `${logicalName}_${advancedFindOnly}`;
-	const cached = metadataCache.getEntityRelationships(cacheKey);
-	if (cached) {
-		return cached;
-	}
+};
 
-	// Make request
-	const relationships = await pptbClient.getEntityRelationships(logicalName, advancedFindOnly);
-	metadataCache.setEntityRelationships(cacheKey, relationships);
-	return relationships;
+/**
+ * The relationships the pickers offer (#57): all of them, or only those Advanced Find shows while
+ * "Advanced Find only" is on. Every relationship is fetched once and cached.
+ * @param advancedFindOnly - Defaults to the current setting
+ */
+export async function loadEntityRelationships(
+	logicalName: string,
+	advancedFindOnly: boolean = metadataScope.advancedFindOnly,
+): Promise<EntityRelationships> {
+	const cacheKey = `${logicalName}__all`;
+	let relationships = metadataCache.getEntityRelationships(cacheKey);
+	if (!relationships) {
+		relationships = await pptbClient.getEntityRelationships(logicalName, false);
+		metadataCache.setEntityRelationships(cacheKey, relationships);
+	}
+	const inScope = (r: RelationshipMetadata) => isRelationshipInScope(r, advancedFindOnly);
+	return {
+		oneToMany: relationships.oneToMany.filter(inScope),
+		manyToOne: relationships.manyToOne.filter(inScope),
+		manyToMany: relationships.manyToMany.filter(inScope),
+	};
 }
 
 /**

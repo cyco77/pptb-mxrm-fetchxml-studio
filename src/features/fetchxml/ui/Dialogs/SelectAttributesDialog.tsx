@@ -101,8 +101,8 @@ export function SelectAttributesDialog({
 
 	// Transform attributes to rows
 	const allRows = useMemo<AttributeRow[]>(() => {
+		// Already the attributes to offer (the "Advanced Find only" setting, #57)
 		return attributes
-			.filter((attr) => attr.IsValidForAdvancedFind?.Value !== false)
 			.map((attr) => ({
 				logicalName: attr.LogicalName,
 				displayName: attr.DisplayName?.UserLocalizedLabel?.Label || attr.LogicalName,

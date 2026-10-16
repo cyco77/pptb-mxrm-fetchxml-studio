@@ -6,6 +6,7 @@
 import { useState, useEffect } from "react";
 import { Combobox, useComboboxFilter, useId, type ComboboxProps } from "@fluentui/react-components";
 import { loadEntityAttributes } from "../../features/fetchxml/api/dataverseMetadata";
+import { useAdvancedFindOnly } from "../../features/fetchxml/state/metadataScope";
 import type { AttributeMetadata } from "../../features/fetchxml/api/pptbClient";
 
 interface AttributePickerProps {
@@ -31,8 +32,9 @@ export function AttributePicker({
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [query, setQuery] = useState<string>("");
+	const advancedFindOnly = useAdvancedFindOnly();
 
-	// Load attributes when entity changes
+	// Load attributes when the entity or the "Advanced Find only" setting changes (#57)
 	useEffect(() => {
 		if (!entityLogicalName) {
 			setAttributes([]);
@@ -42,7 +44,7 @@ export function AttributePicker({
 		setLoading(true);
 		setError(null);
 
-		loadEntityAttributes(entityLogicalName)
+		loadEntityAttributes(entityLogicalName, advancedFindOnly)
 			.then((attrs: AttributeMetadata[]) => {
 				// Apply type filtering if specified
 				let filteredAttrs = attrs;
@@ -57,10 +59,10 @@ export function AttributePicker({
 				setError("Failed to load attributes");
 				setLoading(false);
 			});
-	}, [entityLogicalName, filterByTypes]);
+	}, [entityLogicalName, filterByTypes, advancedFindOnly]);
 
 	// Sync query with value when value changes or attributes load. The value shows even when it isn't
-	// in the list (e.g. intersect entities, which usually have no Advanced Find attributes, #85).
+	// in the list (e.g. an attribute Advanced Find hides while "Advanced Find only" is on, #85, #57).
 	useEffect(() => {
 		if (value && value !== "new_attribute") {
 			const attr = attributes.find((a) => a.LogicalName === value);

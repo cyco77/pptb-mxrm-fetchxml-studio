@@ -26,6 +26,7 @@ import {
 import { Add20Regular, LockClosed20Regular } from "@fluentui/react-icons";
 import { useAccessMode } from "../../../../shared/hooks/useAccessMode";
 import type { EntityScopeMode } from "../../model/displaySettings";
+import { isEntityInScope } from "../../state/metadataScope";
 import { usePublisherFilter } from "../../../../shared/hooks/usePublisherFilter";
 import { useSolutionFilter } from "../../../../shared/hooks/useSolutionFilter";
 import { useLazyMetadata } from "../../../../shared/hooks/useLazyMetadata";
@@ -174,9 +175,9 @@ export function EntitySelector({
 			entities = allEntities;
 		}
 
-		// Apply Advanced Find filter locally — no re-fetch needed when toggled
+		// Apply Advanced Find filter locally in every scope — no re-fetch needed when toggled (#57)
 		if (advancedFindOnly) {
-			entities = entities.filter((e) => e.IsValidForAdvancedFind !== false);
+			entities = entities.filter((e) => isEntityInScope(e, advancedFindOnly));
 		}
 
 		return entities;

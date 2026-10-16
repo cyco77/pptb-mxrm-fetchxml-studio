@@ -124,3 +124,16 @@ describe("getValueOfCompatibleTypes (valueof type matrix run live, 2026-10-15)",
 		expect(getValueOfCompatibleTypes(undefined)).toEqual([]);
 	});
 });
+
+describe("label attributes (VirtualType, shown with Advanced Find only off, #57)", () => {
+	it("sort, but can't be grouped or aggregated (verified: 0x8004e01d / 0x80044150)", () => {
+		const caps = getAttributeCapabilities({ typeName: "VirtualType" });
+		expect(caps).toMatchObject({ order: true, groupby: false, functions: [] });
+		expect(caps.reason).toBeTruthy();
+	});
+
+	it("images and files still can't be sorted, grouped or aggregated", () => {
+		expect(getAttributeCapabilities({ typeName: "ImageType" }).order).toBe(false);
+		expect(getAttributeCapabilities({ typeName: "FileType" }).order).toBe(false);
+	});
+});

@@ -49,6 +49,8 @@ export interface AttributeMetadata {
 	AttributeTypeName?: { Value?: string };
 	MetadataId: string;
 	IsValidForAdvancedFind?: { Value: boolean };
+	/** False: the value can't be retrieved, so any query using the attribute fails (#57) */
+	IsValidForRead?: boolean;
 	/** Logical attributes include composite ones (address1_composite), which can't be grouped or aggregated */
 	IsLogical?: boolean;
 	IsPrimaryId?: boolean;
@@ -257,7 +259,7 @@ export async function getEntityAttributes(
 	}
 
 	// Build OData query with server-side filtering
-	let query = `EntityDefinitions(LogicalName='${logicalName}')/Attributes?$select=LogicalName,SchemaName,DisplayName,AttributeType,AttributeTypeName,MetadataId,IsValidForAdvancedFind,IsLogical,IsPrimaryId`;
+	let query = `EntityDefinitions(LogicalName='${logicalName}')/Attributes?$select=LogicalName,SchemaName,DisplayName,AttributeType,AttributeTypeName,MetadataId,IsValidForAdvancedFind,IsValidForRead,IsLogical,IsPrimaryId`;
 
 	// Add server-side filter for IsValidForAdvancedFind
 	if (advancedFindOnly) {
@@ -1100,44 +1102,32 @@ export async function getSolutionComponents(solutionIds: string[]): Promise<Solu
 }
 
 /**
- * Get ALL EntityDefinitions that are valid for Advanced Find
- * This is called once on startup and cached globally for the session
+ * Get every entity's metadata for the Publisher/Solution and Solution scopes (cached, de-duplicated).
+ * Not filtered for Advanced Find: the entity picker applies the "Advanced Find only" setting
+ * locally in every scope (#57), so toggling it doesn't refetch.
  */
-export async function getAllAdvancedFindEntities(): Promise<EntityMetadata[]> {
+export async function getAllEntitiesForScopes(): Promise<EntityMetadata[]> {
 	if (!isDataverseAvailable()) {
 		throw new Error("PPTB Dataverse API not available");
 	}
 
-	// Check cache first
 	const cached = metadataCache.getAllEntityMetadata();
-	if (cached) {
-		console.log("[API] getAllAdvancedFindEntities - Cache hit:", cached.length, "entities");
-		return cached;
-	}
+	if (cached) return cached;
 
-	// Check for in-flight promise
 	const inFlight = metadataCache.getAllEntityMetadataPromise();
-	if (inFlight) {
-		console.log("[API] getAllAdvancedFindEntities - Returning in-flight promise");
-		return inFlight;
-	}
-
-	console.log("[API] getAllAdvancedFindEntities - Fetching all AF-valid entities");
+	if (inFlight) return inFlight;
 
 	try {
-		const promise = getAllEntities(true);
+		const promise = getAllEntities(false);
 		metadataCache.setAllEntityMetadataPromise(promise);
-
 		const entities = await promise;
-		console.log("[API] getAllAdvancedFindEntities - Fetched:", entities.length, "entities");
-
+		debugLog("metadataAPI", `getAllEntitiesForScopes - Fetched: ${entities.length} entities`);
 		metadataCache.setAllEntityMetadata(entities);
 		metadataCache.clearAllEntityMetadataPromise();
-
 		return entities;
 	} catch (error) {
 		metadataCache.clearAllEntityMetadataPromise();
-		console.error("[API] getAllAdvancedFindEntities - Failed:", error);
+		console.error("[API] getAllEntitiesForScopes - Failed:", error);
 		throw error;
 	}
 }
@@ -1164,78 +1154,6 @@ export function filterCachedEntitiesByNames(logicalNames: string[]): EntityMetad
 	});
 
 	return filtered;
-}
-
-/**
- * Get EntityDefinitions filtered by logical names and IsValidForAdvancedFind
- */
-export async function getAdvancedFindEntitiesByNames(
-	logicalNames: string[],
-): Promise<EntityMetadata[]> {
-	if (!isDataverseAvailable()) {
-		throw new Error("PPTB Dataverse API not available");
-	}
-
-	if (!logicalNames.length) {
-		console.log(
-			"[API] getAdvancedFindEntitiesByNames - Empty logical names, returning all AF entities",
-		);
-		// Return all AF-valid entities
-		return getAllEntities(true);
-	}
-
-	console.log("[API] getAdvancedFindEntitiesByNames - Input:", {
-		count: logicalNames.length,
-		names: logicalNames,
-	});
-
-	try {
-		const SELECT =
-			"$select=LogicalName,SchemaName,DisplayName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute,IsValidForAdvancedFind,MetadataId,ObjectTypeCode";
-
-		// Chunk logical names to avoid URL length limits
-		const chunkSize = 15;
-		const chunks: string[][] = [];
-		for (let i = 0; i < logicalNames.length; i += chunkSize) {
-			chunks.push(logicalNames.slice(i, i + chunkSize));
-		}
-
-		const allEntities = await Promise.all(
-			chunks.map(async (chunk) => {
-				const nameFilter = chunk.map((name) => `LogicalName eq '${name}'`).join(" or ");
-				const query = `EntityDefinitions?${SELECT}&$filter=IsValidForAdvancedFind eq true and (${nameFilter})`;
-
-				console.log("[API] getAdvancedFindEntitiesByNames - Query:", query);
-				debugLog("metadataAPI", `📡 GET Entities by names: ${chunk.length} names`);
-				const result = await window.dataverseAPI!.queryData(query);
-				const entities = result.value as unknown as EntityMetadata[];
-				console.log("[API] getAdvancedFindEntitiesByNames - Result:", {
-					requestedNames: chunk,
-					returnedCount: entities.length,
-					returnedEntities: entities.map((e) => e.LogicalName),
-				});
-				return entities;
-			}),
-		);
-
-		// Flatten and dedupe
-		const entityMap = new Map<string, EntityMetadata>();
-		allEntities.flat().forEach((e) => entityMap.set(e.LogicalName, e));
-		const entities = Array.from(entityMap.values());
-
-		// Sort by display name
-		entities.sort((a, b) => {
-			const nameA = a.DisplayName?.UserLocalizedLabel?.Label || a.LogicalName;
-			const nameB = b.DisplayName?.UserLocalizedLabel?.Label || b.LogicalName;
-			return nameA.localeCompare(nameB);
-		});
-
-		debugLog("metadataAPI", `✅ Entities retrieved: ${entities.length}`);
-		return entities;
-	} catch (error) {
-		console.error("getAdvancedFindEntitiesByNames: API call failed:", error);
-		throw error;
-	}
 }
 
 // =============================================================================
