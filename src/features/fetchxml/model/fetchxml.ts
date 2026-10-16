@@ -40,7 +40,7 @@ function formatValueForFetchXml(val: unknown): string {
 
 /** Attributes kept verbatim from parsed FetchXML (#90): unknown, namespaced, legacy. */
 function extraAttrs(extra: ExtraAttributes | undefined): string[] {
-	return extra ? Object.entries(extra).map(([name, value]) => `${name}="${escapeXml(value)}"`) : [];
+	return extra ? Object.entries(extra).map(([name, value]) => `${name}="${escapeXmlAttr(value)}"`) : [];
 }
 
 /**
@@ -67,15 +67,15 @@ export function generateFetchXml(fetchNode: FetchNode): string {
 	if (fetchNode.options.utcOffset !== undefined)
 		fetchAttrs.push(`utc-offset="${fetchNode.options.utcOffset}"`);
 	if (fetchNode.options.pagingCookie)
-		fetchAttrs.push(`paging-cookie="${escapeXml(fetchNode.options.pagingCookie)}"`);
+		fetchAttrs.push(`paging-cookie="${escapeXmlAttr(fetchNode.options.pagingCookie)}"`);
 	if (fetchNode.options.aggregateLimit !== undefined)
 		fetchAttrs.push(`aggregatelimit="${fetchNode.options.aggregateLimit}"`);
 	if (fetchNode.options.dataSource)
-		fetchAttrs.push(`datasource="${escapeXml(fetchNode.options.dataSource)}"`);
+		fetchAttrs.push(`datasource="${escapeXmlAttr(fetchNode.options.dataSource)}"`);
 	if (fetchNode.options.latematerialize) fetchAttrs.push('latematerialize="true"');
 	if (fetchNode.options.useRawOrderBy) fetchAttrs.push('useraworderby="true"');
 	if (fetchNode.options.queryHints?.length)
-		fetchAttrs.push(`options="${escapeXml(fetchNode.options.queryHints.join(","))}"`);
+		fetchAttrs.push(`options="${escapeXmlAttr(fetchNode.options.queryHints.join(","))}"`);
 	fetchAttrs.push(...extraAttrs(fetchNode.extraAttributes));
 
 	const fetchAttrStr = fetchAttrs.length > 0 ? " " + fetchAttrs.join(" ") : "";
@@ -96,11 +96,11 @@ function generateEntity(entity: EntityNode, indent: number): string[] {
 	const lines: string[] = [];
 	const spaces = "  ".repeat(indent);
 
-	const entityAttrs: string[] = [`name="${entity.name}"`];
+	const entityAttrs: string[] = [`name="${escapeXmlAttr(entity.name)}"`];
 	// Documented form for report prefiltering: "You must set the value of the enableprefiltering parameter to 1"
 	if (entity.enablePrefiltering) entityAttrs.push('enableprefiltering="1"');
 	if (entity.prefilterParameterName)
-		entityAttrs.push(`prefilterparametername="${escapeXml(entity.prefilterParameterName)}"`);
+		entityAttrs.push(`prefilterparametername="${escapeXmlAttr(entity.prefilterParameterName)}"`);
 	entityAttrs.push(...extraAttrs(entity.extraAttributes));
 	lines.push(`${spaces}<entity ${entityAttrs.join(" ")}>`);
 
@@ -151,16 +151,16 @@ const DATE_GROUPINGS: ReadonlySet<string> = new Set(["day", "week", "month", "qu
  */
 function generateAttribute(attr: AttributeNode, indent: number): string[] {
 	const spaces = "  ".repeat(indent);
-	const attrs: string[] = [`name="${attr.name}"`];
+	const attrs: string[] = [`name="${escapeXmlAttr(attr.name)}"`];
 
-	if (attr.alias) attrs.push(`alias="${attr.alias}"`);
+	if (attr.alias) attrs.push(`alias="${escapeXmlAttr(attr.alias)}"`);
 	if (attr.aggregate && AGGREGATES.has(attr.aggregate)) attrs.push(`aggregate="${attr.aggregate}"`);
 	if (attr.groupby) attrs.push('groupby="true"');
 	if (attr.dategrouping && DATE_GROUPINGS.has(attr.dategrouping))
 		attrs.push(`dategrouping="${attr.dategrouping}"`);
 	if (attr.usertimezone !== undefined) attrs.push(`usertimezone="${attr.usertimezone}"`);
 	if (attr.distinct) attrs.push('distinct="true"');
-	if (attr.rowAggregate) attrs.push(`rowaggregate="${escapeXml(attr.rowAggregate)}"`);
+	if (attr.rowAggregate) attrs.push(`rowaggregate="${escapeXmlAttr(attr.rowAggregate)}"`);
 	attrs.push(...extraAttrs(attr.extraAttributes));
 
 	return [`${spaces}<attribute ${attrs.join(" ")} />`];
@@ -173,11 +173,11 @@ function generateOrder(order: OrderNode, indent: number): string[] {
 	const spaces = "  ".repeat(indent);
 	// Non-aggregate queries order by attribute; aggregate queries order by alias (#90)
 	const attrs: string[] = [];
-	if (order.attribute) attrs.push(`attribute="${order.attribute}"`);
-	if (order.alias) attrs.push(`alias="${order.alias}"`);
+	if (order.attribute) attrs.push(`attribute="${escapeXmlAttr(order.attribute)}"`);
+	if (order.alias) attrs.push(`alias="${escapeXmlAttr(order.alias)}"`);
 
 	if (order.descending) attrs.push('descending="true"');
-	if (order.entityname) attrs.push(`entityname="${order.entityname}"`);
+	if (order.entityname) attrs.push(`entityname="${escapeXmlAttr(order.entityname)}"`);
 	attrs.push(...extraAttrs(order.extraAttributes));
 
 	return [`${spaces}<order ${attrs.join(" ")} />`];
@@ -191,7 +191,7 @@ function generateFilter(filter: FilterNode, indent: number): string[] {
 	const spaces = "  ".repeat(indent);
 
 	const attrs: string[] = [`type="${filter.conjunction}"`];
-	if (filter.hint) attrs.push(`hint="${filter.hint}"`);
+	if (filter.hint) attrs.push(`hint="${escapeXmlAttr(filter.hint)}"`);
 	// Quick find flags use the documented "1" form
 	if (filter.isQuickFindFields) attrs.push('isquickfindfields="1"');
 	if (filter.overrideQuickFindRecordLimitEnabled) attrs.push('overridequickfindrecordlimitenabled="1"');
@@ -228,14 +228,14 @@ function generateCondition(condition: ConditionNode, indent: number): string[] {
 	const spaces = "  ".repeat(indent);
 
 	const attrs: string[] = [
-		`attribute="${escapeXml(condition.attribute)}"`,
-		`operator="${condition.operator}"`,
+		`attribute="${escapeXmlAttr(condition.attribute)}"`,
+		`operator="${escapeXmlAttr(condition.operator)}"`,
 	];
 
-	if (condition.entityname) attrs.push(`entityname="${escapeXml(condition.entityname)}"`);
+	if (condition.entityname) attrs.push(`entityname="${escapeXmlAttr(condition.entityname)}"`);
 	if (condition.aggregate && AGGREGATES.has(condition.aggregate))
 		attrs.push(`aggregate="${condition.aggregate}"`);
-	if (condition.valueof) attrs.push(`valueof="${escapeXml(condition.valueof)}"`);
+	if (condition.valueof) attrs.push(`valueof="${escapeXmlAttr(condition.valueof)}"`);
 	attrs.push(...extraAttrs(condition.extraAttributes));
 
 	// Use the centralized operator logic to determine if value is needed
@@ -253,13 +253,13 @@ function generateCondition(condition: ConditionNode, indent: number): string[] {
 			lines.push(`${spaces}<condition ${attrs.join(" ")}>`);
 			condition.value.forEach((val) => {
 				if (val !== undefined && val !== null) {
-					lines.push(`${spaces}  <value>${escapeXml(formatValueForFetchXml(val))}</value>`);
+					lines.push(`${spaces}  <value>${escapeXmlText(formatValueForFetchXml(val))}</value>`);
 				}
 			});
 			lines.push(`${spaces}</condition>`);
 		} else {
 			// Single value attribute
-			attrs.push(`value="${escapeXml(formatValueForFetchXml(condition.value))}"`);
+			attrs.push(`value="${escapeXmlAttr(formatValueForFetchXml(condition.value))}"`);
 			lines.push(`${spaces}<condition ${attrs.join(" ")} />`);
 		}
 	} else {
@@ -279,11 +279,11 @@ function generateLinkEntity(link: LinkEntityNode, indent: number): string[] {
 
 	// Empty from/to are omitted, not written as from="" (which silently returns no rows); Dataverse
 	// infers the join only for system many-to-many relationships.
-	const attrs: string[] = [`name="${link.name}"`];
-	if (link.from) attrs.push(`from="${link.from}"`);
-	if (link.to) attrs.push(`to="${link.to}"`);
+	const attrs: string[] = [`name="${escapeXmlAttr(link.name)}"`];
+	if (link.from) attrs.push(`from="${escapeXmlAttr(link.from)}"`);
+	if (link.to) attrs.push(`to="${escapeXmlAttr(link.to)}"`);
 
-	if (link.alias) attrs.push(`alias="${link.alias}"`);
+	if (link.alias) attrs.push(`alias="${escapeXmlAttr(link.alias)}"`);
 	if (link.linkType !== "inner") attrs.push(`link-type="${link.linkType}"`);
 	if (link.intersect) attrs.push('intersect="true"');
 	if (link.visible !== undefined) attrs.push(`visible="${link.visible}"`);
@@ -324,13 +324,17 @@ function generateLinkEntity(link: LinkEntityNode, indent: number): string[] {
 /**
  * Escape XML special characters
  */
-function escapeXml(str: string): string {
-	return str
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&apos;");
+/**
+ * Attribute values are always written in double quotes, so `'` stays as is: `&apos;` is valid XML
+ * but breaks expressions such as @{body('x')} when the FetchXML is pasted into Power Automate (#63).
+ */
+function escapeXmlAttr(str: string): string {
+	return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** Element text (<value>): only &, < and > need escaping. */
+function escapeXmlText(str: string): string {
+	return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /**
@@ -371,7 +375,7 @@ export function addPagingToFetchXml(
 	if (pagingCookie) {
 		// The paging cookie needs to be XML-escaped when inserted as an attribute value
 		// Dataverse returns it as raw XML, we need to encode it for the attribute
-		fetchAttrs += ` paging-cookie="${escapeXml(pagingCookie)}"`;
+		fetchAttrs += ` paging-cookie="${escapeXmlAttr(pagingCookie)}"`;
 	}
 
 	// Add count (page size) if specified

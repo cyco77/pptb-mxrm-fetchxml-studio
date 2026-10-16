@@ -227,6 +227,17 @@ describe("link-type by placement (verified live 2026-10-14)", () => {
 	});
 });
 
+describe("more than one filter in an entity (#94; verified: combined with and)", () => {
+	it("is advice on the extra filter, never an error", () => {
+		const parsed = parseFetchXml(SU(`<attribute name="fullname" /><filter><condition attribute="fullname" operator="not-null" /></filter><filter><condition attribute="isdisabled" operator="eq" value="0" /></filter>`));
+		const fetch = parsed.fetchNode!;
+		expect(fetch.entity.filters).toHaveLength(2);
+		expect(getExecutionErrors(parsed)).toEqual([]);
+		const findings = validateQueryRules(fetch).filter((f) => f.element === "filter");
+		expect(findings).toEqual([expect.objectContaining({ severity: "info", kind: "advice", nodeId: fetch.entity.filters[1].id })]);
+	});
+});
+
 describe("boolean spellings Dataverse accepts are read correctly", () => {
 	const attrOf = (xml: string) => parseFetchXml(xml).fetchNode!.entity.attributes[0];
 	it("usertimezone '1' / '0' keep their meaning (was inverted)", () => {

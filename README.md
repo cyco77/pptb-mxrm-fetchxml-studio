@@ -34,10 +34,12 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 ### 📝 FetchXML Editor
 - **Monaco editor** — Full-featured XML editor with XML syntax highlighting and line numbers
 - **Bi-directional editing** — Edit XML directly and parse back to the visual builder
+- **Intellisense from the reference** — Element, attribute and value suggestions follow the FetchXML reference (every documented attribute, including `aggregatelimit`, `datasource`, `options`, `rowaggregate`, order `entityname` and the quick find overrides). Undocumented attributes are suggested only where Dataverse was verified to accept them, and say so. Value suggestions work for hyphenated attributes such as `link-type`
+- **Power Automate–safe values** — Apostrophes stay literal in the generated FetchXML (attribute values use double quotes), so expressions such as `@{body('x')}` paste into Power Automate unchanged; `"`, `&`, `<` and `>` are escaped everywhere, including names, aliases and `from` / `to`
 - **Editor mode actions run what you see** — In editor mode, **Execute**, **Save** and **Send to Tool** first load your FetchXML into the tree, so results, saved views and sent queries always match the editor. Execute is available as soon as the editor has content, even before an entity is chosen. If the tree would change anything, a confirmation lists the changes first, and the editor then shows the cleaned FetchXML that ran. Invalid FetchXML is reported and nothing runs.
 - **What you build is what runs** — The generated FetchXML contains exactly what is in the tree; nothing is injected, so what you copy, save as a view, or send to another tool matches what executes
 - **Copy to clipboard** — One-click copy of generated FetchXML, available in both read-only and editor modes
-- **Alias validation** — Invalid alias characters are sanitized in real time in the property editors; Parse to Tree corrects invalid aliases and lists each correction
+- **Alias validation** — Invalid alias characters are sanitized in real time in the property editors; Parse to Tree corrects invalid aliases, lists each correction, and updates every reference to a corrected alias (condition and order `entityname`, `valueof`, aggregate order aliases) so the query keeps working
 - **Accurate validation** — Everything in the FetchXML reference is supported, plus undocumented behaviour verified to work (e.g. `link-type="natural"`). Every rule is checked against a live Dataverse environment:
   - **errors** block execution — only for FetchXML Dataverse is known to reject;
   - **warnings** offer **Execute anyway** — only where it can't be determined in the client (e.g. a link-entity without `from`/`to`, which is valid only for system many-to-many relationships);
@@ -87,8 +89,8 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **C# FetchExpression** — Simple `new FetchExpression(@"...")` wrapper using a verbatim string literal
 - **JavaScript** — `Xrm.WebApi.retrieveMultipleRecords` call for model-driven apps and PCF components
 - **pac CLI** — `pac org fetch --xml "..."` command for the Power Platform CLI
-- **Power Automate** — Field-by-field form mirroring the Dataverse "List rows" connector UI; table name resolved from `EntityDefinitions` metadata (not a heuristic), each field individually copyable
-- **Web API** — Full OData URL with request headers, cURL snippet, and PowerShell `Invoke-RestMethod` example; entity set name resolved from metadata
+- **Power Automate** — Field-by-field form mirroring the Dataverse "List rows" connector UI; table name resolved from `EntityDefinitions` metadata (not a heuristic), each field individually copyable; Top Count is taken only from `top` (`count` is a page size)
+- **Web API** — Full OData URL with request headers (including `Prefer: odata.include-annotations="*"` for formatted values and paging cookies), the documented paging-cookie steps, a cURL snippet and a PowerShell `Invoke-RestMethod` example; entity set name resolved from metadata
 - **SQL** — Dataverse-generated T-SQL via `FetchXMLToSQL` (undocumented API, labelled Preview)
 
 ### 🎨 User Experience

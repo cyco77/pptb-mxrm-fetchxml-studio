@@ -404,6 +404,14 @@ export function validateQueryRules(fetch: FetchNode): RuleFinding[] {
 		push({ element: "filter", attribute: "hint", nodeId: filter.id, severity: "error", kind: "invalid",
 			message: `Only one filter per query can use the union hint (Dataverse rejects it: 0x80041122).` });
 	}
+	// The reference allows one <filter> per entity / link-entity; Dataverse accepts more and combines
+	// them with 'and' (verified live), so this is advice only (#94).
+	for (const scope of scopes) {
+		for (const filter of scope.container.filters.slice(1)) {
+			push({ element: "filter", nodeId: filter.id, severity: "info", kind: "advice",
+				message: `${scope.container.name} has more than one filter; the FetchXML reference allows one. Dataverse combines them with 'and' — consider nesting them in one filter.` });
+		}
+	}
 
 	return findings;
 }
