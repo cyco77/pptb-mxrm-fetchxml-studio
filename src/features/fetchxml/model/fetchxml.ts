@@ -338,13 +338,13 @@ function escapeXmlText(str: string): string {
 }
 
 /**
- * Modify FetchXML string to add/update paging parameters
- * Used for fetching subsequent pages during Retrieve All or infinite scroll
- *
- * Per Dataverse requirements:
- * - page: Page number (1-based)
- * - paging-cookie: XML cookie from previous response, must be XML-entity encoded
- * - count: Page size (records per page)
+ * Set the paging attributes on a FetchXML query for the next page (#58, #60):
+ * - page: the page to request;
+ * - paging-cookie: the decoded cookie from the previous page, XML-escaped here; omitted when
+ *   Dataverse returned none (simple paging);
+ * - count: the page size; when not given, the query's own count is kept.
+ * Existing page / paging-cookie (and count, when given) are replaced, in either quote style.
+ * https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/page-results
  */
 export function addPagingToFetchXml(
 	fetchXml: string,
@@ -352,37 +352,19 @@ export function addPagingToFetchXml(
 	pagingCookie?: string,
 	count?: number,
 ): string {
-	// Parse the fetch element attributes
-	const fetchMatch = fetchXml.match(/<fetch([^>]*)>/);
+	const fetchMatch = /<fetch\b([^>]*)>/.exec(fetchXml);
 	if (!fetchMatch) return fetchXml;
 
-	let fetchAttrs = fetchMatch[1];
+	const names = count !== undefined ? "page|paging-cookie|count" : "page|paging-cookie";
+	let fetchAttrs = fetchMatch[1]
+		.replace(new RegExp(`\\s+(?:${names})\\s*=\\s*(?:"[^"]*"|'[^']*')`, "g"), "")
+		.trim();
 
-	// Remove existing page, paging-cookie, count attributes
-	// Note: paging-cookie can contain encoded quotes, so we need a more robust pattern
-	fetchAttrs = fetchAttrs
-		.replace(/\s*page="[^"]*"/g, "")
-		.replace(/\s*paging-cookie="[^"]*"/g, "") // This works because the value is already XML-encoded (no raw quotes)
-		.replace(/\s*count="[^"]*"/g, "");
-
-	// Add new paging attributes
-	fetchAttrs = fetchAttrs.trim();
-
-	// Always add page number (even page 1 for explicit paging requests)
 	fetchAttrs += ` page="${page}"`;
+	if (pagingCookie) fetchAttrs += ` paging-cookie="${escapeXmlAttr(pagingCookie)}"`;
+	if (count !== undefined) fetchAttrs += ` count="${count}"`;
 
-	// Add paging cookie if provided (required for reliable paging after page 1)
-	if (pagingCookie) {
-		// The paging cookie needs to be XML-escaped when inserted as an attribute value
-		// Dataverse returns it as raw XML, we need to encode it for the attribute
-		fetchAttrs += ` paging-cookie="${escapeXmlAttr(pagingCookie)}"`;
-	}
-
-	// Add count (page size) if specified
-	if (count !== undefined) {
-		fetchAttrs += ` count="${count}"`;
-	}
-
-	// Reconstruct the fetch element
-	return fetchXml.replace(/<fetch[^>]*>/, `<fetch${fetchAttrs ? " " + fetchAttrs : ""}>`);
+	// A function replacement: the cookie holds record values, and "$&" etc. in a string replacement
+	// would be expanded
+	return fetchXml.replace(fetchMatch[0], () => `<fetch ${fetchAttrs.trim()}>`);
 }

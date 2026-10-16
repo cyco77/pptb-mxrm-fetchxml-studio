@@ -35,6 +35,7 @@ import { LayoutXmlViewer } from "./LayoutXmlViewer";
 import { ResultsGrid, type QueryResult, type SortChangeData } from "./ResultsGrid";
 import { ResultsCommandBar } from "./ResultsCommandBar";
 import type { RelatedEntityColumn } from "./AddColumnsPanel";
+import type { PagingNotice } from "../../api/paging";
 import { NON_RETURNING_LINK_TYPES } from "../../model/fetchxmlRules";
 import type { AttributeMetadata, RelationshipMetadata } from "../../api/pptbClient";
 import type { FetchNode } from "../../model/nodes";
@@ -232,6 +233,12 @@ interface PreviewTabsProps {
 	isCallee?: boolean;
 	/** Callback when user scrolls near bottom (infinite scroll) */
 	onLoadMore?: () => void;
+	/** Paging notice above the grid: failed page, Stop, simple paging (#60) */
+	pagingNotice?: PagingNotice | null;
+	isRetrieveAllInProgress?: boolean;
+	onStopRetrieveAll?: () => void;
+	onRetryPaging?: () => void;
+	onDismissPagingNotice?: () => void;
 	/** Whether export is available (requires a saved view) */
 	canExport?: boolean;
 	/** Whether export is in progress */
@@ -318,6 +325,11 @@ export function PreviewTabs({
 	sendToToolButton,
 	isCallee,
 	onLoadMore,
+	pagingNotice,
+	isRetrieveAllInProgress,
+	onStopRetrieveAll,
+	onRetryPaging,
+	onDismissPagingNotice,
 	canExport,
 	isExporting,
 	exportError,
@@ -789,8 +801,42 @@ export function PreviewTabs({
 											: undefined
 									}
 									existingRelatedColumns={existingRelatedColumns}
+									isRetrieveAllInProgress={isRetrieveAllInProgress}
+									onStopRetrieveAll={onStopRetrieveAll}
 								/>
 							</div>
+							{pagingNotice && (
+								<div className={styles.messageBarContainer}>
+									<MessageBar intent={pagingNotice.kind === "error" ? "error" : pagingNotice.kind === "stopped" ? "warning" : "info"} layout="multiline">
+										<MessageBarBody>
+											<MessageBarTitle>
+												{pagingNotice.kind === "error"
+													? "Couldn't load all records"
+													: pagingNotice.kind === "stopped"
+														? "Retrieve All stopped"
+														: "Paging without a paging cookie"}
+											</MessageBarTitle>
+											{pagingNotice.kind === "error"
+												? `Loaded ${result?.rows.length ?? 0} rows; ${pagingNotice.page ? `page ${pagingNotice.page}` : "the next page"} failed: ${pagingNotice.message}`
+												: pagingNotice.kind === "stopped"
+													? `Stopped after ${result?.rows.length ?? 0} rows. Scroll to the end of the grid to load more, or execute again.`
+													: pagingNotice.message}
+										</MessageBarBody>
+										<MessageBarActions
+											containerAction={
+												<Button
+													appearance="transparent"
+													icon={<Dismiss16Regular />}
+													onClick={onDismissPagingNotice}
+													aria-label="Dismiss"
+												/>
+											}
+										>
+											{pagingNotice.kind === "error" && onRetryPaging && <Button onClick={onRetryPaging}>Retry</Button>}
+										</MessageBarActions>
+									</MessageBar>
+								</div>
+							)}
 							<div className={styles.gridCard}>
 								<ResultsGrid
 									result={result}
