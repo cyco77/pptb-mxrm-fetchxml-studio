@@ -63,6 +63,8 @@ import type {
 import { generateFetchXml, addPagingToFetchXml } from "../features/fetchxml/model/fetchxml";
 import { getQueryEntities } from "../features/fetchxml/model/treeUtils";
 import { NON_RETURNING_LINK_TYPES } from "../features/fetchxml/model/fetchxmlRules";
+import { planRemoveColumns, planSortByColumn, resolveColumn } from "../features/fetchxml/model/queryColumns";
+import { toAttributeTypeInfo } from "../features/fetchxml/model/attributeCapabilities";
 import type { FetchNode } from "../features/fetchxml/model/nodes";
 import { generateLayoutXml } from "../features/fetchxml/model/layoutxml";
 import { collectAttributesFromFetchXml } from "../features/fetchxml/model/layoutxml";
@@ -1647,15 +1649,12 @@ function AppContent() {
 							});
 						}
 					}}
-					onRemoveColumn={(columnName) => {
-						// Remove the attribute from the FetchXML
-						if (builder.fetchQuery?.entity.id) {
-							// Find the attribute node by name and remove it
-							const attr = builder.fetchQuery.entity.attributes.find((a) => a.name === columnName);
-							if (attr) {
-								builder.removeNode(attr.id);
-							}
-						}
+					onRemoveColumns={(columnKeys) => {
+						// Each column maps to its attribute (root or link-entity, aliased or not); sorts on a
+						// removed alias and outer link-entities left empty go too (queryColumns.ts, #114)
+						if (!builder.fetchQuery) return;
+						const plan = planRemoveColumns(builder.fetchQuery, columnKeys);
+						plan.removeNodeIds.forEach((id) => builder.removeNode(id));
 					}}
 					onAddColumn={(attributeName) => {
 						// Add the attribute to the root entity
@@ -1749,39 +1748,27 @@ function AppContent() {
 						}
 					}}
 					onSortChange={(data) => {
-						// Extract attribute name from columnId (may have entityName prefix or be an alias)
-						let attribute = data.columnId;
-						let entityName = data.entityName;
-
-						// If columnId contains a dot, it's a link-entity column (alias.attribute)
-						if (attribute.includes(".")) {
-							const parts = attribute.split(".");
-							entityName = parts[0];
-							attribute = parts[1];
-						}
-
-						// Handle lookup field naming (_attributename_value -> attributename)
-						if (attribute.startsWith("_") && attribute.endsWith("_value")) {
-							attribute = attribute.slice(1, -6);
-						}
-
-						// Check if this is an aliased column on root entity - need to find original attribute name
-						// FetchXML order-by uses the original attribute name, not the alias
-						if (!entityName && builder.fetchQuery?.entity?.attributes) {
-							const aliasedAttr = builder.fetchQuery.entity.attributes.find(
-								(a) => a.alias === attribute,
-							);
-							if (aliasedAttr) {
-								attribute = aliasedAttr.name;
-							}
-						}
-
-						builder.setSort(
-							attribute,
-							data.direction === "descending",
-							data.isMultiSort,
-							entityName,
+						// The column maps to the right <order>: alias in aggregate queries, entityname for
+						// link-entity columns, nothing for types Dataverse can't sort (queryColumns.ts, #114)
+						if (!builder.fetchQuery) return;
+						const column = resolveColumn(builder.fetchQuery, data.columnId);
+						const metadata = column
+							? attributeMetadata?.get(column.container.name)?.get(column.attribute.name)
+							: undefined;
+						const plan = planSortByColumn(
+							builder.fetchQuery,
+							data.columnId,
+							metadata ? toAttributeTypeInfo(metadata) : undefined,
 						);
+						if ("reason" in plan) {
+							void window.toolboxAPI?.utils?.showNotification?.({
+								title: "Can't sort by this column",
+								body: plan.reason,
+								type: "warning",
+							});
+							return;
+						}
+						builder.setSort(plan, data.direction === "descending", data.isMultiSort);
 					}}
 					// Record action handlers
 					onOpenRecord={handleOpenRecord}

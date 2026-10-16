@@ -35,6 +35,7 @@ import { LayoutXmlViewer } from "./LayoutXmlViewer";
 import { ResultsGrid, type QueryResult, type SortChangeData } from "./ResultsGrid";
 import { ResultsCommandBar } from "./ResultsCommandBar";
 import type { RelatedEntityColumn } from "./AddColumnsPanel";
+import { NON_RETURNING_LINK_TYPES } from "../../model/fetchxmlRules";
 import type { AttributeMetadata, RelationshipMetadata } from "../../api/pptbClient";
 import type { FetchNode } from "../../model/nodes";
 import type { ParseResult, ParseWarning } from "../../model/fetchxmlParser";
@@ -220,7 +221,7 @@ interface PreviewTabsProps {
 	/** Callback when user wants to add columns from related entity */
 	onAddRelatedColumns?: (columns: RelatedEntityColumn[]) => void;
 	/** Callback when user removes a column */
-	onRemoveColumn?: (columnName: string) => void;
+	onRemoveColumns?: (columnKeys: string[]) => void;
 	/** Callback when user changes sort on a column */
 	onSortChange?: (data: SortChangeData) => void;
 	/** Optional SaveViewButton to render in the toolbar */
@@ -311,7 +312,7 @@ export function PreviewTabs({
 	onReorderColumns,
 	onAddColumn,
 	onAddRelatedColumns,
-	onRemoveColumn,
+	onRemoveColumns,
 	onSortChange,
 	saveViewButton,
 	sendToToolButton,
@@ -367,6 +368,17 @@ export function PreviewTabs({
 		xml: string;
 		warnings: ParseWarning[];
 	} | null>(null);
+	// Related columns already returned by root link-entities Add columns would reuse (#114)
+	const existingRelatedColumns = useMemo(
+		() =>
+			new Set(
+				(fetchQuery?.entity.links ?? [])
+					.filter((link) => !NON_RETURNING_LINK_TYPES.has(link.linkType))
+					.flatMap((link) => link.attributes.map((a) => `${link.name}|${link.from}|${link.to}|${a.name}`)),
+			),
+		[fetchQuery],
+	);
+
 	// Whether the editor buffer has any content (Execute is enabled on it in editor mode, #102)
 	const [editorHasContent, setEditorHasContent] = useState(false);
 	// Cleaned FetchXML to show in the editor after a sync changed the query (#102)
@@ -756,7 +768,7 @@ export function PreviewTabs({
 									entityDisplayName={entityDisplayName}
 									columns={columnConfig?.columns}
 									onReorderColumns={onReorderColumns}
-									onRemoveColumn={onRemoveColumn}
+									onRemoveColumns={onRemoveColumns}
 									availableAttributes={
 										// Get root entity attributes from multi-entity map
 										attributeMetadata && fetchQuery?.entity?.name
@@ -771,6 +783,12 @@ export function PreviewTabs({
 									isLoadingRelationships={isLoadingRelationships}
 									onLoadRelatedAttributes={onLoadRelatedAttributes}
 									onResetToDefault={onResetToDefault}
+									addColumnsDisabledReason={
+										isAggregateQuery
+											? "Aggregate queries only return Group by and aggregate attributes, with aliases: add them in the tree."
+											: undefined
+									}
+									existingRelatedColumns={existingRelatedColumns}
 								/>
 							</div>
 							<div className={styles.gridCard}>
