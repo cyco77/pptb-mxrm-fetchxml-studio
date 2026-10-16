@@ -97,7 +97,7 @@ export interface CommandBarProps {
 	/** Callback when columns are reordered */
 	onReorderColumns?: (columns: LayoutColumn[]) => void;
 	/** Callback when columns are removed */
-	onRemoveColumn?: (columnName: string) => void;
+	onRemoveColumns?: (columnKeys: string[]) => void;
 	/** Available attributes from metadata for adding columns */
 	availableAttributes?: AttributeMetadata[];
 	/** Currently selected attributes in the query */
@@ -114,6 +114,10 @@ export interface CommandBarProps {
 	isLoadingRelationships?: boolean;
 	/** Callback to load attributes for a related entity */
 	onLoadRelatedAttributes?: (entityLogicalName: string) => Promise<AttributeMetadata[]>;
+	/** Why columns can't be added (e.g. aggregate queries), if they can't */
+	addColumnsDisabledReason?: string;
+	/** Related columns already returned: "entity|from|to|attribute" (Add columns leaves them out) */
+	existingRelatedColumns?: ReadonlySet<string>;
 	/** Callback to reset columns to default */
 	onResetToDefault?: () => void;
 }
@@ -143,11 +147,13 @@ export function ResultsCommandBar({
 	entityDisplayName,
 	columns,
 	onReorderColumns,
-	onRemoveColumn,
+	onRemoveColumns,
 	availableAttributes,
 	selectedAttributes,
 	onAddColumn,
 	onAddRelatedColumns,
+	addColumnsDisabledReason,
+	existingRelatedColumns,
 	lookupRelationships,
 	oneToManyRelationships,
 	isLoadingRelationships,
@@ -198,20 +204,17 @@ export function ResultsCommandBar({
 
 	const handleEditApply = useCallback(
 		(updatedColumns: LayoutColumn[]) => {
-			// Detect removed columns
-			if (columns && onRemoveColumn) {
+			// Remove the attributes behind removed columns, all at once
+			if (columns && onRemoveColumns) {
 				const updatedNames = new Set(updatedColumns.map((c) => c.name));
-				for (const col of columns) {
-					if (!updatedNames.has(col.name)) {
-						onRemoveColumn(col.name);
-					}
-				}
+				const removed = columns.filter((col) => !updatedNames.has(col.name)).map((col) => col.name);
+				if (removed.length > 0) onRemoveColumns(removed);
 			}
 			// Apply reordering
 			onReorderColumns?.(updatedColumns);
 			setEditPanelOpen(false);
 		},
-		[columns, onReorderColumns, onRemoveColumn]
+		[columns, onReorderColumns, onRemoveColumns]
 	);
 
 	const handleAddApply = useCallback(
@@ -430,6 +433,7 @@ export function ResultsCommandBar({
 				onApply={handleEditApply}
 				onAddColumns={handleOpenAddFromEdit}
 				onResetToDefault={onResetToDefault}
+				addColumnsDisabledReason={addColumnsDisabledReason}
 			/>
 
 			{/* Add Columns Panel */}
@@ -443,6 +447,7 @@ export function ResultsCommandBar({
 				oneToManyRelationships={oneToManyRelationships}
 				isLoadingRelationships={isLoadingRelationships}
 				onLoadRelatedAttributes={onLoadRelatedAttributes}
+				existingRelatedColumns={existingRelatedColumns}
 				onClose={handleAddPanelClose}
 				onApply={handleAddApply}
 			/>

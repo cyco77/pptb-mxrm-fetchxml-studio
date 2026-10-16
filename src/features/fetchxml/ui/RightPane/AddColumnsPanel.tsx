@@ -184,6 +184,8 @@ export interface AddColumnsPanelProps {
 	isLoadingRelationships?: boolean;
 	/** Callback to load attributes for a related entity */
 	onLoadRelatedAttributes?: (entityLogicalName: string) => Promise<AttributeMetadata[]>;
+	/** Related columns already returned: "entity|from|to|attribute" (left out of the list, #114) */
+	existingRelatedColumns?: ReadonlySet<string>;
 	/** Called when panel is closed */
 	onClose: () => void;
 	/** Called when columns are selected and Apply is clicked */
@@ -200,6 +202,7 @@ export function AddColumnsPanel({
 	oneToManyRelationships = [],
 	isLoadingRelationships,
 	onLoadRelatedAttributes,
+	existingRelatedColumns,
 	onClose,
 	onApply,
 }: AddColumnsPanelProps) {
@@ -329,6 +332,16 @@ export function AddColumnsPanel({
 			filtered1NRelationships: oneNRels,
 		};
 	}, [lookupRelationships, oneToManyRelationships, availableAttributes, searchText]);
+
+	// The link-entity Add columns would reuse already returns this attribute (#114)
+	const isAlreadyReturned = (rel: RelationshipWithType, attribute: string) => {
+		const r = rel.relationship;
+		const key =
+			rel.type === "N1"
+				? `${r.ReferencedEntity}|${r.ReferencedAttribute}|${r.ReferencingAttribute}|${attribute}`
+				: `${r.ReferencingEntity}|${r.ReferencingAttribute}|${r.ReferencedAttribute}|${attribute}`;
+		return existingRelatedColumns?.has(key) ?? false;
+	};
 
 	const handleTabSelect = useCallback((_e: SelectTabEvent, data: SelectTabData) => {
 		setActiveTab(data.value as "entity" | "related");
@@ -603,7 +616,7 @@ export function AddColumnsPanel({
 																			</TreeItem>
 																		) : relatedAttrs && relatedAttrs.length > 0 ? (
 																			relatedAttrs
-																				.filter((attr) => attr.AttributeType !== "Virtual")
+																				.filter((attr) => attr.AttributeType !== "Virtual" && !isAlreadyReturned(relItem, attr.LogicalName))
 																				.sort((a, b) => {
 																					const aName =
 																						a.DisplayName?.UserLocalizedLabel?.Label ||
@@ -720,7 +733,7 @@ export function AddColumnsPanel({
 																			</TreeItem>
 																		) : relatedAttrs && relatedAttrs.length > 0 ? (
 																			relatedAttrs
-																				.filter((attr) => attr.AttributeType !== "Virtual")
+																				.filter((attr) => attr.AttributeType !== "Virtual" && !isAlreadyReturned(relItem, attr.LogicalName))
 																				.sort((a, b) => {
 																					const aName =
 																						a.DisplayName?.UserLocalizedLabel?.Label ||
