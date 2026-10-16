@@ -18,7 +18,7 @@ import type {
 	ExtraAttributes,
 } from "./nodes";
 import { isValidAlias, sanitizeAlias } from "./aliasUtils";
-import { ALL_OPERATORS } from "./operators";
+import { KNOWN_OPERATORS } from "./operators";
 import { validateQueryRules } from "./fetchxmlRules";
 
 // ID generator for parsed nodes
@@ -107,17 +107,6 @@ export function getParseToTreeChanges(result: Pick<ParseResult, "warnings">): Pa
 
 const XMLNS_NAMESPACE = "http://www.w3.org/2000/xmlns/";
 
-/** Documented condition operators. https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/reference/operators */
-const KNOWN_OPERATORS: ReadonlySet<string> = new Set<string>([
-	...ALL_OPERATORS.map((o) => o.value),
-	// Documented, but not yet selectable in the UI (#87)
-	"last-x-fiscal-periods",
-	"last-x-fiscal-years",
-	"next-x-fiscal-periods",
-	"next-x-fiscal-years",
-	// Deprecated alias of "ne", still accepted
-	"neq",
-]);
 
 /**
  * Attributes Dataverse ignores that are ubiquitous in FetchXML exported from Advanced Find and
@@ -257,10 +246,70 @@ function reportUnknownChild(child: Element, parentName: string, issues: ParseIss
 }
 
 /**
+ * Aliases Parse to Tree corrected in this parse (old → new, or null when removed). References to
+ * them elsewhere in the query are updated to match, so the query keeps its meaning (#94).
+ */
+let linkAliasRenames = new Map<string, string | null>();
+let attributeAliasRenames = new Map<string, string | null>();
+
+/**
+ * Point references at corrected aliases: order / condition entityname and the valueof qualifier
+ * (link-entity aliases), and aggregate order aliases (attribute aliases).
+ */
+function updateAliasReferences(fetch: FetchNode, issues: ParseIssue[]): void {
+	if (linkAliasRenames.size === 0 && attributeAliasRenames.size === 0) return;
+	const updated: string[] = [];
+	const rename = (map: Map<string, string | null>, value: string | undefined, what: string) => {
+		if (value === undefined || !map.has(value)) return value;
+		const next = map.get(value) ?? undefined;
+		updated.push(`${what} '${value}' → ${next ? `'${next}'` : "removed"}`);
+		return next;
+	};
+	const visitFilter = (filter: FilterNode) => {
+		for (const condition of filter.conditions) {
+			condition.entityname = rename(linkAliasRenames, condition.entityname, "condition entityname");
+			if (condition.valueof) {
+				// The corrected alias can itself contain dots ("my.acct.name"): match the longest one
+				const valueof = condition.valueof;
+				const old = [...linkAliasRenames.keys()]
+					.filter((alias) => valueof.startsWith(`${alias}.`))
+					.sort((a, b) => b.length - a.length)[0];
+				if (old) {
+					const qualifier = rename(linkAliasRenames, old, "valueof");
+					const attribute = valueof.slice(old.length + 1);
+					condition.valueof = qualifier ? `${qualifier}.${attribute}` : attribute;
+				}
+			}
+		}
+		filter.subfilters.forEach(visitFilter);
+		filter.links?.forEach(visitContainer);
+	};
+	const visitContainer = (container: EntityNode | LinkEntityNode) => {
+		for (const order of container.orders) {
+			order.entityname = rename(linkAliasRenames, order.entityname, "order entityname");
+			order.alias = rename(attributeAliasRenames, order.alias, "order alias");
+		}
+		container.filters.forEach(visitFilter);
+		container.links.forEach(visitContainer);
+	};
+	visitContainer(fetch.entity);
+	if (updated.length > 0) {
+		issues.push({
+			message: `Parse to Tree also updates the references to the corrected aliases: ${updated.join("; ")}.`,
+			element: "fetch",
+			severity: "info",
+			kind: "corrected",
+		});
+	}
+}
+
+/**
  * Main entry point: Parse FetchXML string to FetchNode
  */
 export function parseFetchXml(xmlString: string): ParseResult {
 	const issues: ParseIssue[] = [];
+	linkAliasRenames = new Map();
+	attributeAliasRenames = new Map();
 
 	// Validate input
 	if (!xmlString || typeof xmlString !== "string") {
@@ -362,6 +411,7 @@ export function parseFetchXml(xmlString: string): ParseResult {
 			...(fetchExtras ? { extraAttributes: fetchExtras } : {}),
 		};
 
+		updateAliasReferences(fetchNode, issues);
 		issues.push(...validateQueryRules(fetchNode));
 
 		const errors: ParseError[] = issues
@@ -658,6 +708,7 @@ function parseAttribute(attrElement: Element, issues: ParseIssue[]): AttributeNo
 				severity: "error",
 				kind: "corrected",
 			});
+			attributeAliasRenames.set(alias, sanitized || null);
 			if (sanitized) attr.alias = sanitized;
 		} else {
 			attr.alias = alias;
@@ -1059,6 +1110,7 @@ function parseLinkEntity(linkElement: Element, issues: ParseIssue[]): LinkEntity
 				severity: "info",
 				kind: "corrected",
 			});
+			linkAliasRenames.set(alias, sanitized || null);
 			if (sanitized) link.alias = sanitized;
 		} else {
 			link.alias = alias;

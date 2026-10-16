@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.12] - 2026-10-15
+
+### 🔧 Fixed
+
+- **Apostrophes stay literal in generated FetchXML (#63).** Values were written with `&apos;`. That's valid XML, but it broke Power Automate expressions pasted into the Fetch Xml Query field (e.g. `@{body('Parse_payload')?['Student']}`).
+  - Attribute values are always in double quotes, so only `&`, `<`, `>` and `"` are escaped; `<value>` text escapes `&`, `<` and `>`.
+  - Verified live: raw apostrophes are accepted in both forms.
+- **Every value in generated FetchXML is escaped (#63, #94).** Entity, attribute and link-entity names, aliases, `from` / `to`, order references, `hint` and `operator` were written unescaped, so pasted or parsed values with `"`, `&` or `<` produced broken XML.
+- **Corrected aliases no longer break their references (#94).** When Parse to Tree corrects an invalid alias, it now updates every reference to it as well: condition and order `entityname`, `valueof` (including aliases that contained dots), and aggregate order aliases. The fix is listed with the corrections.
+  - Verified live: a link-entity alias with dots fails as soon as `valueof` refers to it (`0x80040216`); the corrected query runs.
+- **New link-entity aliases can't collide with link-entities inside filters (#94).** Generated aliases now take any / not any / all / not all link-entities into account.
+- **Intellisense follows the FetchXML reference (#94).**
+  - Value suggestions now work for hyphenated attributes (`link-type`, `paging-cookie`, `no-lock`, `utc-offset`).
+  - Added the documented attributes that were missing: `aggregatelimit`, `datasource`, `latematerialize`, `options` (with the documented hints) and `useraworderby` on fetch; `entityname` on order; `rowaggregate` on attribute; `hint` and both quick find overrides on filter.
+  - Removed `order` as a child of `<fetch>` and the condition `aggregate`, which Dataverse ignores.
+  - Undocumented attributes are suggested only where verified and say so: `utc-offset`, `version`, `mapping`, `output-format`, `min-active-row-version`, link-entity prefiltering, `natural`, and the saved-view `uiname` / `uitype` / `uihidden`.
+  - The operator list is the parser's own list, so the two can't drift apart.
+  - Condition `attribute` stays required: the reference lists it as optional, but Dataverse rejects a condition without it (`0x8004111e`).
+- **Power Automate Top Count comes from `top` only (#94).** It used to take `count`, which is a page size, not a limit ([page-results](https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/page-results)).
+- **Web API snippet (#94).** It adds the documented `Prefer: odata.include-annotations="*"` header (formatted values, paging cookie and more-records annotations) and the paging-cookie steps.
+- **More than one filter in an entity is noted (#94).** The reference allows one. Dataverse accepts several and combines them with *and* (verified, same rows as one nested filter), so it's a note, never an error.
+
+### 🏗️ Technical
+
+- `KNOWN_OPERATORS` moved to `operators.ts`, shared by the parser and the intellisense.
+- `collectLinkEntityAliases` uses `collectAllLinkEntities`.
+- `correctness94.test.ts`: escaping round trips, alias references, the intellisense catalogue against the reference, and the code generators.
+
 ## [1.4.1-beta.11] - 2026-10-15
 
 ### 🔧 Fixed
