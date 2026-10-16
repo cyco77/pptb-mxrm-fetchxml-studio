@@ -280,7 +280,7 @@ export async function getAttributeWithOptionSet(
 	}
 
 	// First, get the basic attribute to determine its type
-	const basicQuery = `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes(LogicalName='${attributeLogicalName}')?$select=AttributeType,LogicalName,SchemaName,DisplayName,MetadataId`;
+	const basicQuery = `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes(LogicalName='${attributeLogicalName}')?$select=AttributeType,AttributeTypeName,LogicalName,SchemaName,DisplayName,MetadataId`;
 
 	debugLog("metadataAPI", `📡 GET Attribute type for '${attributeLogicalName}': ${basicQuery}`);
 
@@ -302,6 +302,9 @@ export async function getAttributeWithOptionSet(
 		typeCast = "Microsoft.Dynamics.CRM.StatusAttributeMetadata";
 	} else if (basicAttr.AttributeType === "Picklist") {
 		typeCast = "Microsoft.Dynamics.CRM.PicklistAttributeMetadata";
+	} else if (basicAttr.AttributeTypeName?.Value === "MultiSelectPicklistType") {
+		// Multi-select choices: contain-values / not-contain-values take their option values (#87)
+		typeCast = "Microsoft.Dynamics.CRM.MultiSelectPicklistAttributeMetadata";
 	} else {
 		// For non-optionset attributes, return the basic metadata
 		debugLog(

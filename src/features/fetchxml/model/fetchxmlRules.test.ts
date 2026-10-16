@@ -260,3 +260,36 @@ describe("boolean spellings Dataverse accepts are read correctly", () => {
 		expect(e.enablePrefiltering).toBe(true);
 	});
 });
+
+describe("condition value shapes (#87, verified live 2026-10-15)", () => {
+	const C = (cond: string) => `<fetch top="1"><entity name="account"><attribute name="name" /><filter>${cond}</filter></entity></fetch>`;
+	const valueFindings = (xml: string) =>
+		validateQueryRules(parseFetchXml(xml).fetchNode!).filter((f) => f.element === "condition" && f.attribute === "value");
+	it.each([
+		["last-x-days 7", C(`<condition attribute="createdon" operator="last-x-days" value="7" />`)],
+		["in-fiscal-year 2023", C(`<condition attribute="createdon" operator="in-fiscal-year" value="2023" />`)],
+		["in-fiscal-period-and-year 3, 2023", C(`<condition attribute="createdon" operator="in-fiscal-period-and-year"><value>3</value><value>2023</value></condition>`)],
+		["between two values", C(`<condition attribute="numberofemployees" operator="between"><value>1</value><value>9</value></condition>`)],
+		["in one value", C(`<condition attribute="name" operator="in"><value>a</value></condition>`)],
+		["eq value", C(`<condition attribute="name" operator="eq" value="a" />`)],
+		["eq valueof", C(`<condition attribute="name" operator="eq" valueof="accountnumber" />`)],
+	])("accepted: %s", (_l, xml) => expect(valueFindings(xml)).toEqual([]));
+	it.each([
+		["last-x-days ISO date (0x80041139)", C(`<condition attribute="createdon" operator="last-x-days" value="2026-10-12T00:00:00.000Z" />`)],
+		["last-x-days 0 (0x80040203)", C(`<condition attribute="createdon" operator="last-x-days" value="0" />`)],
+		["last-x-days 1.5 (0x80041139)", C(`<condition attribute="createdon" operator="last-x-days" value="1.5" />`)],
+		["last-x-days as <value> (0x8004111e)", C(`<condition attribute="createdon" operator="last-x-days"><value>7</value></condition>`)],
+		["in-fiscal-year 23 (0x80040203)", C(`<condition attribute="createdon" operator="in-fiscal-year" value="23" />`)],
+		["in-fiscal-period-and-year one value (0x80041106)", C(`<condition attribute="createdon" operator="in-fiscal-period-and-year"><value>3</value></condition>`)],
+		["in-fiscal-period-and-year dates", C(`<condition attribute="createdon" operator="in-fiscal-period-and-year"><value>2024-01-01</value><value>2024-12-31</value></condition>`)],
+		["between one value (0x80041106)", C(`<condition attribute="numberofemployees" operator="between"><value>1</value></condition>`)],
+		["in value attribute (0x80040203)", C(`<condition attribute="name" operator="in" value="a" />`)],
+		["eq with <value> elements (0x8004111e)", C(`<condition attribute="name" operator="eq"><value>a</value><value>b</value></condition>`)],
+		["eq without value (0x8004111e)", C(`<condition attribute="name" operator="eq" />`)],
+	])("rejected: %s", (_l, xml) => expect(valueFindings(xml).some((f) => f.severity === "error")).toBe(true));
+	it("a value on an operator that takes none is a note (accepted, ignored)", () => {
+		expect(valueFindings(C(`<condition attribute="createdon" operator="today" value="1" />`))).toEqual([
+			expect.objectContaining({ severity: "info" }),
+		]);
+	});
+});
