@@ -30,6 +30,7 @@ import { BulkDeleteDialog } from "../features/fetchxml/ui/Dialogs/BulkDeleteDial
 import { WorkflowPickerDialog } from "../features/fetchxml/ui/Dialogs/WorkflowPickerDialog";
 import {
 	executeFetchXml,
+	executeNextLink,
 	executeSystemView,
 	executePersonalView,
 	whoAmI,
@@ -61,6 +62,14 @@ import type {
 	WorkflowBatchProgress,
 } from "../features/fetchxml/api/pptbClient";
 import { generateFetchXml, addPagingToFetchXml } from "../features/fetchxml/model/fetchxml";
+import {
+	advancePaging,
+	hasNextPage,
+	readFetchPagingOptions,
+	type PagingNotice,
+	type PagingState,
+} from "../features/fetchxml/api/paging";
+import type { FetchXmlResult } from "../features/fetchxml/api/pptbClient";
 import { getQueryEntities } from "../features/fetchxml/model/treeUtils";
 import { NON_RETURNING_LINK_TYPES } from "../features/fetchxml/model/fetchxmlRules";
 import { planRemoveColumns, planSortByColumn, resolveColumn } from "../features/fetchxml/model/queryColumns";
@@ -72,6 +81,9 @@ import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid"
 import { SettingsDrawer } from "../features/fetchxml/ui/Settings/SettingsDrawer";
 import { usePersistedSettings } from "../shared/hooks/usePersistedSettings";
 import { useAccessMode } from "../shared/hooks/useAccessMode";
+
+const SIMPLE_PAGING_MESSAGE =
+	"Dataverse didn't return a paging cookie for this query (for example, it's sorted by a link-entity attribute or uses distinct), so pages are fetched with page numbers only. Microsoft recommends paging cookies; this works, but is slower for large result sets.";
 
 // ⚠️ IMPORTANT: makeStyles must be called OUTSIDE the component
 // but tokens will automatically update when FluentProvider theme changes
@@ -282,14 +294,21 @@ function AppContent() {
 	const [oneToManyRelationships, setOneToManyRelationships] = useState<RelationshipMetadata[]>([]);
 	const [isLoadingRelationships, setIsLoadingRelationships] = useState(false);
 
-	// Paging state for infinite scroll / Retrieve All
-	// Kept separate from queryResult to track progress across page fetches
-	const [pagingState, setPagingState] = useState<{
-		currentPage: number;
-		pagingCookie?: string;
-		moreRecords: boolean;
-		isRetrieveAllInProgress: boolean;
-	} | null>(null);
+	// Paging for infinite scroll / Retrieve All (#58, #60). The ref is what the async page loops read
+	// (no stale closures); the state mirrors it for rendering.
+	const pagingRef = useRef<PagingState | null>(null);
+	const [pagingState, setPagingStateValue] = useState<PagingState | null>(null);
+	const setPaging = (next: PagingState | null) => {
+		pagingRef.current = next;
+		setPagingStateValue(next);
+	};
+	// What happened to paging that the user should know about: a failed page, Stop, simple paging
+	const [pagingNotice, setPagingNotice] = useState<PagingNotice | null>(null);
+	// Run tokens (#60): results from an older execution, or pages from a stopped loop, are dropped.
+	// resultRun changes with every execution and when the results are cleared (entity change, view,
+	// New); pageRun also changes on Stop, which keeps the loaded rows.
+	const resultRunRef = useRef(0);
+	const pageRunRef = useRef(0);
 
 	// Export to Excel state
 	const [exportStatus, setExportStatus] = useState<{
@@ -306,10 +325,6 @@ function AppContent() {
 	// Execution error (e.g. Dataverse API error surfaced to user)
 	const [executeError, setExecuteError] = useState<string | undefined>();
 
-	// The XML that was actually sent to Dataverse for the most recent execution.
-	// Used by loadAllPages / handleLoadMore so subsequent pages use the same XML
-	// (which may differ from the tree-generated fetchXml when editor mode was active).
-	const lastExecutedXmlRef = useRef<string>("");
 	// Entity node of the tree the current results were produced for (see the clearing effect below)
 	const resultEntityIdRef = useRef<string | undefined>(undefined);
 
@@ -635,7 +650,15 @@ function AppContent() {
 	useEffect(() => {
 		const entityId = builder.fetchQuery?.entity?.id;
 		if (entityId !== undefined && entityId === resultEntityIdRef.current) return;
+		// Pages still loading for the old results must not bring them back (#60)
+		resultRunRef.current++;
+		pageRunRef.current++;
 		setQueryResult(null);
+		setPaging(null);
+		setPagingNotice(null);
+		setIsLoadingMore(false);
+		// A first page still loading for the old results is dropped, so it can't end the spinner
+		setIsExecuting(false);
 	}, [builder.fetchQuery?.entity?.id]);
 
 	// Sync layout with FetchXML when needed (e.g., after adding/removing attributes)
@@ -801,28 +824,32 @@ function AppContent() {
 		const xmlToExecute = synced?.xml ?? fetchXml;
 		if (!xmlToExecute) return;
 
+		// A new run: anything still loading for the previous one is dropped (#60)
+		const run = ++resultRunRef.current;
+		pageRunRef.current++;
+
 		setIsExecuting(true);
+		setIsLoadingMore(false);
 		setQueryResult(null);
-		setPagingState(null);
+		setPaging(null);
+		setPagingNotice(null);
 		setExecuteError(undefined);
 
-		// Remember what XML was sent so loadAllPages / handleLoadMore use the same query
-		lastExecutedXmlRef.current = xmlToExecute;
 		resultEntityIdRef.current = query?.entity.id;
 
 		const startTime = performance.now();
 		const entityLogicalName = query?.entity.name;
 		const retrieveAll = builder.retrieveAllRecords;
 
-		// Check if user has set a 'top' limit in FetchXML - if so, we respect it and don't enable paging
-		const hasTopLimit = query?.options?.top !== undefined;
-		// Get page size from fetch options (count), default to 5000 if not set
-		const pageSize = query?.options?.count;
+		// Paging follows the FetchXML that runs, not the tree (#60). Microsoft: don't page a query that
+		// uses top; Dataverse applies the limit.
+		const options = readFetchPagingOptions(xmlToExecute);
+		const hasTopLimit = options.top !== undefined;
 
 		try {
 			// Determine execution method based on loaded view state. A synced editor query
 			// replaced the tree (and cleared the loaded view), so it always runs as FetchXML.
-			let result;
+			let result: FetchXmlResult | undefined;
 			const loadedView = synced ? null : builder.loadedView;
 			let useViewExecution = false;
 
@@ -857,47 +884,39 @@ function AppContent() {
 				);
 				result = await executeFetchXml(xmlToExecute);
 			}
+			if (run !== resultRunRef.current) return; // superseded while the first page was loading
 
 			const executionTimeMs = Math.round(performance.now() - startTime);
 			const columns = buildColumnsFromResult(result.records, query);
-			const rows = result.records.map((record) => ({ ...record }));
+			const moreRecords = !hasTopLimit && hasNextPage(useViewExecution ? "view" : "fetchxml", result);
+			const firstPage = options.page ?? 1;
 
-			// Set initial result
 			setQueryResult({
 				columns,
-				rows,
+				rows: result.records.map((record) => ({ ...record })),
 				totalRecordCount: result.totalRecordCount,
-				moreRecords: result.moreRecords,
+				moreRecords,
 				pagingCookie: result.pagingCookie,
 				entityLogicalName,
 				executionTimeMs,
 			});
-
-			// Initialize paging state
-			setPagingState({
-				currentPage: 1,
+			setPaging({
+				mode: useViewExecution ? "view" : "fetchxml",
+				xml: xmlToExecute,
+				pageSize: options.count,
+				currentPage: firstPage,
+				nextPage: firstPage + 1,
 				pagingCookie: result.pagingCookie,
-				moreRecords: result.moreRecords ?? false,
-				isRetrieveAllInProgress: retrieveAll && (result.moreRecords ?? false) && !hasTopLimit,
+				nextLink: result.nextLink,
+				moreRecords,
+				isRetrieveAllInProgress: retrieveAll && moreRecords,
+				retrieveAll,
 			});
-
 			setIsExecuting(false);
 
-			// If Retrieve All is enabled and there are more records, start progressive loading
-			// Only for FetchXML execution, not for view execution (which doesn't support paging)
-			// Don't do Retrieve All if user set a 'top' limit - Dataverse handles the limit
-			if (retrieveAll && result.moreRecords && !useViewExecution && !hasTopLimit) {
-				await loadAllPages(
-					xmlToExecute,
-					columns,
-					rows,
-					result.pagingCookie,
-					2,
-					entityLogicalName,
-					pageSize,
-				);
-			}
+			if (retrieveAll && moreRecords) await loadAllPages(run);
 		} catch (error) {
+			if (run !== resultRunRef.current) return;
 			console.error("Failed to execute FetchXML:", error);
 			const message =
 				error instanceof Error
@@ -910,130 +929,119 @@ function AppContent() {
 	};
 
 	/**
-	 * Progressive loading of all pages (Retrieve All)
-	 * Updates results as each page is fetched
+	 * Fetch the page after `state` (#58, #60): saved views follow @odata.nextLink; FetchXML sets page,
+	 * the decoded paging cookie (when Dataverse returned one) and the executed query's own count.
 	 */
-	const loadAllPages = async (
-		baseFetchXml: string,
-		columns: string[],
-		initialRows: Record<string, unknown>[],
-		pagingCookie: string | undefined,
-		startPage: number,
-		entityLogicalName: string | undefined,
-		pageSize?: number,
-	) => {
-		let allRows = [...initialRows];
-		let currentPagingCookie = pagingCookie;
-		let page = startPage;
-		let hasMore = true;
+	const fetchNextPage = async (state: PagingState): Promise<{ result: FetchXmlResult; next: PagingState }> => {
+		const result =
+			state.mode === "view"
+				? await executeNextLink(state.nextLink ?? "")
+				: await executeFetchXml(addPagingToFetchXml(state.xml, state.nextPage, state.pagingCookie, state.pageSize));
+		return { result, next: advancePaging(state, result) };
+	};
 
+	/** Add a fetched page to the results of run `run` (ignored if the results changed meanwhile). */
+	const appendPage = (run: number, state: PagingState, result: FetchXmlResult, next: PagingState) => {
+		if (run !== resultRunRef.current) return false;
+		setQueryResult((prev) =>
+			prev
+				? { ...prev, rows: prev.rows.concat(result.records), moreRecords: next.moreRecords, pagingCookie: next.pagingCookie }
+				: prev,
+		);
+		// A page loaded, so an earlier failure or Stop notice no longer applies. A FetchXML page
+		// requested without a cookie means Dataverse returned none for this query: say so once.
+		const simple: PagingNotice | null =
+			state.mode === "fetchxml" && !state.pagingCookie ? { kind: "simple", message: SIMPLE_PAGING_MESSAGE } : null;
+		setPagingNotice((prev) => (prev && prev.kind !== "error" && prev.kind !== "stopped" ? prev : simple));
+		return true;
+	};
+
+	/**
+	 * Retrieve All: fetch the remaining pages one after another (#60). Stops when there are no more
+	 * pages, when Stop is pressed (pageRun changes) or when the results change (resultRun changes).
+	 */
+	const loadAllPages = async (run: number) => {
+		const pageRun = ++pageRunRef.current;
+		const isCurrent = () => run === resultRunRef.current && pageRun === pageRunRef.current;
+		let state = pagingRef.current;
+		if (!state) return;
+		state = { ...state, isRetrieveAllInProgress: true, retrieveAll: true };
 		setIsLoadingMore(true);
-
+		setPaging(state);
 		try {
-			while (hasMore) {
-				console.log(`📄 Retrieve All: Fetching page ${page}...`);
-
-				// Add paging parameters to FetchXML (page, paging-cookie, and count for page size)
-				const pagedFetchXml = addPagingToFetchXml(
-					baseFetchXml,
-					page,
-					currentPagingCookie,
-					pageSize,
-				);
-				const result = await executeFetchXml(pagedFetchXml);
-
-				// Append new rows
-				allRows = [...allRows, ...result.records];
-
-				// Update the grid progressively
-				setQueryResult((prev) => ({
-					columns: prev?.columns || columns,
-					rows: allRows,
-					totalRecordCount: prev?.totalRecordCount,
-					moreRecords: result.moreRecords,
-					pagingCookie: result.pagingCookie,
-					entityLogicalName,
-					executionTimeMs: prev?.executionTimeMs,
-				}));
-
-				// Update paging state
-				currentPagingCookie = result.pagingCookie;
-				hasMore = result.moreRecords ?? false;
-
-				setPagingState({
-					currentPage: page,
-					pagingCookie: currentPagingCookie,
-					moreRecords: hasMore,
-					isRetrieveAllInProgress: hasMore,
-				});
-
-				page++;
+			while (state?.moreRecords) {
+				const { result, next } = await fetchNextPage(state);
+				if (!isCurrent()) return;
+				appendPage(run, state, result, next);
+				state = { ...next, isRetrieveAllInProgress: next.moreRecords };
+				setPaging(state);
 			}
-
-			console.log(`✅ Retrieve All complete: ${allRows.length} total records`);
+			console.log("✅ Retrieve All complete");
 		} catch (error) {
+			if (!isCurrent()) return;
 			console.error("Failed during Retrieve All:", error);
+			setPagingNotice({
+				kind: "error",
+				page: state?.nextPage,
+				message: error instanceof Error ? error.message : String(error),
+			});
 		} finally {
-			setIsLoadingMore(false);
-			setPagingState((prev) => (prev ? { ...prev, isRetrieveAllInProgress: false } : null));
+			if (isCurrent()) {
+				setIsLoadingMore(false);
+				if (pagingRef.current) setPaging({ ...pagingRef.current, isRetrieveAllInProgress: false });
+			}
 		}
+	};
+
+	/** Stop Retrieve All (#60): the page in flight is discarded; the loaded rows stay. */
+	const handleStopRetrieveAll = () => {
+		const state = pagingRef.current;
+		if (!state?.isRetrieveAllInProgress) return;
+		pageRunRef.current++;
+		setIsLoadingMore(false);
+		// Further pages load one at a time from here (scrolling, or Retry after a failed page)
+		setPaging({ ...state, isRetrieveAllInProgress: false, retrieveAll: false });
+		setPagingNotice({ kind: "stopped", message: "" });
 	};
 
 	/**
 	 * Load more records (for infinite scroll when Retrieve All is OFF)
 	 */
 	const handleLoadMore = async () => {
-		const xmlToPage = lastExecutedXmlRef.current || fetchXml;
-		if (!xmlToPage || !pagingState || !pagingState.moreRecords || isLoadingMore) return;
-		if (pagingState.isRetrieveAllInProgress) return; // Don't allow manual load during Retrieve All
+		const state = pagingRef.current;
+		if (!state || !state.moreRecords || state.isRetrieveAllInProgress || isLoadingMore) return;
 
-		// Don't load more if user has set a 'top' limit
-		if (builder.fetchQuery?.options?.top !== undefined) return;
-
+		const run = resultRunRef.current;
+		const pageRun = ++pageRunRef.current;
+		const isCurrent = () => run === resultRunRef.current && pageRun === pageRunRef.current;
 		setIsLoadingMore(true);
 
-		// Get page size from fetch options to maintain consistent page sizes
-		const pageSize = builder.fetchQuery?.options?.count;
-
 		try {
-			const nextPage = pagingState.currentPage + 1;
-			console.log(
-				`📄 Loading page ${nextPage}${pagingState.pagingCookie ? " with paging cookie" : ""}...`,
-			);
-
-			// Add paging parameters: page number, paging cookie (required for reliable paging), and count (page size)
-			const pagedFetchXml = addPagingToFetchXml(
-				xmlToPage,
-				nextPage,
-				pagingState.pagingCookie,
-				pageSize,
-			);
-			const result = await executeFetchXml(pagedFetchXml);
-
-			// Append new rows to existing result
-			setQueryResult((prev) => {
-				if (!prev) return prev;
-				return {
-					...prev,
-					rows: [...prev.rows, ...result.records],
-					moreRecords: result.moreRecords,
-					pagingCookie: result.pagingCookie,
-				};
-			});
-
-			setPagingState({
-				currentPage: nextPage,
-				pagingCookie: result.pagingCookie,
-				moreRecords: result.moreRecords ?? false,
-				isRetrieveAllInProgress: false,
-			});
-
-			console.log(`✅ Page ${nextPage} loaded: ${result.records.length} records`);
+			const { result, next } = await fetchNextPage(state);
+			if (!isCurrent()) return;
+			appendPage(run, state, result, next);
+			setPaging(next);
+			console.log(`✅ Page ${next.currentPage} loaded: ${result.records.length} records`);
 		} catch (error) {
+			if (!isCurrent()) return;
 			console.error("Failed to load more records:", error);
+			setPagingNotice({
+				kind: "error",
+				page: state.nextPage,
+				message: error instanceof Error ? error.message : String(error),
+			});
 		} finally {
-			setIsLoadingMore(false);
+			if (isCurrent()) setIsLoadingMore(false);
 		}
+	};
+
+	/** Retry the page that failed: continue Retrieve All, or load the one page (#60). */
+	const handleRetryPaging = () => {
+		setPagingNotice(null);
+		const state = pagingRef.current;
+		if (!state) return;
+		if (state.retrieveAll) void loadAllPages(resultRunRef.current);
+		else void handleLoadMore();
 	};
 
 	/**
@@ -1611,6 +1619,11 @@ function AppContent() {
 					columnConfig={builder.columnConfig}
 					onColumnResize={builder.updateColumnWidth}
 					onLoadMore={handleLoadMore}
+					pagingNotice={pagingNotice}
+					isRetrieveAllInProgress={pagingState?.isRetrieveAllInProgress ?? false}
+					onStopRetrieveAll={handleStopRetrieveAll}
+					onRetryPaging={handleRetryPaging}
+					onDismissPagingNotice={() => setPagingNotice(null)}
 					entityDisplayName={
 						entityMetadata?.DisplayName?.UserLocalizedLabel?.Label || entityMetadata?.LogicalName
 					}

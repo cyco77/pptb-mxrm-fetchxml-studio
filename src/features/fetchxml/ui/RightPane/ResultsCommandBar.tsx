@@ -29,6 +29,7 @@ import {
 	Play20Regular,
 	DocumentBulletList20Regular,
 	Info20Regular,
+	Stop20Regular,
 } from "@fluentui/react-icons";
 import { ExcelIcon } from "../../../../shared/components/ExcelIcon";
 import { EditColumnsPanel } from "./EditColumnsPanel";
@@ -120,6 +121,10 @@ export interface CommandBarProps {
 	existingRelatedColumns?: ReadonlySet<string>;
 	/** Callback to reset columns to default */
 	onResetToDefault?: () => void;
+	/** Retrieve All is fetching pages (#60) */
+	isRetrieveAllInProgress?: boolean;
+	/** Stop Retrieve All; the loaded rows stay (#60) */
+	onStopRetrieveAll?: () => void;
 }
 
 export function ResultsCommandBar({
@@ -159,6 +164,8 @@ export function ResultsCommandBar({
 	isLoadingRelationships,
 	onLoadRelatedAttributes,
 	onResetToDefault,
+	isRetrieveAllInProgress = false,
+	onStopRetrieveAll,
 }: CommandBarProps) {
 	const styles = useStyles();
 	const hasSelection = selectedCount > 0;
@@ -239,6 +246,14 @@ export function ResultsCommandBar({
 	return (
 		<>
 			<Toolbar className={styles.toolbar} size="medium" aria-label="Record actions">
+				{isRetrieveAllInProgress && onStopRetrieveAll && (
+					<>
+						<ToolbarButton appearance="subtle" icon={<Stop20Regular />} onClick={onStopRetrieveAll}>
+							Stop
+						</ToolbarButton>
+						<ToolbarDivider />
+					</>
+				)}
 				<ToolbarButton
 					appearance="subtle"
 					icon={<Open20Regular />}

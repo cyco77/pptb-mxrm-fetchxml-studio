@@ -2,7 +2,7 @@
 
 A powerful, modern FetchXML query builder and data explorer for [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app). Inspired by the XrmToolBox FetchXML Builder, reimagined with React 18, Fluent UI v9, and seamless Dataverse integration.
 
-![Version](https://img.shields.io/badge/version-1.4.1--beta.8-blue)
+![Version](https://img.shields.io/badge/version-1.4.1--beta.15-blue)
 [![npm](https://img.shields.io/npm/v/@mohsinonxrm/pptb-fetchxml-studio?label=npm)](https://www.npmjs.com/package/@mohsinonxrm/pptb-fetchxml-studio)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
@@ -24,6 +24,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 
 ### 📊 Results Grid
 - **Virtualized DataGrid** — Handle large result sets with smooth scrolling (powered by react-window)
+- **Paging and Retrieve All** — Scrolling to the end loads the next page; **Retrieve All** loads every page, with **Stop** to keep what's loaded so far. Pages use the documented paging cookie and the query's own `count` and starting `page`. Queries Dataverse returns no cookie for (sorted by a link-entity attribute, or distinct) page by page number, with a note. Views follow `@odata.nextLink`. A failed page shows how many rows loaded, with **Retry**
 - **Rich cell rendering** — Power Apps-style display for lookups, option sets, dates, currency, and more
 - **Multi-column sorting** — Click headers to sort; Shift+click for multi-column sort. Each click writes a valid `<order>`: by alias in aggregate queries, with `entityname` for link-entity columns, and not at all for attribute types Dataverse can't sort (multi-select option sets)
 - **Edit / Add columns** — Remove, reorder and add columns from the root entity or related entities (N:1 and 1:N); the tree and FetchXML change to match. Removing a column removes its attribute (aliased or not, root or link-entity), any sort on its alias, and an outer link-entity left empty. At least one column must remain (a query without attributes returns every attribute). Add columns isn't available in aggregate queries
@@ -314,7 +315,7 @@ src/
 | Groupby | ✅ |
 | Distinct | ✅ |
 | Top/Count | ✅ |
-| Paging with cookies | ✅ |
+| Paging with cookies (`fetchxmlpagingcookie`), page-number paging when Dataverse returns no cookie, views via `@odata.nextLink` | ✅ |
 | Value-of conditions | ✅ |
 | Entity name on conditions | ✅ |
 | Filter link-entity (any/all) | ✅ |

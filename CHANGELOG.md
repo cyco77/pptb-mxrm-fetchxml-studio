@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.15] - 2026-10-16
+
+### 🔧 Fixed
+
+Paging, **Retrieve All** and infinite scroll (#58, #60). Every case was run against the sandbox through the production code, following [Page results using FetchXml](https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/page-results).
+- **The paging cookie was never used (#58).** FetchXML Studio read `@Microsoft.Dynamics.CRM.pagingcookie`, which the Web API doesn't send.
+  - The cookie is now read from `@Microsoft.Dynamics.CRM.fetchxmlpagingcookie`: the `pagingcookie` attribute of that element, URL-decoded twice, as documented.
+  - Every page after the first was fetched by page number only, which Microsoft doesn't recommend. Verified: pages fetched with the cookie match page-number paging, with no duplicates.
+- **Queries Dataverse returns no cookie for** (sorted by a link-entity attribute, or `distinct`) page by page number. That's the documented fallback, and a note above the grid says so.
+  - Dataverse reports page 2 as the next page on *every* page of these queries (verified). The next page is now always the page just fetched + 1, and an empty page ends paging, so a loop can't repeat a page.
+- **Retrieve All could mix results (#60).**
+  - Changing the entity, loading a view or starting a new query while pages were loading brought the old rows back. Pages from an older run are now dropped.
+  - A record delete re-runs the query directly. That could start a second loop alongside the first; the first is now dropped.
+  - A failed page was only logged to the console. Now a message above the grid says how many rows loaded and which page failed, with **Retry**.
+- **Stop button (#60).** While Retrieve All runs, **Stop** appears at the start of the results command bar. The loaded rows stay; scrolling to the end loads more one page at a time.
+- **System and personal views stopped at 5,000 rows.** Views return `@odata.nextLink` instead of a cookie (verified); FetchXML Studio now follows it, for Retrieve All and scrolling alike.
+- **The query's own paging was ignored:**
+  - `count` was read from the tree instead of the FetchXML that ran (editor mode). Each page now keeps the executed query's `count`.
+  - `page="3"` in the query continued at page 2. It now continues at page 4.
+  - `top` is read from the executed FetchXML; queries with `top` aren't paged, as documented.
+  - `page`, `paging-cookie` and `count` in single quotes were added again instead of replaced, which made the XML invalid.
+  - Cookie values containing `$&`, `$1` and similar were mangled when written into the query.
+- **Each page's full response was logged to the console**, which kept every row of a large Retrieve All in memory. It's now debug-only.
+
+### 🏗️ Technical
+
+- New `api/paging.ts`: `parseFetchXmlPagingCookie`, `readFetchPagingOptions`, `nextLinkToQueryPath`, `advancePaging`, `hasNextPage`, and the `PagingState` / `PagingNotice` types.
+- `pptbClient.ts`: one `pagingFromResponse` for FetchXML and view responses; new `executeNextLink`.
+- `fetchxml.ts`: `addPagingToFetchXml` replaces either quote style and keeps the query's `count` unless one is given.
+- `AppShell.tsx`: one paging state (in a ref, so the page loops don't read stale state), plus result and page run tokens.
+
+### 🧪 Test FetchXML (sandbox)
+
+- Cookie paging: `<fetch count="50"><entity name="systemuser"><attribute name="systemuserid" /><order attribute="fullname" /><order attribute="systemuserid" /></entity></fetch>`: 234 of 234 users, no duplicates.
+- No cookie (distinct): `<fetch count="50" distinct="true"><entity name="systemuser"><attribute name="fullname" /><order attribute="fullname" /></entity></fetch>`: every distinct name once.
+- No cookie (link-entity order): `<fetch count="40"><entity name="systemuser"><attribute name="systemuserid" /><order entityname="bu" attribute="name" /><order attribute="systemuserid" /><link-entity name="businessunit" from="businessunitid" to="businessunitid" alias="bu" link-type="inner"><attribute name="name" /></link-entity></entity></fetch>`: 234 of 234.
+- Starting page: `<fetch count="50" page="3"><entity name="systemuser"><attribute name="systemuserid" /><order attribute="systemuserid" /></entity></fetch>`: the users after the first 100.
+- Default page size: `<fetch><entity name="account"><attribute name="accountid" /></entity></fetch>`: 3 pages, 15,000 unique accounts.
+- View: **Active Accounts** (system view): 3 pages through `@odata.nextLink`, 15,000 unique.
+- `<fetch top="10"><entity name="account"><attribute name="accountid" /></entity></fetch>`: 10 rows, no paging.
+
 ## [1.4.1-beta.14] - 2026-10-15
 
 ### 🔧 Fixed

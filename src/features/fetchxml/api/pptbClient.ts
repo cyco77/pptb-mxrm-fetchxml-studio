@@ -14,12 +14,16 @@ interface DataverseFetchXmlResponse {
 	"@Microsoft.Dynamics.CRM.totalrecordcount"?: number;
 	"@Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded"?: boolean;
 	"@Microsoft.Dynamics.CRM.morerecords"?: boolean;
+	/** Not sent by the Web API (verified); kept only as a defensive fallback */
 	"@Microsoft.Dynamics.CRM.pagingcookie"?: string;
+	/** Saved views (?savedQuery= / ?userQuery=) page with nextLink instead */
+	"@odata.nextLink"?: string;
 }
 
 import { debugLog } from "../../../shared/utils/debug";
 import { responseHasFormattedValues } from "./formattedValues";
 import { metadataCache } from "../state/cache";
+import { nextLinkToQueryPath, parseFetchXmlPagingCookie } from "./paging";
 
 export interface EntityMetadata {
 	LogicalName: string;
@@ -100,7 +104,23 @@ export interface FetchXmlResult {
 	totalRecordCount?: number;
 	totalRecordCountLimitExceeded?: boolean;
 	moreRecords?: boolean;
+	/** Decoded paging cookie for the next page; undefined when Dataverse returned none (simple paging) */
 	pagingCookie?: string;
+	/** Saved views: the link to the next page */
+	nextLink?: string;
+}
+
+/** Paging fields of a Web API response (#58): the documented annotations, cookie decoded. */
+function pagingFromResponse(result: DataverseFetchXmlResponse): Pick<FetchXmlResult, "moreRecords" | "pagingCookie" | "nextLink"> {
+	const fromAnnotation = parseFetchXmlPagingCookie(result["@Microsoft.Dynamics.CRM.fetchxmlpagingcookie"]);
+	const legacy = result["@Microsoft.Dynamics.CRM.pagingcookie"];
+	const nextLink = result["@odata.nextLink"];
+	return {
+		// An empty page ends paging even if more is claimed, so a loop can never spin on it
+		moreRecords: (result["@Microsoft.Dynamics.CRM.morerecords"] === true || !!nextLink) && (result.value?.length ?? 0) > 0,
+		pagingCookie: fromAnnotation.cookie ?? (typeof legacy === "string" && legacy ? legacy : undefined),
+		nextLink: typeof nextLink === "string" ? nextLink : undefined,
+	};
 }
 
 export interface WhoAmIResponse {
@@ -591,10 +611,9 @@ export async function executeFetchXml(fetchXml: string): Promise<FetchXmlResult>
 	}
 	const result = response as DataverseFetchXmlResponse;
 
-	// Log the raw response to console for inspection
-	console.log("🔍 Raw FetchXML Response:", result);
-	console.log("🔍 Sample Record (first):", result.value[0]);
-	console.log("🔍 All Record Keys:", result.value[0] ? Object.keys(result.value[0]) : []);
+	// Raw response for inspection (debug only: logging every page of a large Retrieve All keeps all
+	// rows alive in the console)
+	debugLog("fetchXmlAPI", "Raw FetchXML response:", result);
 
 	// Check if formatted values are included
 	const hasFormatted = responseHasFormattedValues(result.value);
@@ -631,8 +650,25 @@ export async function executeFetchXml(fetchXml: string): Promise<FetchXmlResult>
 		records: result.value,
 		totalRecordCount: result["@Microsoft.Dynamics.CRM.totalrecordcount"],
 		totalRecordCountLimitExceeded: result["@Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded"],
-		moreRecords: result["@Microsoft.Dynamics.CRM.morerecords"],
-		pagingCookie: result["@Microsoft.Dynamics.CRM.pagingcookie"],
+		...pagingFromResponse(result),
+	};
+}
+
+/**
+ * Fetch the next page of a saved view from its @odata.nextLink (#60). Verified live: following the
+ * link through queryData returns the next page without overlap and the following nextLink.
+ */
+export async function executeNextLink(nextLink: string): Promise<FetchXmlResult> {
+	if (!isDataverseAvailable()) {
+		throw new Error("PPTB Dataverse API not available");
+	}
+	const path = nextLinkToQueryPath(nextLink);
+	if (!path) throw new Error(`Unexpected next page link: ${nextLink}`);
+	const result = (await window.dataverseAPI!.queryData(path)) as DataverseFetchXmlResponse;
+	return {
+		records: result.value,
+		totalRecordCount: result["@Microsoft.Dynamics.CRM.totalrecordcount"],
+		...pagingFromResponse(result),
 	};
 }
 
@@ -654,16 +690,15 @@ export async function executeSystemView(
 	// Use queryData with savedQuery parameter (OData query, not FetchXML)
 	// GET [Organization URI]/api/data/v9.2/{entitySetName}?savedQuery={savedQueryId}
 	const query = `${entitySetName}?savedQuery=${savedQueryId}`;
-	const result = await window.dataverseAPI!.queryData(query);
+	const result = (await window.dataverseAPI!.queryData(query)) as DataverseFetchXmlResponse;
 
 	debugLog("fetchXmlAPI", `✅ System View executed: ${result.value.length} records retrieved`);
 
+	// Views page with @odata.nextLink (verified), not the FetchXML paging cookie
 	return {
 		records: result.value,
-		// savedQuery execution doesn't return paging metadata in the same way
 		totalRecordCount: undefined,
-		moreRecords: undefined,
-		pagingCookie: undefined,
+		...pagingFromResponse(result),
 	};
 }
 
@@ -685,16 +720,15 @@ export async function executePersonalView(
 	// Use queryData with userQuery parameter (OData query, not FetchXML)
 	// GET [Organization URI]/api/data/v9.2/{entitySetName}?userQuery={userQueryId}
 	const query = `${entitySetName}?userQuery=${userQueryId}`;
-	const result = await window.dataverseAPI!.queryData(query);
+	const result = (await window.dataverseAPI!.queryData(query)) as DataverseFetchXmlResponse;
 
 	debugLog("fetchXmlAPI", `✅ Personal View executed: ${result.value.length} records retrieved`);
 
+	// Views page with @odata.nextLink (verified), not the FetchXML paging cookie
 	return {
 		records: result.value,
-		// userQuery execution doesn't return paging metadata in the same way
 		totalRecordCount: undefined,
-		moreRecords: undefined,
-		pagingCookie: undefined,
+		...pagingFromResponse(result),
 	};
 }
 
