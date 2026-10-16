@@ -26,6 +26,7 @@ import {
 } from "../model/layoutxml";
 import { parseFetchXml, type ParseResult } from "../model/fetchxmlParser";
 import type { SortPlan } from "../model/queryColumns";
+import { collectAllLinkEntities } from "../model/treeUtils";
 
 // Temporary ID generator
 let idCounter = 0;
@@ -169,37 +170,11 @@ function findNodeById(node: unknown, targetId: NodeId): SelectedNode {
 }
 
 /**
- * Helper to collect all link-entity aliases from the tree
- * Used to generate unique aliases when adding new link-entities
+ * Every link-entity alias in the query, including link-entities inside filters (#94: those were
+ * skipped, so a generated alias could collide with one).
  */
-function collectLinkEntityAliases(node: unknown): Set<string> {
-	const aliases = new Set<string>();
-
-	function traverse(n: unknown): void {
-		if (!n || typeof n !== "object") return;
-
-		const record = n as Record<string, unknown>;
-
-		// If this is a link-entity with an alias, add it
-		if (record.type === "link-entity" && typeof record.alias === "string") {
-			aliases.add(record.alias);
-		}
-
-		// Traverse entity
-		if (record.entity) {
-			traverse(record.entity);
-		}
-
-		// Traverse links array
-		if (Array.isArray(record.links)) {
-			for (const link of record.links) {
-				traverse(link);
-			}
-		}
-	}
-
-	traverse(node);
-	return aliases;
+function collectLinkEntityAliases(fetch: FetchNode): Set<string> {
+	return new Set(collectAllLinkEntities(fetch).flatMap((link) => (link.alias ? [link.alias] : [])));
 }
 
 /**

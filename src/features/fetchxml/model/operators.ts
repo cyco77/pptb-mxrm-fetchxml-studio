@@ -622,3 +622,17 @@ export function getCommonOperators(): OperatorDefinition[] {
 
 	return ALL_OPERATORS.filter((op) => commonValues.includes(op.value));
 }
+
+/**
+ * Every condition operator Dataverse accepts: the documented operators (some not selectable in the
+ * UI yet, #87) plus the deprecated "neq" (verified: works like "ne"). Shared by the parser and the
+ * editor's intellisense. https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/reference/operators
+ */
+export const KNOWN_OPERATORS: ReadonlySet<string> = new Set<string>([
+	...ALL_OPERATORS.map((o) => o.value),
+	"last-x-fiscal-periods",
+	"last-x-fiscal-years",
+	"next-x-fiscal-periods",
+	"next-x-fiscal-years",
+	"neq",
+]);
