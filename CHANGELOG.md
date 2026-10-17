@@ -39,6 +39,7 @@ The v1.4.2 milestone: the features other users asked for, a results grid that wo
   - Every type of view is listed, each labelled.
   - Saved layoutxml uses the documented `jump`, `object` and row `id`.
   - System views are checked with `ValidateSavedQuery`, and views that aren't customizable can't be overwritten.
+  - **Save and Publish** publishes the view's entity, the documented `PublishXml` form. The `<savedqueries>` node it used to send isn't in the publish request schema. This also publishes any other pending customizations of that entity (#93 h).
   - Load View reports views it can't load or had to change.
 - **Operators per attribute type (#95).** Memo attributes gain Equals, Not Equals, In and Not In, as do choices (multi-select), which use the option picker. All are documented, verified live, or both. No operator was removed.
 - **Tree (#24, #25).**

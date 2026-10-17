@@ -42,7 +42,7 @@ import {
 	updateSavedQuery,
 	createUserQuery,
 	updateUserQuery,
-	publishSavedQuery,
+	publishEntityViews,
 	addSolutionComponent,
 	getUnmanagedSolutions,
 	COMPONENT_TYPE_SAVEDQUERY,
@@ -413,7 +413,8 @@ export function SaveViewDialog({
 
 				// Publish if requested
 				if (shouldPublish) {
-					await publishSavedQuery(viewId);
+					// Publishes the view's entity: the documented PublishXml form (#93 h)
+					await publishEntityViews(entityLogicalName);
 				}
 			}
 
