@@ -91,6 +91,7 @@ import { usePersistedSettings } from "../shared/hooks/usePersistedSettings";
 import { useAccessMode } from "../shared/hooks/useAccessMode";
 import { copyText, holdClose, openUrl, whileHoldingClose } from "../features/fetchxml/api/host";
 import { metadataCache } from "../features/fetchxml/state/cache";
+import { resetDataverseSessionCache } from "../features/fetchxml/api/sessionCache";
 import { nextConnectionScope, type ConnectionScope } from "../shared/hooks/connectionIdentity";
 
 const SIMPLE_PAGING_MESSAGE =
@@ -253,6 +254,8 @@ export function AppShell() {
 	if (nextScope.scope !== connectionScope) {
 		if (nextScope.changed) {
 			metadataCache.clear();
+			// WhoAmI and privilege answers belong to the previous user and environment (#71)
+			resetDataverseSessionCache();
 			carryOver.current.fetchXml = carryOver.current.readFetchXml?.();
 		}
 		setConnectionScope(nextScope.scope);
