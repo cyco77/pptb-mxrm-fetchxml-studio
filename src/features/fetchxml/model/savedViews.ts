@@ -18,6 +18,71 @@ export function isUnmodifiedView(currentFetchXml: string, viewFetchXml: string):
 	return currentFetchXml.trim() === viewFetchXml.trim();
 }
 
+/**
+ * Query types of savedquery / userquery records (the `querytype` column).
+ *  - The five view types you can customize: Public 0, Advanced Find 1, Associated 2, Quick Find 4,
+ *    Lookup 64. https://learn.microsoft.com/power-apps/developer/model-driven-apps/customize-entity-views#types-of-views
+ *  - The same column also stores Outlook / offline filters and templates and other queries:
+ *    https://learn.microsoft.com/dotnet/api/microsoft.crm.sdk.savedqueryquerytype
+ * userquery uses the same values ("address book filter, advanced search, or other view"):
+ * https://learn.microsoft.com/power-apps/developer/data-platform/reference/entities/userquery#BKMK_QueryType
+ */
+export const PUBLIC_VIEW_QUERY_TYPE = 0;
+
+const QUERY_TYPE_LABELS: ReadonlyArray<readonly [number, string]> = [
+	[1, "Advanced find"],
+	[2, "Associated"],
+	[4, "Quick find"],
+	[64, "Lookup"],
+	[8, "Reporting"],
+	[16, "Offline filter"],
+	[128, "Appointment book"],
+	[256, "Outlook filter"],
+	[512, "Address book filter"],
+	[1024, "Without subject"],
+	[2048, "Template"],
+	[4096, "Dialog"],
+	[8192, "Offline template"],
+	[16384, "Custom"],
+	[65536, "Export translations"],
+	[131072, "Outlook template"],
+];
+
+/** Display order of the query types: public views first, then the order above, unknown types last. */
+const QUERY_TYPE_ORDER = new Map<number, number>([
+	[PUBLIC_VIEW_QUERY_TYPE, 0],
+	...QUERY_TYPE_LABELS.map(([type], index): [number, number] => [type, index + 1]),
+]);
+
+/**
+ * Short label shown next to a view that isn't a public view, so every view of the Entity is listed
+ * and told apart rather than hidden (#93). Undefined for public views.
+ */
+export function getQueryTypeLabel(queryType: number | undefined): string | undefined {
+	if (queryType === undefined || queryType === PUBLIC_VIEW_QUERY_TYPE) return undefined;
+	const known = QUERY_TYPE_LABELS.find(([type]) => type === queryType);
+	return known ? known[1] : `Query type ${queryType}`;
+}
+
+interface SortableView {
+	name: string;
+	queryType?: number;
+	isDefault?: boolean;
+}
+
+/** Public views first (the default view on top), then the other query types; by name within each. */
+export function sortViewsByQueryType<T extends SortableView>(views: T[]): T[] {
+	const rank = (view: T) =>
+		QUERY_TYPE_ORDER.get(view.queryType ?? PUBLIC_VIEW_QUERY_TYPE) ?? QUERY_TYPE_ORDER.size;
+	return [...views].sort(
+		(a, b) =>
+			rank(a) - rank(b) ||
+			(a.queryType ?? 0) - (b.queryType ?? 0) ||
+			Number(b.isDefault === true) - Number(a.isDefault === true) ||
+			a.name.localeCompare(b.name),
+	);
+}
+
 export interface ViewLoadNotice {
 	title: string;
 	body: string;

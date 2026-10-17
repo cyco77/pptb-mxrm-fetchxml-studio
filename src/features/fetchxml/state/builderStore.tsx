@@ -56,7 +56,7 @@ type SelectedNode =
  * Information about a loaded view for execution optimization
  * Used to determine if the view can be executed via savedQuery/userQuery
  */
-interface LoadedViewState {
+export interface LoadedViewState {
 	/** View ID (savedqueryid or userqueryid) */
 	id: string;
 	/** View type for determining execution method */
@@ -70,6 +70,8 @@ interface LoadedViewState {
 	entitySetName: string;
 	/** View name for display purposes */
 	name: string;
+	/** The view's querytype (0 = public view); overwriting a view keeps it (#93) */
+	queryType?: number;
 }
 
 export interface BuilderState {
@@ -1056,15 +1058,8 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
 	}
 }
 
-/** View info for load operations */
-export interface ViewLoadInfo {
-	id: string;
-	type: "system" | "personal";
-	entitySetName: string;
-	name: string;
-	/** The FetchXML at the point of save, generated from the tree (generateFetchXml) */
-	originalFetchXml: string;
-}
+/** View info after a save; originalFetchXml is generated from the tree (generateFetchXml) */
+export type ViewLoadInfo = LoadedViewState;
 
 /** A view being loaded: its FetchXML for comparison is generated from the parsed tree (#93) */
 export type ViewSourceInfo = Omit<ViewLoadInfo, "originalFetchXml">;
@@ -1132,13 +1127,10 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
 						type: "LOAD_VIEW",
 						fetchNode: result.fetchNode,
 						viewInfo: {
-							id: viewInfo.id,
-							type: viewInfo.type,
+							...viewInfo,
 							// The stored FetchXML has defaults the generator leaves out (version, mapping,
 							// descending="false"...): compare in generated form, or the view never runs by ID (#93)
 							originalFetchXml: generateFetchXml(result.fetchNode),
-							entitySetName: viewInfo.entitySetName,
-							name: viewInfo.name,
 						},
 						layoutXml,
 					});
@@ -1149,15 +1141,8 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
 			setLoadedView: (viewInfo: ViewLoadInfo) =>
 				dispatch({
 					type: "SET_LOADED_VIEW",
-					viewInfo: {
-						id: viewInfo.id,
-						type: viewInfo.type,
-						// originalFetchXml is supplied by the caller, which has entity metadata available.
-						// The store never derives/guesses the primary key itself.
-						originalFetchXml: viewInfo.originalFetchXml,
-						entitySetName: viewInfo.entitySetName,
-						name: viewInfo.name,
-					},
+					// originalFetchXml is supplied by the caller, generated from the tree that was saved
+					viewInfo: { ...viewInfo },
 				}),
 			setColumnConfig: (config: LayoutXmlConfig) => dispatch({ type: "SET_COLUMN_CONFIG", config }),
 			updateColumnWidth: (columnName: string, width: number) =>

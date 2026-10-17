@@ -769,12 +769,15 @@ function AppContent() {
 	) => {
 		// Update the builder's loaded view state so subsequent saves overwrite the same view.
 		if (entityMetadata && builder.fetchQuery) {
+			// Overwriting keeps the view's query type; Save As creates a public view (#93)
+			const overwritten = builder.loadedView?.id === viewId ? builder.loadedView : null;
 			builder.setLoadedView({
 				id: viewId,
 				type: viewType,
 				entitySetName: entityMetadata.EntitySetName,
 				name: viewName,
 				originalFetchXml: generateFetchXml(builder.fetchQuery),
+				queryType: overwritten ? overwritten.queryType : 0,
 			});
 		}
 		console.log(`✅ View saved: ${viewName} (${viewType}) - ${viewId}`);
@@ -1525,6 +1528,7 @@ function AppContent() {
 									type: viewInfo.type,
 									entitySetName: viewInfo.entitySetName,
 									name: viewInfo.name,
+									queryType: viewInfo.queryType,
 								},
 								viewInfo.layoutxml,
 							);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseFetchXml } from "./fetchxmlParser";
 import { generateFetchXml } from "./fetchxml";
-import { getViewLoadNotice, isUnmodifiedView } from "./savedViews";
+import { getQueryTypeLabel, getViewLoadNotice, isUnmodifiedView, sortViewsByQueryType } from "./savedViews";
 
 /** FetchXML as Dataverse stores it for a system view: legacy attributes and spelled-out defaults. */
 const STORED_VIEW_FETCHXML = `<fetch version="1.0" output-format="xml-platform" mapping="logical" distinct="false">
@@ -47,6 +47,43 @@ describe("isUnmodifiedView (#93)", () => {
 	it("tells whitespace inside values apart", () => {
 		expect(isUnmodifiedView('<condition value="a b" />', '<condition value="ab" />')).toBe(false);
 		expect(isUnmodifiedView("<fetch />\n", "<fetch />")).toBe(true);
+	});
+});
+
+describe("query types (#93)", () => {
+	it("labels every view that isn't a public view", () => {
+		expect(getQueryTypeLabel(0)).toBeUndefined();
+		expect(getQueryTypeLabel(undefined)).toBeUndefined();
+		expect(getQueryTypeLabel(1)).toBe("Advanced find");
+		expect(getQueryTypeLabel(2)).toBe("Associated");
+		expect(getQueryTypeLabel(4)).toBe("Quick find");
+		expect(getQueryTypeLabel(64)).toBe("Lookup");
+		expect(getQueryTypeLabel(8192)).toBe("Offline template");
+		// Unknown types are still listed, with their number
+		expect(getQueryTypeLabel(999)).toBe("Query type 999");
+	});
+
+	it("sorts public views first (default on top), then the other types", () => {
+		const views = [
+			{ name: "Quick Find Active Accounts", queryType: 4 },
+			{ name: "Unknown", queryType: 999 },
+			{ name: "Lookup View", queryType: 64 },
+			{ name: "Active Accounts", queryType: 0, isDefault: false },
+			{ name: "My Active Accounts", queryType: 0, isDefault: true },
+			{ name: "Account Advanced Find View", queryType: 1 },
+			{ name: "Accounts: Influenced Deals", queryType: 0 },
+			{ name: "Account Associated View", queryType: 2 },
+		];
+		expect(sortViewsByQueryType(views).map((v) => v.name)).toEqual([
+			"My Active Accounts",
+			"Accounts: Influenced Deals",
+			"Active Accounts",
+			"Account Advanced Find View",
+			"Account Associated View",
+			"Quick Find Active Accounts",
+			"Lookup View",
+			"Unknown",
+		]);
 	});
 });
 

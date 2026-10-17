@@ -24,6 +24,7 @@ import { debugLog } from "../../../shared/utils/debug";
 import { responseHasFormattedValues } from "./formattedValues";
 import { metadataCache } from "../state/cache";
 import { nextLinkToQueryPath, parseFetchXmlPagingCookie } from "./paging";
+import { sortViewsByQueryType } from "../model/savedViews";
 
 export interface EntityMetadata {
 	LogicalName: string;
@@ -1176,6 +1177,8 @@ export interface SavedView {
 	type: "system" | "personal";
 	description?: string;
 	isDefault?: boolean;
+	/** The querytype column: 0 for public views (savedViews.ts getQueryTypeLabel, #93) */
+	queryType?: number;
 }
 
 /**
@@ -1196,6 +1199,8 @@ export interface LoadedViewInfo {
 	name: string;
 	/** Optional LayoutXML for column configuration */
 	layoutxml?: string;
+	/** The view's querytype, kept when it is overwritten (#93) */
+	queryType?: number;
 }
 
 /**
@@ -1312,9 +1317,17 @@ export function generateLayoutXml(
 	);
 }
 
+/** Views with FetchXML to load; a record without any can't be loaded into the tree. */
+function hasFetchXml(record: Record<string, unknown>): boolean {
+	return typeof record.fetchxml === "string" && record.fetchxml.trim() !== "";
+}
+
 /**
- * Get System Views (savedquery) for an entity
- * Only returns public views (querytype = 0) that are active and not hidden
+ * Get System Views (savedquery) for an entity: every active, published view of every query type.
+ * Public views (querytype 0) come first; the others (Advanced Find, Associated, Quick Find,
+ * Lookup, Outlook / offline filters and templates...) are listed with a type label rather than
+ * hidden (#93, savedViews.ts). The querytype column stores all of them:
+ * https://learn.microsoft.com/power-apps/developer/model-driven-apps/customize-entity-views#types-of-views
  * @param entityLogicalName The logical name of the entity (e.g., "account")
  */
 export async function getSystemViews(entityLogicalName: string): Promise<SavedView[]> {
@@ -1327,26 +1340,28 @@ export async function getSystemViews(entityLogicalName: string): Promise<SavedVi
 	try {
 		// Query savedquery entity using queryData for full OData support
 		// returnedtypecode: Entity logical name as string
-		// querytype = 0: Public views (not lookup views, quickfind, etc.)
 		// componentstate = 0: Published (not unpublished/deleted)
 		// statecode = 0: Active views only
 		const query =
-			`savedqueries?$select=savedqueryid,name,fetchxml,layoutxml,isdefault` +
-			`&$filter=(returnedtypecode eq '${entityLogicalName}' and querytype eq 0 and componentstate eq 0 and statecode eq 0)` +
-			`&$orderby=isdefault desc,name asc`;
+			`savedqueries?$select=savedqueryid,name,fetchxml,layoutxml,isdefault,querytype` +
+			`&$filter=(returnedtypecode eq '${entityLogicalName}' and componentstate eq 0 and statecode eq 0)` +
+			`&$orderby=name asc`;
 
 		debugLog("viewAPI", `Query: ${query}`);
 
 		const result = await window.dataverseAPI!.queryData(query);
 
-		const views: SavedView[] = (result.value || []).map((record) => ({
-			id: record.savedqueryid as string,
-			name: record.name as string,
-			fetchxml: record.fetchxml as string,
-			layoutxml: record.layoutxml as string | undefined,
-			type: "system" as const,
-			isDefault: record.isdefault as boolean | undefined,
-		}));
+		const views: SavedView[] = sortViewsByQueryType(
+			(result.value || []).filter(hasFetchXml).map((record) => ({
+				id: record.savedqueryid as string,
+				name: record.name as string,
+				fetchxml: record.fetchxml as string,
+				layoutxml: record.layoutxml as string | undefined,
+				type: "system" as const,
+				isDefault: record.isdefault as boolean | undefined,
+				queryType: record.querytype as number | undefined,
+			})),
+		);
 
 		debugLog(
 			"viewAPI",
@@ -1361,8 +1376,12 @@ export async function getSystemViews(entityLogicalName: string): Promise<SavedVi
 }
 
 /**
- * Get Personal Views (userquery) for an entity
- * Returns views owned by the current user or their teams
+ * Get Personal Views (userquery) for an entity: every active one the user can read. That includes
+ * views shared with the user or their teams, not only the ones they own: a user query "can be
+ * assigned and shared with other users, and can be viewed by other users depending on the query's
+ * access privileges" (#93). Retrieving records already applies those access rights.
+ * https://learn.microsoft.com/power-apps/developer/data-platform/saved-queries
+ * Like system views, every query type is listed, public views first (savedViews.ts).
  * @param entityLogicalName The logical name of the entity (e.g., "account")
  */
 export async function getPersonalViews(entityLogicalName: string): Promise<SavedView[]> {
@@ -1376,24 +1395,25 @@ export async function getPersonalViews(entityLogicalName: string): Promise<Saved
 		// Query userquery entity using queryData for full OData support
 		// returnedtypecode: Entity logical name as string
 		// statecode = 0: Active views only
-		// querytype = 0: Saved views (not quick find)
-		// EqualUserOrUserTeams: Views owned by current user or their teams
 		const query =
-			`userqueries?$select=userqueryid,name,fetchxml,layoutxml` +
-			`&$filter=(statecode eq 0 and querytype eq 0 and returnedtypecode eq '${entityLogicalName}' and Microsoft.Dynamics.CRM.EqualUserOrUserTeams(PropertyName='ownerid'))` +
+			`userqueries?$select=userqueryid,name,fetchxml,layoutxml,querytype` +
+			`&$filter=(statecode eq 0 and returnedtypecode eq '${entityLogicalName}')` +
 			`&$orderby=name asc`;
 
 		debugLog("viewAPI", `Query: ${query}`);
 
 		const result = await window.dataverseAPI!.queryData(query);
 
-		const views: SavedView[] = (result.value || []).map((record) => ({
-			id: record.userqueryid as string,
-			name: record.name as string,
-			fetchxml: record.fetchxml as string,
-			layoutxml: record.layoutxml as string | undefined,
-			type: "personal" as const,
-		}));
+		const views: SavedView[] = sortViewsByQueryType(
+			(result.value || []).filter(hasFetchXml).map((record) => ({
+				id: record.userqueryid as string,
+				name: record.name as string,
+				fetchxml: record.fetchxml as string,
+				layoutxml: record.layoutxml as string | undefined,
+				type: "personal" as const,
+				queryType: record.querytype as number | undefined,
+			})),
+		);
 
 		debugLog(
 			"viewAPI",
