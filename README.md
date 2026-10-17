@@ -2,7 +2,7 @@
 
 A powerful, modern FetchXML query builder and data explorer for [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app). Inspired by the XrmToolBox FetchXML Builder, reimagined with React 18, Fluent UI v9, and seamless Dataverse integration.
 
-![Version](https://img.shields.io/badge/version-1.4.1--beta.17-blue)
+![Version](https://img.shields.io/badge/version-1.4.1--beta.18-blue)
 [![npm](https://img.shields.io/npm/v/@mohsinonxrm/pptb-fetchxml-studio?label=npm)](https://www.npmjs.com/package/@mohsinonxrm/pptb-fetchxml-studio)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
@@ -82,7 +82,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **Run workflows** — Execute on-demand workflows on selected records with batch execution and progress tracking
 
 ### 📋 Bulk Attribute Selection
-- **Select Attributes dialog** — Multi-select attributes from a searchable DataGrid; accessible from entity and link-entity context menus
+- **Select Attributes dialog** — Multi-select attributes from a sortable, resizable grid (display name, logical name, type). Long names end with an ellipsis and show in full on hover. Search by display or logical name, filter by type, show selected only, and see how many are selected. Opens from the entity and link-entity Add menus
 - **Smart updates** — Adds new selections and removes deselected attributes while preserving existing order and properties
 - **Search & filter** — Real-time filtering across logical name, display name, and data type columns
 
