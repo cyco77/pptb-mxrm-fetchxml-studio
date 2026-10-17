@@ -82,7 +82,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **Run workflows** — Execute on-demand workflows on selected records with batch execution and progress tracking
 
 ### 📋 Bulk Attribute Selection
-- **Select Attributes dialog** — Multi-select attributes from a searchable DataGrid; accessible from entity and link-entity context menus
+- **Select Attributes dialog** — Multi-select attributes from a sortable, resizable grid (display name, logical name, type). Long names end with an ellipsis and show in full on hover. Search by display or logical name, filter by type, show selected only, and see how many are selected. Opens from the entity and link-entity Add menus
 - **Smart updates** — Adds new selections and removes deselected attributes while preserving existing order and properties
 - **Search & filter** — Real-time filtering across logical name, display name, and data type columns
 

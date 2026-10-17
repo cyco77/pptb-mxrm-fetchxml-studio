@@ -25,6 +25,23 @@ Lint is clean: `npm run lint` now runs `eslint . --max-warnings=0` and passes wi
 - `CodePanel.tsx` / `FetchXmlEditor.tsx`: the missing dependencies above.
 - `TreeView.tsx`: the one `eslint-disable` without a reason now explains why the effect runs only on selection changes.
 - `eslint.config.js`: ignores `.claude/`, which holds local, git-ignored prototypes.
+## [1.4.1-beta.18] - 2026-10-17
+
+### 🔧 Fixed
+
+- **Select Attributes: long names wrapped onto several lines and the columns couldn't be resized (#52).** Design option A, reviewed in a prototype:
+  - The dialog is wider: up to 1000px, never wider than the window.
+  - The Display name, Logical name and Type columns are resizable and sortable. Each cell stays on one line, long text ends with an ellipsis, and the full text shows in a tooltip.
+  - Search matches display or logical name. A **type filter**, a **Selected only** switch and an "N of M selected" count help with long attribute lists.
+  - Types use `AttributeTypeName`, so images, files and multi-select choices no longer all show as "Virtual".
+- **"+ New" was overlapped by the entity box in a narrow left pane (#53).** Fluent's Combobox has a built-in minimum width (about 250px).
+  - The entity, publisher, solution and view boxes now shrink with the pane.
+  - Below 300px "New" keeps only its icon, with a "New query" tooltip and label.
+
+### 🏗️ Technical
+
+- `SelectAttributesDialog.tsx`: `resizableColumns` + `columnSizingOptions`, truncated cells with tooltips, type / selected-only filters, count in a fluid `DialogActions`.
+- `EntitySelector.tsx` / `LoadViewPicker.tsx`: comboboxes and their inputs use `minWidth: 0`; the "New" button switches to icon-only with a container query (the toolbar is already an inline-size container).
 
 ## [1.4.1-beta.17] - 2026-10-16
 

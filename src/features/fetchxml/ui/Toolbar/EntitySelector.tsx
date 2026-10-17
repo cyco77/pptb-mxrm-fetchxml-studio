@@ -53,6 +53,31 @@ const useStyles = makeStyles({
 		alignItems: "flex-end",
 		gap: "12px",
 	},
+	// Fluent's Combobox has a built-in minimum width (~250px); in a narrow left pane it drew over the
+	// "New" button (#53). The comboboxes shrink with the pane instead.
+	combobox: {
+		minWidth: 0,
+		width: "100%",
+	},
+	comboboxInput: {
+		minWidth: 0,
+		width: "100%",
+	},
+	// In a narrow pane (< 300px) "New" keeps only its icon (#53); the tooltip and label still say "New query"
+	newButton: {
+		flexShrink: 0,
+		"@container (max-width: 299px)": {
+			minWidth: "32px",
+			maxWidth: "32px",
+			paddingLeft: "5px",
+			paddingRight: "5px",
+		},
+	},
+	newButtonLabel: {
+		"@container (max-width: 299px)": {
+			display: "none",
+		},
+	},
 	field: {
 		display: "flex",
 		flexDirection: "column",
@@ -406,6 +431,8 @@ export function EntitySelector({
 							Publishers
 						</label>
 						<Combobox
+							className={styles.combobox}
+							input={{ className: styles.comboboxInput }}
 							aria-labelledby={publisherComboId}
 							placeholder={publisherPlaceholder}
 							multiselect
@@ -436,6 +463,8 @@ export function EntitySelector({
 							Solutions
 						</label>
 						<Combobox
+							className={styles.combobox}
+							input={{ className: styles.comboboxInput }}
 							aria-labelledby={solutionComboId}
 							placeholder={solutionPlaceholder}
 							multiselect
@@ -506,6 +535,8 @@ export function EntitySelector({
 							</label>
 						</Tooltip>
 						<Combobox
+							className={styles.combobox}
+							input={{ className: styles.comboboxInput }}
 							aria-labelledby={publisherComboId}
 							placeholder="No access to publishers"
 							disabled
@@ -520,6 +551,8 @@ export function EntitySelector({
 							Solutions
 						</label>
 						<Combobox
+							className={styles.combobox}
+							input={{ className: styles.comboboxInput }}
 							aria-labelledby={solutionComboId}
 							placeholder={solutionPlaceholder}
 							multiselect
@@ -586,6 +619,8 @@ export function EntitySelector({
 						Entity
 					</label>
 					<Combobox
+						className={styles.combobox}
+						input={{ className: styles.comboboxInput }}
 						aria-labelledby={entityComboId}
 						placeholder={entityLoading ? "Loading entities..." : "Select an entity..."}
 						value={entityQuery}
@@ -608,14 +643,11 @@ export function EntitySelector({
 					</Combobox>
 					{entityError && <div className={styles.errorText}>{entityError}</div>}
 				</div>
-				<Button
-					appearance="primary"
-					icon={<Add20Regular />}
-					onClick={onNewQuery}
-					title="Create a new query"
-				>
-					New
-				</Button>
+				<Tooltip content="New query" relationship="label">
+					<Button className={styles.newButton} appearance="primary" icon={<Add20Regular />} onClick={onNewQuery}>
+						<span className={styles.newButtonLabel}>New</span>
+					</Button>
+				</Tooltip>
 			</div>
 
 			{/* Load View Picker - only show when entity is selected */}
