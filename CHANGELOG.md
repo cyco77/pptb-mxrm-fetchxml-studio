@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.7] - 2026-10-17
+
+### 🔧 Fixed
+
+- **Load View labels querytype 2048 as "Other"** (`SavedQueryTypeOther`). It used to read "Template", a label that belongs to the template types (#144).
+- **PPTB events no longer log their payloads to the console (#71).** Connection events carry environment details. Event names are logged only when debug logging is on.
+
+### 🏗️ Technical
+
+- **Safe OData literals (#81).** Every value placed inside a single-quoted OData string literal now has its quotes doubled (`odataString`). That covers entity and attribute names in metadata queries, solution unique names, and the workflow and view filters. A value can no longer end the literal early.
+- **The duplicate LayoutXML helpers are removed from `pptbClient.ts` (#81).** They were unused; `model/layoutxml.ts` is the only implementation.
+
 ## [1.5.0-beta.6] - 2026-10-17
 
 ### 🔧 Fixed

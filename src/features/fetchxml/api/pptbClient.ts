@@ -34,6 +34,7 @@ import { readManagedPropertyValue, sortViewsByQueryType } from "../model/savedVi
 import { canExecuteBatch, connectionGuard, getPrimaryConnection } from "./host";
 import { deleteRecordsInBatches, type ExecuteBatch } from "./batchDelete";
 
+import { odataString } from "./odata";
 export interface EntityMetadata {
 	LogicalName: string;
 	SchemaName: string;
@@ -273,7 +274,7 @@ export async function getEntityAttributes(
 	}
 
 	// Build OData query with server-side filtering
-	let query = `EntityDefinitions(LogicalName='${logicalName}')/Attributes?$select=LogicalName,SchemaName,DisplayName,AttributeType,AttributeTypeName,MetadataId,IsValidForAdvancedFind,IsValidForRead,IsLogical,IsPrimaryId`;
+	let query = `EntityDefinitions(LogicalName='${odataString(logicalName)}')/Attributes?$select=LogicalName,SchemaName,DisplayName,AttributeType,AttributeTypeName,MetadataId,IsValidForAdvancedFind,IsValidForRead,IsLogical,IsPrimaryId`;
 
 	// Add server-side filter for IsValidForAdvancedFind
 	if (advancedFindOnly) {
@@ -316,7 +317,7 @@ export async function getAttributeWithOptionSet(
 	}
 
 	// First, get the basic attribute to determine its type
-	const basicQuery = `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes(LogicalName='${attributeLogicalName}')?$select=AttributeType,AttributeTypeName,LogicalName,SchemaName,DisplayName,MetadataId`;
+	const basicQuery = `EntityDefinitions(LogicalName='${odataString(entityLogicalName)}')/Attributes(LogicalName='${odataString(attributeLogicalName)}')?$select=AttributeType,AttributeTypeName,LogicalName,SchemaName,DisplayName,MetadataId`;
 
 	debugLog("metadataAPI", `📡 GET Attribute type for '${attributeLogicalName}': ${basicQuery}`);
 
@@ -351,7 +352,7 @@ export async function getAttributeWithOptionSet(
 	}
 
 	// Build query with type cast and OptionSet expansion
-	const fullQuery = `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes(LogicalName='${attributeLogicalName}')/${typeCast}?$expand=OptionSet`;
+	const fullQuery = `EntityDefinitions(LogicalName='${odataString(entityLogicalName)}')/Attributes(LogicalName='${odataString(attributeLogicalName)}')/${typeCast}?$expand=OptionSet`;
 
 	debugLog(
 		"metadataAPI",
@@ -426,14 +427,14 @@ export async function getAttributeDetailedMetadata(
 				`⚠️ Attribute '${attributeLogicalName}' is type '${attributeType}' - no detailed metadata needed`,
 			);
 			// Return basic metadata query without type cast
-			const basicQuery = `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes(LogicalName='${attributeLogicalName}')?$select=SchemaName,LogicalName,DisplayName,AttributeType,MetadataId`;
+			const basicQuery = `EntityDefinitions(LogicalName='${odataString(entityLogicalName)}')/Attributes(LogicalName='${odataString(attributeLogicalName)}')?$select=SchemaName,LogicalName,DisplayName,AttributeType,MetadataId`;
 			const basicResult = await window.dataverseAPI!.queryData(basicQuery);
 			return (basicResult.value?.[0] || basicResult) as unknown as AttributeMetadata;
 		}
 	}
 
 	// Build query with type cast and specific property selection
-	const detailedQuery = `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes(LogicalName='${attributeLogicalName}')/${typeCast}?$select=${selectProps}`;
+	const detailedQuery = `EntityDefinitions(LogicalName='${odataString(entityLogicalName)}')/Attributes(LogicalName='${odataString(attributeLogicalName)}')/${typeCast}?$select=${selectProps}`;
 
 	debugLog(
 		"metadataAPI",
@@ -478,7 +479,7 @@ export async function getEntityRelationships(
 
 	// Build queries with server-side filtering
 	const buildQuery = (relType: string) => {
-		let query = `EntityDefinitions(LogicalName='${logicalName}')/${relType}?$select=SchemaName,RelationshipType,ReferencedEntity,ReferencedAttribute,ReferencingEntity,ReferencingAttribute,MetadataId,IsValidForAdvancedFind,IsCustomRelationship`;
+		let query = `EntityDefinitions(LogicalName='${odataString(logicalName)}')/${relType}?$select=SchemaName,RelationshipType,ReferencedEntity,ReferencedAttribute,ReferencingEntity,ReferencingAttribute,MetadataId,IsValidForAdvancedFind,IsCustomRelationship`;
 
 		// Add server-side filter for IsValidForAdvancedFind
 		if (advancedFindOnly) {
@@ -489,7 +490,7 @@ export async function getEntityRelationships(
 	};
 
 	const buildManyToManyQuery = () => {
-		let query = `EntityDefinitions(LogicalName='${logicalName}')/ManyToManyRelationships?$select=SchemaName,RelationshipType,Entity1LogicalName,Entity2LogicalName,Entity1IntersectAttribute,Entity2IntersectAttribute,IntersectEntityName,MetadataId,IsValidForAdvancedFind,IsCustomRelationship`;
+		let query = `EntityDefinitions(LogicalName='${odataString(logicalName)}')/ManyToManyRelationships?$select=SchemaName,RelationshipType,Entity1LogicalName,Entity2LogicalName,Entity1IntersectAttribute,Entity2IntersectAttribute,IntersectEntityName,MetadataId,IsValidForAdvancedFind,IsCustomRelationship`;
 
 		// Add server-side filter for IsValidForAdvancedFind
 		if (advancedFindOnly) {
@@ -594,7 +595,7 @@ export async function getIsHierarchical(logicalName: string): Promise<boolean> {
 		throw new Error("PPTB Dataverse API not available");
 	}
 	const result = await window.dataverseAPI!.queryData(
-		`EntityDefinitions(LogicalName='${logicalName}')/OneToManyRelationships?$select=SchemaName&$filter=IsHierarchical eq true`,
+		`EntityDefinitions(LogicalName='${odataString(logicalName)}')/OneToManyRelationships?$select=SchemaName&$filter=IsHierarchical eq true`,
 	);
 	return result.value.length > 0;
 }
@@ -1061,7 +1062,7 @@ export async function getSolutionComponents(solutionIds: string[]): Promise<Solu
 		// Query each solution individually (virtual entity doesn't support OR filters properly)
 		const allComponents = await Promise.all(
 			solutionIds.map(async (solutionId) => {
-				const query = `msdyn_solutioncomponentsummaries?${SELECT}&$filter=msdyn_componenttype eq ${COMPONENT_TYPE_ENTITY} and msdyn_solutionid eq '${solutionId}'`;
+				const query = `msdyn_solutioncomponentsummaries?${SELECT}&$filter=msdyn_componenttype eq ${COMPONENT_TYPE_ENTITY} and msdyn_solutionid eq '${odataString(solutionId)}'`;
 
 				debugLog("solutionComponentAPI", `📡 GET Solution components for solution: ${solutionId}`, query);
 				const result = await window.dataverseAPI!.queryData(query);
@@ -1197,119 +1198,7 @@ export interface LoadedViewInfo {
 	isCustomizable?: boolean;
 }
 
-/**
- * Parsed layout column from LayoutXML
- */
-export interface LayoutColumn {
-	name: string;
-	width: number;
-	disableSorting?: boolean;
-	/** For link-entity columns, the alias prefix (e.g., "accountprimarycontactidcontactcontactid") */
-	linkEntityAlias?: string;
-	/** The actual attribute name without alias prefix */
-	attributeName: string;
-}
-
-/**
- * Parsed LayoutXML structure
- */
-export interface ParsedLayoutXml {
-	gridName: string;
-	objectTypeCode: number;
-	jumpAttribute?: string;
-	primaryIdAttribute: string;
-	columns: LayoutColumn[];
-}
-
-/**
- * Parse LayoutXML into a structured format for DataGrid column configuration
- * @param layoutXml The raw LayoutXML string from savedquery/userquery
- * @returns Parsed layout structure or null if parsing fails
- */
-export function parseLayoutXml(layoutXml: string): ParsedLayoutXml | null {
-	if (!layoutXml) return null;
-
-	try {
-		const parser = new DOMParser();
-		const doc = parser.parseFromString(layoutXml, "text/xml");
-
-		const gridElement = doc.querySelector("grid");
-		if (!gridElement) return null;
-
-		const rowElement = doc.querySelector("row");
-		if (!rowElement) return null;
-
-		const columns: LayoutColumn[] = [];
-		const cellElements = doc.querySelectorAll("row > cell");
-
-		cellElements.forEach((cell) => {
-			const name = cell.getAttribute("name") || "";
-			const width = parseInt(cell.getAttribute("width") || "100", 10);
-			const disableSorting = cell.getAttribute("disableSorting") === "1";
-
-			// Check if this is a link-entity column (contains a dot)
-			let linkEntityAlias: string | undefined;
-			let attributeName = name;
-
-			if (name.includes(".")) {
-				const parts = name.split(".");
-				linkEntityAlias = parts[0];
-				attributeName = parts[1];
-			}
-
-			columns.push({
-				name,
-				width,
-				disableSorting: disableSorting || undefined,
-				linkEntityAlias,
-				attributeName,
-			});
-		});
-
-		return {
-			gridName: gridElement.getAttribute("name") || "resultset",
-			objectTypeCode: parseInt(gridElement.getAttribute("object") || "0", 10),
-			jumpAttribute: gridElement.getAttribute("jump") || undefined,
-			primaryIdAttribute: rowElement.getAttribute("id") || "",
-			columns,
-		};
-	} catch (error) {
-		console.error("parseLayoutXml: Failed to parse LayoutXML:", error);
-		return null;
-	}
-}
-
-/**
- * Generate LayoutXML from column configuration
- * Used when saving a customized view
- * @param columns The column configuration
- * @param objectTypeCode The entity's object type code
- * @param primaryIdAttribute The entity's primary ID attribute (e.g., "accountid")
- * @param jumpAttribute Optional attribute for the "jump" field
- */
-export function generateLayoutXml(
-	columns: LayoutColumn[],
-	objectTypeCode: number,
-	primaryIdAttribute: string,
-	jumpAttribute?: string,
-): string {
-	const cellsXml = columns
-		.map((col) => {
-			let cellAttrs = `name="${col.name}" width="${col.width}"`;
-			if (col.disableSorting) {
-				cellAttrs += ` disableSorting="1"`;
-			}
-			return `<cell ${cellAttrs} />`;
-		})
-		.join("");
-
-	const jumpAttr = jumpAttribute ? ` jump="${jumpAttribute}"` : "";
-
-	return (
-		`<grid name="resultset" object="${objectTypeCode}"${jumpAttr} select="1" icon="1" preview="1">` +
-		`<row name="result" id="${primaryIdAttribute}">${cellsXml}</row></grid>`
-	);
-}
+// LayoutXML parsing and generation live in model/layoutxml.ts (#81: the copies here were unused)
 
 /** Views with FetchXML to load; a record without any can't be loaded into the tree. */
 function hasFetchXml(record: Record<string, unknown>): boolean {
@@ -1338,7 +1227,7 @@ export async function getSystemViews(entityLogicalName: string): Promise<SavedVi
 		// statecode = 0: Active views only
 		const query =
 			`savedqueries?$select=savedqueryid,name,fetchxml,layoutxml,isdefault,querytype,iscustomizable` +
-			`&$filter=(returnedtypecode eq '${entityLogicalName}' and componentstate eq 0 and statecode eq 0)` +
+			`&$filter=(returnedtypecode eq '${odataString(entityLogicalName)}' and componentstate eq 0 and statecode eq 0)` +
 			`&$orderby=name asc`;
 
 		debugLog("viewAPI", `Query: ${query}`);
@@ -1392,7 +1281,7 @@ export async function getPersonalViews(entityLogicalName: string): Promise<Saved
 		// statecode = 0: Active views only
 		const query =
 			`userqueries?$select=userqueryid,name,fetchxml,layoutxml,querytype` +
-			`&$filter=(statecode eq 0 and returnedtypecode eq '${entityLogicalName}')` +
+			`&$filter=(statecode eq 0 and returnedtypecode eq '${odataString(entityLogicalName)}')` +
 			`&$orderby=name asc`;
 
 		debugLog("viewAPI", `Query: ${query}`);
@@ -1885,7 +1774,7 @@ export async function isSolutionManaged(solutionUniqueName: string): Promise<boo
 	debugLog("viewAPI", `📡 Check if solution "${solutionUniqueName}" is managed`);
 
 	try {
-		const query = `solutions?$select=solutionid,ismanaged&$filter=uniquename eq '${solutionUniqueName}'`;
+		const query = `solutions?$select=solutionid,ismanaged&$filter=uniquename eq '${odataString(solutionUniqueName)}'`;
 		const result = await window.dataverseAPI!.queryData(query);
 
 		if (!result.value || result.value.length === 0) {
@@ -1916,7 +1805,7 @@ export async function getSolutionIdByUniqueName(
 	debugLog("viewAPI", `📡 Get solution ID for "${solutionUniqueName}"`);
 
 	try {
-		const query = `solutions?$select=solutionid&$filter=uniquename eq '${solutionUniqueName}'`;
+		const query = `solutions?$select=solutionid&$filter=uniquename eq '${odataString(solutionUniqueName)}'`;
 		const result = await window.dataverseAPI!.queryData(query);
 
 		if (!result.value || result.value.length === 0) {
@@ -2362,7 +2251,7 @@ export async function getOnDemandWorkflows(entityLogicalName: string): Promise<W
 		// Query for active, on-demand workflows for this entity using OData
 		// statecode=1 (Activated), statuscode=2 (Activated), ondemand=true, category=0 (Workflow), type=1 (Definition)
 		// primaryentity must be quoted as a string value
-		const odataQuery = `workflows?$select=workflowid,name,description,primaryentity,category,type,statuscode&$filter=(statecode eq 1 and statuscode eq 2 and ondemand eq true and category eq 0 and type eq 1 and primaryentity eq '${entityLogicalName}')&$orderby=name asc`;
+		const odataQuery = `workflows?$select=workflowid,name,description,primaryentity,category,type,statuscode&$filter=(statecode eq 1 and statuscode eq 2 and ondemand eq true and category eq 0 and type eq 1 and primaryentity eq '${odataString(entityLogicalName)}')&$orderby=name asc`;
 
 		const result = await window.dataverseAPI!.queryData(odataQuery);
 
