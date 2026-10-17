@@ -58,7 +58,7 @@ import {
 import type { AttributeMetadata } from "../../api/pptbClient";
 import { getCellRenderer } from "./getCellRenderer";
 import { buildRowIdentity } from "./rowIdentity";
-import { getFormattedValue, filterDisplayableColumns } from "./FormattedValueUtils";
+import { getFormattedValue } from "./FormattedValueUtils";
 import type { ConditionNode, FetchNode } from "../../model/nodes";
 import { columnFilterTarget, type ColumnFilterTarget, type NewCondition } from "../../model/columnFilters";
 import { ALL_OPERATORS, operatorRequiresValue } from "../../model/operators";
@@ -69,7 +69,8 @@ import { SearchHighlightContext } from "./searchHighlightContext";
 import type { LayoutXmlConfig } from "../../model/layoutxml";
 import type { DisplaySettings } from "../../model/displaySettings";
 import { metadataCache } from "../../state/cache";
-import { collectQueryColumns, joinedLinkAliases, resolveColumn, sortedColumns } from "../../model/queryColumns";
+import { joinedLinkAliases, resolveColumn, sortedColumns } from "../../model/queryColumns";
+import { orderByLayout, resultColumns } from "../../model/resultColumns";
 import {
 	cellText,
 	columnToText,
@@ -272,7 +273,8 @@ const sameTarget = (c: ConditionNode, t: ColumnFilterTarget) =>
 	c.attribute === t.attribute && (c.entityname || undefined) === t.entityname;
 
 export interface QueryResult {
-	columns: string[];
+	/** The query that produced the rows; the columns come from the query (resultColumns.ts, #91) */
+	query?: FetchNode | null;
 	rows: Record<string, unknown>[];
 	totalRecordCount?: number;
 	moreRecords?: boolean;
@@ -412,14 +414,20 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 	);
 	const getRowId = rowIdentity.getRowId;
 
-	// Result columns the query asks for, keyed as Dataverse returns them (queryColumns.ts, #114).
-	// Link-entities without an alias come back as "{name}{N}.attribute".
-	const requestedAttributes = useMemo(() => {
-		const keys = new Set<string>();
-		if (!fetchQuery) return keys;
-		for (const column of collectQueryColumns(fetchQuery)) keys.add(column.key);
-		return keys;
-	}, [fetchQuery]);
+	// The grid's columns: the query's attributes keyed as Dataverse returns them, plus all-attributes
+	// columns from every loaded row, in the layout's order (resultColumns.ts, #91). Not row 1's keys:
+	// null values aren't returned, and later pages can have columns the first one didn't.
+	const gridColumns = useMemo(() => {
+		if (!result) return [];
+		const getAttribute = (entityName: string, attributeName: string) => attributeMetadata?.get(entityName)?.get(attributeName);
+		return orderByLayout(resultColumns(fetchQuery, result.rows, getAttribute, result.query), columnConfig);
+	}, [result, fetchQuery, attributeMetadata, columnConfig]);
+	// The query column key behind a grid column (layout cells and sort state use it)
+	const queryKeyOf = useMemo(() => {
+		const map = new Map<string, string>();
+		for (const c of gridColumns) if (c.column) map.set(c.key, c.column.key);
+		return (col: string) => map.get(col) ?? col;
+	}, [gridColumns]);
 
 	// Build comprehensive column metadata map from FetchXML query structure
 	// Maps column name (as it appears in results) to display info
@@ -508,7 +516,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 	// Memoize column definitions with display names and formatted values
 	// Uses columnConfig for ordering and widths when available
 	const { columns, columnDisplayNames, columnAttributeTypes, copyColumns } = useMemo(() => {
-		if (!result || result.columns.length === 0)
+		if (!result || gridColumns.length === 0)
 			return {
 				columns: [],
 				columnDisplayNames: new Map<string, string>(),
@@ -516,61 +524,24 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 				copyColumns: [] as CopyColumn[],
 			};
 
-		// Filter out OData and CRM annotation columns
-		let displayableColumns = filterDisplayableColumns(result.columns);
-
-		// Further filter to ONLY columns requested in FetchXML (if fetchQuery is available)
-		if (fetchQuery && requestedAttributes.size > 0) {
-			displayableColumns = displayableColumns.filter((col) => {
-				// Check if this column or its base attribute (for lookups) is requested
-				// For lookup columns (_attributename_value), check the base attribute name
-				if (col.startsWith("_") && col.endsWith("_value")) {
-					const baseAttr = col.slice(1, -6); // Remove _ prefix and _value suffix
-					return requestedAttributes.has(baseAttr);
-				}
-				// For aliased or regular columns, check directly
-				return requestedAttributes.has(col);
-			});
-		}
-
-		// If columnConfig is provided, use it to order the columns
-		if (columnConfig && columnConfig.columns.length > 0) {
-			const configOrder = columnConfig.columns.map((c) => c.name);
-
-			// Build a map that handles lookup field naming convention
-			// FetchXML/config uses: primarycontactid, but Dataverse returns: _primarycontactid_value
-			const getConfigIndex = (col: string): number => {
-				// Direct match first
-				const directIndex = configOrder.indexOf(col);
-				if (directIndex >= 0) return directIndex;
-
-				// If it's a lookup column (_xxx_value), try matching the base attribute name
-				if (col.startsWith("_") && col.endsWith("_value")) {
-					const baseAttr = col.slice(1, -6);
-					const baseIndex = configOrder.indexOf(baseAttr);
-					if (baseIndex >= 0) return baseIndex;
-				}
-
-				return -1; // Not in config
-			};
-
-			// Sort displayable columns by config order, append any not in config at end
-			const inConfig = displayableColumns.filter((col) => getConfigIndex(col) >= 0);
-			const notInConfig = displayableColumns.filter((col) => getConfigIndex(col) < 0);
-
-			displayableColumns = [
-				...inConfig.sort((a, b) => getConfigIndex(a) - getConfigIndex(b)),
-				...notInConfig,
-			];
-		}
+		// Columns from a link-entity's <all-attributes /> come back as "linkalias.attribute" (#91)
+		const linkAliases = fetchQuery ? joinedLinkAliases(fetchQuery) : new Map<string, string>();
+		const linksByAlias = new Map(collectAllLinkEntities(fetchQuery ?? null).map((l) => [linkAliases.get(l.id), l]));
+		const allAttributesInfo = (col: string): ColumnDisplayInfo | undefined => {
+			const dot = col.indexOf(".");
+			const linkAlias = col.slice(0, dot);
+			const link = dot > 0 ? linksByAlias.get(linkAlias) : undefined;
+			return link ? { attributeName: col.slice(dot + 1), entityName: link.name, linkEntityAlias: linkAlias, lookupAttribute: link.to } : undefined;
+		};
 
 		const displayNames = new Map<string, string>();
 		const attrTypes = new Map<string, string | undefined>();
 		// The grid's columns as copied, in grid order (#50)
 		const copyCols: CopyColumn[] = [];
-		const columnDefs = displayableColumns.flatMap((col) => {
-			// Get column display info from our comprehensive map
-			const displayInfo = columnDisplayMap.get(col);
+		const columnDefs = gridColumns.map((c) => c.key).flatMap((col) => {
+			// Get column display info from our comprehensive map; cross-apply columns come back by
+			// schema name, so they're found by their query key (#91)
+			const displayInfo = columnDisplayMap.get(col) ?? columnDisplayMap.get(queryKeyOf(col)) ?? allAttributesInfo(col);
 
 			// Helper to get attribute metadata from multi-entity map
 			const getAttributeMetadata = (
@@ -673,7 +644,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 			}
 
 			// Check if this column is sorted (from FetchXML orders)
-			const sortInfo = sortStateMap.get(col);
+			const sortInfo = sortStateMap.get(col) ?? sortStateMap.get(queryKeyOf(col));
 			// Whether a column filter targets this column (#23)
 			const filterTarget = fetchQuery ? columnFilterTarget(fetchQuery, col) : undefined;
 			const isFiltered =
@@ -834,8 +805,8 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 		attributeMetadata,
 		columnDisplayMap,
 		fetchQuery,
-		requestedAttributes,
-		columnConfig,
+		gridColumns,
+		queryKeyOf,
 		styles,
 		sortStateMap,
 		displaySettings,
@@ -884,7 +855,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 			const isMultiSort = true;
 
 			// Get current sort info for this column from FetchXML state
-			const sortInfo = sortStateMap.get(columnId);
+			const sortInfo = sortStateMap.get(columnId) ?? sortStateMap.get(queryKeyOf(columnId));
 
 			// Calculate direction: toggle if already sorted, otherwise ascending
 			let direction: SortDirection;
@@ -898,7 +869,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 
 			onSortChange({ columnId, direction, isMultiSort });
 		},
-		[onSortChange, sortStateMap],
+		[onSortChange, sortStateMap, queryKeyOf],
 	);
 
 	// ---- Quick search over the loaded rows (#23) ----
@@ -1206,7 +1177,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 		// When no config width is available, estimate from the display name so headers don't overlap
 		for (const col of columns) {
 			const columnId = String(col.columnId);
-			const configWidth = configWidths.get(columnId);
+			const configWidth = configWidths.get(columnId) ?? configWidths.get(queryKeyOf(columnId));
 
 			if (configWidth !== undefined) {
 				// Use the layout-XML / user-resized width as-is
@@ -1232,7 +1203,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 		}
 
 		return options;
-	}, [columns, columnConfig, columnDisplayNames, columnAttributeTypes]);
+	}, [columns, columnConfig, columnDisplayNames, columnAttributeTypes, queryKeyOf]);
 
 	// Handle column resize callback
 	// Maps lookup column names back to config names for storage
@@ -1242,7 +1213,8 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 			data: { columnId: string | number; width: number },
 		) => {
 			if (onColumnResize) {
-				let columnName = String(data.columnId);
+				// Stored under the layout cell's name: the query column key (#91)
+				let columnName = queryKeyOf(String(data.columnId));
 				// If it's a lookup column (_xxx_value), store width under the base attribute name
 				if (columnName.startsWith("_") && columnName.endsWith("_value")) {
 					columnName = columnName.slice(1, -6);
@@ -1250,7 +1222,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 				onColumnResize(columnName, data.width);
 			}
 		},
-		[onColumnResize],
+		[onColumnResize, queryKeyOf],
 	);
 
 	// Infinite scroll: load more when user scrolls near bottom

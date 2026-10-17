@@ -75,12 +75,12 @@ import type { FetchXmlResult } from "../features/fetchxml/api/pptbClient";
 import { getQueryEntities } from "../features/fetchxml/model/treeUtils";
 import { NON_RETURNING_LINK_TYPES } from "../features/fetchxml/model/fetchxmlRules";
 import { planRemoveColumns, planSortByColumn, resolveColumn } from "../features/fetchxml/model/queryColumns";
+import { orderByLayout, resultColumns } from "../features/fetchxml/model/resultColumns";
 import { relationshipKey } from "../features/fetchxml/model/manyToMany";
 import { columnFilterConditions, type NewCondition } from "../features/fetchxml/model/columnFilters";
 import { toAttributeTypeInfo } from "../features/fetchxml/model/attributeCapabilities";
 import type { FetchNode, LinkEntityNode } from "../features/fetchxml/model/nodes";
 import { generateLayoutXml } from "../features/fetchxml/model/layoutxml";
-import { collectAttributesFromFetchXml } from "../features/fetchxml/model/layoutxml";
 import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid";
 import { SettingsDrawer } from "../features/fetchxml/ui/Settings/SettingsDrawer";
 import { usePersistedSettings } from "../shared/hooks/usePersistedSettings";
@@ -780,55 +780,6 @@ function AppContent() {
 	};
 
 	/**
-	 * Build columns array from FetchXML and result data
-	 * Handles lookup field naming conventions and ensures all requested columns are present
-	 */
-	const buildColumnsFromResult = (
-		records: Record<string, unknown>[],
-		fetchQuery: typeof builder.fetchQuery,
-	): string[] => {
-		// Start with columns from the result data (these have actual values)
-		const resultKeys = records.length > 0 ? Object.keys(records[0]) : [];
-		const resultKeySet = new Set(resultKeys.filter((k) => !k.includes("@")));
-
-		if (fetchQuery) {
-			// Get columns from FetchXML - this includes all requested attributes
-			const fetchXmlColumns = collectAttributesFromFetchXml(fetchQuery);
-			const fetchXmlColumnNames = fetchXmlColumns.map((col) => col.name);
-
-			// Build the final column list, handling lookup field naming conventions
-			const columnSet = new Set<string>();
-			const columns: string[] = [];
-
-			for (const colName of fetchXmlColumnNames) {
-				if (resultKeySet.has(colName)) {
-					columns.push(colName);
-					columnSet.add(colName);
-				} else if (resultKeySet.has(`_${colName}_value`)) {
-					columns.push(`_${colName}_value`);
-					columnSet.add(`_${colName}_value`);
-					columnSet.add(colName);
-				} else {
-					columns.push(colName);
-					columnSet.add(colName);
-				}
-			}
-
-			// Add any result columns not already handled
-			for (const key of resultKeys) {
-				if (!columnSet.has(key) && !key.includes("@")) {
-					columns.push(key);
-					columnSet.add(key);
-				}
-			}
-
-			return columns;
-		} else {
-			return resultKeys.filter((k) => !k.includes("@"));
-		}
-	};
-
-	/**
 	 * Execute the tree's query and handle Retrieve All if enabled.
 	 * @param synced - in editor mode the editor's FetchXML is loaded into the tree first (#102);
 	 *   the new tree and its XML are passed here because builder state updates on the next render.
@@ -901,12 +852,11 @@ function AppContent() {
 			if (run !== resultRunRef.current) return; // superseded while the first page was loading
 
 			const executionTimeMs = Math.round(performance.now() - startTime);
-			const columns = buildColumnsFromResult(result.records, query);
 			const moreRecords = !hasTopLimit && hasNextPage(useViewExecution ? "view" : "fetchxml", result);
 			const firstPage = options.page ?? 1;
 
 			setQueryResult({
-				columns,
+				query,
 				rows: result.records.map((record) => ({ ...record })),
 				totalRecordCount: result.totalRecordCount,
 				moreRecords,
@@ -937,7 +887,7 @@ function AppContent() {
 					? error.message
 					: "An unexpected error occurred while executing the query.";
 			setExecuteError(message);
-			setQueryResult({ columns: [], rows: [] });
+			setQueryResult({ query, rows: [] });
 			setIsExecuting(false);
 		}
 	};
@@ -1194,8 +1144,13 @@ function AppContent() {
 			// Build column display names map
 			const columnDisplayNames = new Map<string, string>();
 
-			// Use actual column names from queryResult (includes _value format for lookups)
-			const columns = queryResult.columns;
+			// The grid's columns, in the grid's order (resultColumns.ts, #91)
+			const getAttribute = (entityName: string, attributeName: string) =>
+				attributeMetadata?.get(entityName)?.get(attributeName);
+			const columns = orderByLayout(
+				resultColumns(builder.fetchQuery, queryResult.rows, getAttribute, queryResult.query),
+				builder.columnConfig,
+			).map((c) => c.key);
 
 			for (const col of columns) {
 				// Try to get display name from attribute metadata
