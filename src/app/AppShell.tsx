@@ -73,7 +73,7 @@ import {
 } from "../features/fetchxml/api/paging";
 import type { FetchXmlResult } from "../features/fetchxml/api/pptbClient";
 import { formatDataverseError } from "../features/fetchxml/api/dataverseErrors";
-import { withThrottleRetry } from "../features/fetchxml/api/throttleRetry";
+import { fetchPageWithRecovery } from "../features/fetchxml/api/pageRecovery";
 import { debugLog } from "../shared/utils/debug";
 import { getQueryEntities } from "../features/fetchxml/model/treeUtils";
 import { NON_RETURNING_LINK_TYPES } from "../features/fetchxml/model/fetchxmlRules";
@@ -862,6 +862,8 @@ function AppContent() {
 				mode: useViewExecution ? "view" : "fetchxml",
 				xml: xmlToExecute,
 				pageSize: options.count,
+				// Dataverse's default page size, for a smaller page after the 16 MB limit (#68)
+				fullPageSize: options.count === undefined && moreRecords ? result.records.length : undefined,
 				currentPage: firstPage,
 				nextPage: firstPage + 1,
 				pagingCookie: result.pagingCookie,
@@ -923,13 +925,17 @@ function AppContent() {
 	 * the decoded paging cookie (when Dataverse returned one) and the executed query's own count.
 	 */
 	const fetchNextPage = async (state: PagingState): Promise<{ result: FetchXmlResult; next: PagingState }> => {
-		// Pages are sent one after another: wait and retry after service protection errors (#96)
-		const result = await withThrottleRetry(() =>
-			state.mode === "view"
-				? executeNextLink(state.nextLink ?? "")
-				: executeFetchXml(addPagingToFetchXml(state.xml, state.nextPage, state.pagingCookie, state.pageSize)),
+		// Retried after service protection errors (#96); a page over the host's 16 MB limit is
+		// requested again with half the count, which later pages keep (#68)
+		const { result, state: fetched } = await fetchPageWithRecovery(
+			state,
+			(s) =>
+				s.mode === "view"
+					? executeNextLink(s.nextLink ?? "")
+					: executeFetchXml(addPagingToFetchXml(s.xml, s.nextPage, s.pagingCookie, s.pageSize)),
+			{ onShrink: (s) => debugLog("app", `Page too large: retrying page ${s.nextPage} with count ${s.pageSize}`) },
 		);
-		return { result, next: advancePaging(state, result) };
+		return { result, next: advancePaging(fetched, result) };
 	};
 
 	/** Add a fetched page to the results of run `run` (ignored if the results changed meanwhile). */
