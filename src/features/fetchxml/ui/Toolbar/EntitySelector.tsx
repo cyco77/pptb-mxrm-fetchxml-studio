@@ -3,7 +3,7 @@
  * Adapts UI based on user privileges (Full Filter / Solutions-Only / Publishers-Only / Metadata-Only / No Access modes)
  */
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
 	Combobox,
 	Option,
@@ -15,18 +15,13 @@ import {
 	tokens,
 	Tooltip,
 	useComboboxFilter,
-	Dialog,
-	DialogSurface,
-	DialogBody,
-	DialogTitle,
-	DialogContent,
-	DialogActions,
 	type ComboboxProps,
 } from "@fluentui/react-components";
 import { Add20Regular, LockClosed20Regular } from "@fluentui/react-icons";
 import { useAccessMode } from "../../../../shared/hooks/useAccessMode";
 import type { EntityScopeMode } from "../../model/displaySettings";
 import { isEntityInScope } from "../../state/metadataScope";
+import { metadataCache } from "../../state/cache";
 import { usePublisherFilter } from "../../../../shared/hooks/usePublisherFilter";
 import { useSolutionFilter } from "../../../../shared/hooks/useSolutionFilter";
 import { useLazyMetadata } from "../../../../shared/hooks/useLazyMetadata";
@@ -189,11 +184,17 @@ export function EntitySelector({
 		allEntities,
 	]);
 
-	// Get full entity metadata for the selected entity (needed for LoadViewPicker)
+	// Get full entity metadata for the selected entity (needed for LoadViewPicker). An entity outside
+	// the selected solutions (from Parse to Tree, a file, a view) comes from the full entity list (#57).
 	const selectedEntityMetadata = useMemo(() => {
 		if (!selectedEntity) return null;
-		return availableEntities.find((e) => e.LogicalName === selectedEntity) || null;
-	}, [selectedEntity, availableEntities]);
+		return (
+			availableEntities.find((e) => e.LogicalName === selectedEntity) ??
+			metadataCache.getAllEntityMetadata()?.find((e) => e.LogicalName === selectedEntity) ??
+			allEntities.find((e) => e.LogicalName === selectedEntity) ??
+			null
+		);
+	}, [selectedEntity, availableEntities, allEntities]);
 
 	// Handle view selection from LoadViewPicker
 	const handleViewSelect = useCallback(
@@ -247,46 +248,10 @@ export function EntitySelector({
 		publisherFilter.selectedPublisherIds,
 	]);
 
-	const onPublisherSelect: ComboboxProps["onOptionSelect"] = async (_e, data) => {
-		const newPublisherIds = data.selectedOptions;
-
-		// Check if this change would invalidate the current entity
-		if (selectedEntity && publisherFilter.selectedPublisherIds.length > 0) {
-			// If deselecting publishers, check if entity would still be available
-			const isDeselecting = newPublisherIds.length < publisherFilter.selectedPublisherIds.length;
-
-			if (isDeselecting) {
-				// Find which publishers are being removed
-				const removedPublisherIds = publisherFilter.selectedPublisherIds.filter(
-					(id) => !newPublisherIds.includes(id),
-				);
-
-				// Find solutions under removed publishers
-				const removedPublisherSolutionIds = publisherFilter.solutions
-					.filter(
-						(sol) => sol._publisherid_value && removedPublisherIds.includes(sol._publisherid_value),
-					)
-					.map((sol) => sol.solutionid);
-
-				// Check if any of the currently selected solutions are from removed publishers
-				const wouldLoseSolutions = publisherFilter.selectedSolutionIds.some((solId) =>
-					removedPublisherSolutionIds.includes(solId),
-				);
-
-				// If we'd lose solutions that might contain the entity, show confirmation
-				if (wouldLoseSolutions) {
-					setPendingPublisherIds(newPublisherIds);
-					setConfirmDialogType("publisher");
-					setShowConfirmDialog(true);
-					setPublisherQuery("");
-					return;
-				}
-			}
-		}
-
-		// No validation needed, proceed with update
-		markScopeChange();
-		publisherFilter.updateSelectedPublishers(newPublisherIds);
+	// The publisher / solution selection only filters the entity picker: the query is never
+	// cleared, and an entity outside the selection shows by its logical name (#57)
+	const onPublisherSelect: ComboboxProps["onOptionSelect"] = (_e, data) => {
+		publisherFilter.updateSelectedPublishers(data.selectedOptions);
 		setPublisherQuery("");
 	};
 
@@ -322,73 +287,13 @@ export function EntitySelector({
 		return { unmanagedSolutions: unmanaged, managedSolutions: managed };
 	}, [currentSolutions]);
 
-	const onSolutionSelect: ComboboxProps["onOptionSelect"] = async (_e, data) => {
-		const newSolutionIds = data.selectedOptions;
-
-		// Check if this change would invalidate the current entity
-		if (selectedEntity && currentSelectedSolutionIds.length > 0) {
-			// If deselecting solutions, check if entity would still be available
-			const isDeselecting = newSolutionIds.length < currentSelectedSolutionIds.length;
-
-			if (isDeselecting) {
-				// Find which solutions are being removed
-				const removedSolutionIds = currentSelectedSolutionIds.filter(
-					(id) => !newSolutionIds.includes(id),
-				);
-
-				// Check if current entity exists in the remaining solutions
-				const remainingEntityExists = availableEntities.some(
-					(entity) => entity.LogicalName === selectedEntity,
-				);
-
-				// Only show confirmation if entity would be removed
-				if (remainingEntityExists && removedSolutionIds.length > 0) {
-					// We need to check if entity exists in remaining solutions after removal
-					// For now, show confirmation dialog and let validation happen after
-					setPendingSolutionIds(newSolutionIds);
-					setConfirmDialogType("solution");
-					setShowConfirmDialog(true);
-					setSolutionQuery("");
-					return;
-				}
-			}
-		}
-
-		// No validation needed, proceed with update
-		markScopeChange();
+	const onSolutionSelect: ComboboxProps["onOptionSelect"] = (_e, data) => {
 		if (effectiveScopeMode === "publisher-solution") {
-			publisherFilter.updateSelectedSolutions(newSolutionIds);
+			publisherFilter.updateSelectedSolutions(data.selectedOptions);
 		} else if (effectiveScopeMode === "solution-only") {
-			solutionFilter.updateSelectedSolutions(newSolutionIds);
+			solutionFilter.updateSelectedSolutions(data.selectedOptions);
 		}
 		setSolutionQuery("");
-	};
-
-	const handleConfirmPublisherChange = () => {
-		// User confirmed - proceed with publisher change, cascades to solutions and entity
-		markScopeChange();
-		publisherFilter.updateSelectedPublishers(pendingPublisherIds);
-		setShowConfirmDialog(false);
-		setPendingPublisherIds([]);
-	};
-
-	const handleConfirmSolutionChange = () => {
-		// User confirmed - proceed with solution change, entity will auto-clear via useEffect
-		markScopeChange();
-		if (effectiveScopeMode === "publisher-solution") {
-			publisherFilter.updateSelectedSolutions(pendingSolutionIds);
-		} else if (effectiveScopeMode === "solution-only") {
-			solutionFilter.updateSelectedSolutions(pendingSolutionIds);
-		}
-		setShowConfirmDialog(false);
-		setPendingSolutionIds([]);
-	};
-
-	const handleCancelChange = () => {
-		// User cancelled - just close dialog, keep current selection
-		setShowConfirmDialog(false);
-		setPendingPublisherIds([]);
-		setPendingSolutionIds([]);
 	};
 
 	// Compute solution placeholder dynamically
@@ -401,12 +306,6 @@ export function EntitySelector({
 			.map((sol) => sol.friendlyname);
 		return `${selectedNames.length} selected`;
 	}, [currentSelectedSolutionIds, currentSolutions]);
-
-	// Entity search query with filteringhanges that would invalidate entity
-	const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-	const [confirmDialogType, setConfirmDialogType] = useState<"publisher" | "solution">("solution");
-	const [pendingPublisherIds, setPendingPublisherIds] = useState<string[]>([]);
-	const [pendingSolutionIds, setPendingSolutionIds] = useState<string[]>([]);
 
 	// Entity search query with filtering
 	const [entityQuery, setEntityQuery] = useState<string>("");
@@ -454,51 +353,6 @@ export function EntitySelector({
 			setEntityQuery("");
 		}
 	};
-
-	// Clear the query when the user changes the publisher / solution selection and the new selection
-	// doesn't include the query's entity (#57). Only after such a change: a query from Parse to Tree,
-	// a file, a view or another tool keeps its entity even when the selected solutions don't include
-	// it (the picker then shows its logical name). The check waits for the new selection's entity
-	// list, and uses that list before the "Advanced Find only" filter (toggling it never clears).
-	const scopeEntities =
-		effectiveScopeMode === "publisher-solution"
-			? publisherFilter.entities
-			: effectiveScopeMode === "solution-only"
-				? solutionFilter.entities
-				: undefined;
-	const scopeEntitiesLoading =
-		effectiveScopeMode === "publisher-solution"
-			? publisherFilter.entitiesLoading
-			: effectiveScopeMode === "solution-only"
-				? solutionFilter.entitiesLoading
-				: false;
-	const scopeChangedFrom = useRef<EntityMetadata[] | null>(null);
-	// Hoisted: the selection handlers above call it on user events
-	function markScopeChange() {
-		scopeChangedFrom.current = scopeEntities ?? null;
-	}
-	useEffect(() => {
-		const before = scopeChangedFrom.current;
-		if (before === null || !scopeEntities || scopeEntitiesLoading || scopeEntities === before) return;
-		scopeChangedFrom.current = null;
-		if (!selectedEntity) return;
-		const hasActiveSolutionFilter =
-			(effectiveScopeMode === "publisher-solution" && publisherFilter.selectedSolutionIds.length > 0) ||
-			(effectiveScopeMode === "solution-only" && solutionFilter.selectedSolutionIds.length > 0);
-		if (hasActiveSolutionFilter && !scopeEntities.some((entity) => entity.LogicalName === selectedEntity)) {
-			onEntityChange("");
-			onNewQuery();
-		}
-	}, [
-		scopeEntities,
-		scopeEntitiesLoading,
-		selectedEntity,
-		onEntityChange,
-		onNewQuery,
-		effectiveScopeMode,
-		publisherFilter.selectedSolutionIds,
-		solutionFilter.selectedSolutionIds,
-	]);
 
 	// Loading state during initial access check
 	if (accessLoading) {
@@ -775,50 +629,6 @@ export function EntitySelector({
 				</div>
 			)}
 
-			{/* Confirmation Dialog for Publisher/Solution Change */}
-			<Dialog
-				open={showConfirmDialog}
-				onOpenChange={(_, data) => !data.open && handleCancelChange()}
-			>
-				<DialogSurface>
-					<DialogBody>
-						<DialogTitle>
-							{confirmDialogType === "publisher"
-								? "Confirm Publisher Change"
-								: "Confirm Solution Change"}
-						</DialogTitle>
-						<DialogContent>
-							<p>
-								{confirmDialogType === "publisher"
-									? "Removing publishers will also remove their associated solutions, which may reset the FetchXML tree and entity selection as"
-									: "Removing solutions will reset the FetchXML tree and entity selection as"}
-								<strong> {selectedEntity}</strong> may no longer be available
-								{confirmDialogType === "publisher"
-									? " in the remaining publishers."
-									: " in the remaining selected solutions."}
-							</p>
-							<p>This action cannot be undone. Do you want to proceed?</p>
-						</DialogContent>
-						<DialogActions>
-							<Button
-								appearance="primary"
-								onClick={
-									confirmDialogType === "publisher"
-										? handleConfirmPublisherChange
-										: handleConfirmSolutionChange
-								}
-							>
-								{confirmDialogType === "publisher"
-									? "Yes, Update Publishers"
-									: "Yes, Update Solutions"}
-							</Button>
-							<Button appearance="secondary" onClick={handleCancelChange}>
-								Cancel
-							</Button>
-						</DialogActions>
-					</DialogBody>
-				</DialogSurface>
-			</Dialog>
 		</div>
 	);
 }

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.17] - 2026-10-16
+
+### 🔧 Fixed
+
+- **Changing the publisher or solution selection cleared the query** when the new selection didn't include its entity (#57 follow-up). Selecting the Default Solution, for example, wiped a `systemuserroles` query with no warning. Deselecting asked first, but still reset the tree.
+  - The scope only filters the entity picker, so the query is now never cleared.
+  - An entity outside the selection shows by its logical name, and Load View still works for it (from the full entity list).
+  - The "Confirm Publisher / Solution Change" dialog, which warned that the tree would be reset, is removed.
+
+### 🏗️ Technical
+
+- `EntitySelector.tsx`: no auto-clear effect and no confirm dialog; `selectedEntityMetadata` falls back to the full entity list.
+
+### 🧪 Test (PPTB, sandbox)
+
+- Parse to Tree on `<fetch><entity name="systemuserroles"><attribute name="roleid" /><link-entity name="role" from="roleid" to="roleid" alias="r"><attribute name="name" /></link-entity></entity></fetch>`. Then select the Default Publisher and Default Solution, and deselect both: the query stays every time, with no dialog; the entity box shows `systemuserroles`; Load View is available.
+
 ## [1.4.1-beta.16] - 2026-10-16
 
 ### 🔧 Fixed
