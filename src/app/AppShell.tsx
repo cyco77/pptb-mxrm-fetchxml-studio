@@ -80,7 +80,7 @@ import { relationshipKey } from "../features/fetchxml/model/manyToMany";
 import { columnFilterConditions, type NewCondition } from "../features/fetchxml/model/columnFilters";
 import { toAttributeTypeInfo } from "../features/fetchxml/model/attributeCapabilities";
 import type { FetchNode, LinkEntityNode } from "../features/fetchxml/model/nodes";
-import { generateLayoutXml } from "../features/fetchxml/model/layoutxml";
+import { buildViewLayoutXml } from "../features/fetchxml/model/layoutxml";
 import { getViewLoadNotice, isUnmodifiedView } from "../features/fetchxml/model/savedViews";
 import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid";
 import { SettingsDrawer } from "../features/fetchxml/ui/Settings/SettingsDrawer";
@@ -751,15 +751,16 @@ function AppContent() {
 
 	// Generate LayoutXML from column config for saving
 	const layoutXml = useMemo(() => {
-		if (!builder.columnConfig || !entityMetadata) {
+		if (!builder.fetchQuery || !entityMetadata) {
 			return "";
 		}
-		return generateLayoutXml({
-			...builder.columnConfig,
+		// object, row id and jump from the root Entity's metadata (#93)
+		return buildViewLayoutXml(builder.columnConfig, builder.fetchQuery, {
 			objectTypeCode: entityMetadata.ObjectTypeCode,
 			primaryIdAttribute: entityMetadata.PrimaryIdAttribute,
+			primaryNameAttribute: entityMetadata.PrimaryNameAttribute,
 		});
-	}, [builder.columnConfig, entityMetadata]);
+	}, [builder.columnConfig, builder.fetchQuery, entityMetadata]);
 
 	// Handle save view completion - update loaded view state
 	const handleSaveViewComplete = (
