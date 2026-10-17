@@ -51,6 +51,7 @@ const useStyles = makeStyles({
 	toolbar: {
 		padding: "0",
 	},
+
 	splitButtonAppearance: {
 		// Use subtle appearance for split buttons to match toolbar
 	},
@@ -135,6 +136,8 @@ export interface CommandBarProps {
 	loadedCount?: number;
 	/** Copy the selected or all loaded rows to the clipboard (#50) */
 	onCopyRows?: (scope: "selected" | "all", mode: CopyValueMode) => void;
+	/** Quick search text (#23): the Copy menu then copies the matching rows */
+	searchText?: string;
 }
 
 export function ResultsCommandBar({
@@ -157,6 +160,7 @@ export function ResultsCommandBar({
 	onExportLocal,
 	loadedCount = 0,
 	onCopyRows,
+	searchText = "",
 	canExport = false,
 	isExporting = false,
 	exportDisabledReason,
@@ -417,7 +421,9 @@ export function ResultsCommandBar({
 							<MenuItem disabled={selectedCount === 0} onClick={() => onCopyRows?.("selected", copyMode)}>
 								Selected rows ({selectedCount})
 							</MenuItem>
-							<MenuItem onClick={() => onCopyRows?.("all", copyMode)}>All loaded rows ({loadedCount})</MenuItem>
+							<MenuItem onClick={() => onCopyRows?.("all", copyMode)}>
+								{searchText.trim() ? "All matching rows" : "All loaded rows"} ({loadedCount})
+							</MenuItem>
 							<MenuDivider />
 							<MenuGroup>
 								<MenuGroupHeader>Values</MenuGroupHeader>
