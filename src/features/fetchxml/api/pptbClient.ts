@@ -2647,7 +2647,8 @@ export async function deleteRecordsBatch(
 		// Execute deletes in parallel within the batch
 		const deletePromises = batchRecordIds.map(async (recordId) => {
 			try {
-				await window.dataverseAPI!.delete(entityLogicalName, recordId);
+				// Retried after service protection errors (#96), like deleteRecord's fallback
+				await withThrottleRetry(() => window.dataverseAPI!.delete(entityLogicalName, recordId));
 				return { success: true, recordId };
 			} catch (error) {
 				return {
