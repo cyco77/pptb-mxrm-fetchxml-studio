@@ -2,7 +2,7 @@
  * Main application shell with Fluent UI theming and layout
  */
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import {
 	FluentProvider,
 	webLightTheme,
@@ -12,6 +12,8 @@ import {
 } from "@fluentui/react-components";
 import { usePptbContext } from "../shared/hooks/usePptbContext";
 import { useLazyMetadata } from "../shared/hooks/useLazyMetadata";
+import { loadAllEntityAttributes } from "../features/fetchxml/api/dataverseMetadata";
+import { metadataScope, useAdvancedFindOnly } from "../features/fetchxml/state/metadataScope";
 import { PreviewTabs } from "../features/fetchxml/ui/RightPane/PreviewTabs";
 import type { RelatedEntityColumn } from "../features/fetchxml/ui/RightPane/AddColumnsPanel";
 import { EntitySelector } from "../features/fetchxml/ui/Toolbar/EntitySelector";
@@ -73,6 +75,7 @@ import type { FetchXmlResult } from "../features/fetchxml/api/pptbClient";
 import { getQueryEntities } from "../features/fetchxml/model/treeUtils";
 import { NON_RETURNING_LINK_TYPES } from "../features/fetchxml/model/fetchxmlRules";
 import { planRemoveColumns, planSortByColumn, resolveColumn } from "../features/fetchxml/model/queryColumns";
+import { relationshipKey } from "../features/fetchxml/model/manyToMany";
 import { toAttributeTypeInfo } from "../features/fetchxml/model/attributeCapabilities";
 import type { FetchNode } from "../features/fetchxml/model/nodes";
 import { generateLayoutXml } from "../features/fetchxml/model/layoutxml";
@@ -371,6 +374,12 @@ function AppContent() {
 	// Settings drawer state
 	const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
 	const [displaySettings, setDisplaySettings] = usePersistedSettings();
+	// The pickers follow "Advanced Find only" (#57). A layout effect, so the scope is set before the
+	// children's effects load metadata.
+	useLayoutEffect(() => {
+		metadataScope.setAdvancedFindOnly(displaySettings.advancedFindOnly);
+	}, [displaySettings.advancedFindOnly]);
+	const advancedFindOnly = useAdvancedFindOnly();
 
 	// Access summary for constraining SettingsDrawer scope options
 	const { accessSummary } = useAccessMode();
@@ -582,11 +591,12 @@ function AppContent() {
 		// Ignore responses that arrive after the query's entities have changed.
 		let cancelled = false;
 
-		// Load attributes for all entities in the query
+		// Metadata of every attribute of the query's entities, for looking up the attributes in the
+		// query (grid formatting, columns, export); not filtered by "Advanced Find only" (#57)
 		Promise.all(
 			entityNames.map(async (entityName) => {
 				try {
-					const attributes = await loadAttributes(entityName);
+					const attributes = await loadAllEntityAttributes(entityName);
 					const attrMap = new Map<string, AttributeMetadata>();
 					attributes.forEach((attr) => {
 						attrMap.set(attr.LogicalName, attr);
@@ -616,7 +626,8 @@ function AppContent() {
 				if (!cancelled) setLoadedEntityMetadata(null);
 			});
 
-		// Load relationships (many-to-one and one-to-many) for the Add Columns panel
+		// Load relationships (many-to-one and one-to-many) for the Add Columns panel, per the
+		// "Advanced Find only" setting (#57)
 		setIsLoadingRelationships(true);
 		loadRelationships(rootEntityName)
 			.then((relationships) => {
@@ -641,7 +652,7 @@ function AppContent() {
 		};
 		// queryEntities.key changes whenever the root or the set of entities changes.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [queryEntities.key, loadAttributes, loadEntityMetadata, loadRelationships]);
+	}, [queryEntities.key, loadEntityMetadata, loadRelationships, advancedFindOnly]);
 
 	// Clear query results when the fetch query structure changes (entity change, view clear, etc.)
 	// We use the entity node id as a proxy - it changes when entity is re-selected or view is cleared.
@@ -1682,7 +1693,8 @@ function AppContent() {
 						// Group by relationship to create link-entities
 						const byRelationship = new Map<string, RelatedEntityColumn[]>();
 						for (const col of relatedColumns) {
-							const key = col.relationship.SchemaName;
+							// An intersect entity's two joins share a schema name (#57)
+							const key = relationshipKey(col.relationship);
 							if (!byRelationship.has(key)) {
 								byRelationship.set(key, []);
 							}

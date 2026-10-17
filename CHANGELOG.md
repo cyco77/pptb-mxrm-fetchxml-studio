@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.16] - 2026-10-16
+
+### 🔧 Fixed
+
+**Advanced Find Only** now does what it says, everywhere (#57). [`IsValidForAdvancedFind`](https://learn.microsoft.com/dotnet/api/microsoft.xrm.sdk.metadata.entitymetadata.isvalidforadvancedfind) means "shown in Advanced Find"; it isn't a query restriction. Turning it off is how FetchXML Studio builds queries Advanced Find can't. Checked against the sandbox:
+- **Hidden entities were missing in the Publisher → Solution and Solution scopes** (`userquery`, the reported case). Those scopes always loaded Advanced Find entities only. The setting now applies in every scope.
+  - Verified: 347 of 421 hidden entities query fine with FetchXML, including `userquery`, `savedquery`, `systemform`, `sdkmessageprocessingstep` and the intersect entities.
+  - The rest return a Dataverse error, shown on Execute as usual.
+- **Hidden attributes and relationships were never offered**, even with the setting off. With it off, every picker now offers them: the tree, Select attributes, conditions, orders, link-entities, Add columns and relationships.
+  - Verified: 1,028 of 1,053 hidden attributes and all 1,593 hidden relationships work.
+- **Attributes that can't be read are never offered.** `IsValidForRead = false` attributes fail in every query (`0x80041a08`, 25 of 25).
+- **Operators for attribute types that only appear with the setting off** (verified on each):
+  - label attributes such as `statuscodename` (Virtual): `null`, `not-null`, `eq`, `like`; they can be sorted, but not grouped or aggregated (`0x8004e01d` / `0x80044150`);
+  - images, files, managed properties and entity names: `null` and `not-null` only (`eq` / `like` fail: `0x80040203`);
+  - PartyList (`to`, `cc`, `from`): no conditions; every condition fails (`0x80040203`).
+- **Attributes already in a query keep their metadata** (operators, value inputs, grid formatting) whatever the setting. A pasted query that uses a hidden attribute works either way.
+- The setting's description and tooltip say what it covers.
+- **Parse to Tree emptied the tree and the editor** in the Publisher → Solution and Solution scopes when the selected solutions didn't include the query's entity (reported with `systemuserroles`). The same happened to opened files, loaded views and queries from other tools, and toggling Advanced Find Only would have done it too.
+  - The scope only filters the entity picker. The query is now cleared only after *you* change the publisher or solution selection, once the new entity list has loaded without the query's entity.
+  - Otherwise the entity box shows the query's logical name.
+- **Intersect entities can be joined from the relationship picker.** `systemuserroles`, `teammembership`, `listmember` and the rest have no many-to-one relationships for their attributes (plain Uniqueidentifiers), so nothing was offered. They now offer a join to each side of the many-to-many relationship they implement, e.g. `systemuserroles → role via roleid (systemuserroles_association)`, in the relationship picker and in Add columns → Related.
+  - Verified on every intersect entity in the sandbox: 141 entities, 302 joins. Every join runs except on the few intersect entities that can't be queried at all.
+  - Picking one adds `<link-entity name="role" from="roleid" to="roleid">`.
+- **Selecting a new link-entity crashed the app** (blank screen). Its placeholder name has no attributes, and the attribute picker's fallback dropped a prop Fluent needs (`selectedOptions`).
+- **A new link-entity kept its placeholder alias** (`new_entity`) after a 1:N or N:1 relationship was picked. It now gets an alias for the related entity (e.g. `systemuser`).
+
+### 🏗️ Technical
+
+- New `state/metadataScope.ts`: scope rules (`isEntityInScope`, `isAttributeInScope`, `isRelationshipInScope`) and the current setting (`metadataScope`, `useAdvancedFindOnly`).
+- `dataverseMetadata.ts`:
+  - attributes and relationships are fetched once, unfiltered, and filtered locally;
+  - `loadAllEntityAttributes` for lookups, `loadEntityAttributes` for pickers;
+  - `loadAllEntities` shares the Publisher / Solution entity cache.
+- `pptbClient.ts`: `getAllEntitiesForScopes` (replaces the Advanced Find–only `getAllAdvancedFindEntities`); the unused `getAdvancedFindEntitiesByNames` is removed; attributes select `IsValidForRead`.
+- `operators.ts`: Virtual attributes are typed by `AttributeTypeName` (multi-select, image, file, label).
+- `attributeCapabilities.ts`: VirtualType can be sorted.
+- `manyToMany.ts`: `planIntersectEntityJoins` (an intersect entity's joins to each side) and `relationshipKey` (the two joins share a schema name); `loadEntityRelationships` adds them for intersect entities.
+- `EntitySelector.tsx`: the query is cleared only after a publisher / solution change made by the user.
+- `aliasUtils.ts`: `collectLinkEntityAliases` and `generateUniqueAlias` moved here from the builder store.
+
+### 🧪 Test (sandbox)
+
+- With Advanced Find Only off, every scope: `<fetch top="5"><entity name="userquery"><attribute name="name" /><attribute name="returnedtypecode" /></entity></fetch>`.
+- Intersect entity: `<fetch><entity name="systemuserroles"><attribute name="roleid" /><link-entity name="role" from="roleid" to="roleid" alias="r"><attribute name="name" /></link-entity></entity></fetch>`.
+- Hidden attribute: `<fetch top="5"><entity name="account"><attribute name="name" /><attribute name="versionnumber" /><order attribute="versionnumber" descending="true" /></entity></fetch>`.
+- Label attribute: `<fetch top="5"><entity name="contact"><attribute name="fullname" /><filter><condition attribute="statuscodename" operator="like" value="%Active%" /></filter><order attribute="statuscodename" /></entity></fetch>`.
+- In PPTB, Publisher → Solution scope with a solution that doesn't include `systemuserroles`: Parse to Tree on the intersect query keeps the tree; Execute returns 407 rows. Added the `systemuser` join from the relationship picker and Full Name from Add columns → Related: `<link-entity name="systemuser" from="systemuserid" to="systemuserid" alias="systemuser"><attribute name="fullname" /></link-entity>`, 407 rows.
+
 ## [1.4.1-beta.15] - 2026-10-16
 
 ### 🔧 Fixed

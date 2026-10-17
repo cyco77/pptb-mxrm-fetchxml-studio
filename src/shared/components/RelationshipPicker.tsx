@@ -14,9 +14,13 @@ import {
 } from "@fluentui/react-components";
 import { debugLog } from "../utils/debug";
 import { loadEntityRelationships } from "../../features/fetchxml/api/dataverseMetadata";
+import { useAdvancedFindOnly } from "../../features/fetchxml/state/metadataScope";
 import type { RelationshipMetadata } from "../../features/fetchxml/api/pptbClient";
+import { relationshipKey } from "../../features/fetchxml/model/manyToMany";
 
 export interface RelationshipOption {
+	/** Unique in the list: an intersect entity's two joins share the schema name (#57) */
+	id: string;
 	schemaName: string;
 	displayText: string;
 	referencedEntity: string;
@@ -49,6 +53,8 @@ export function RelationshipPicker({
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [query, setQuery] = useState<string>("");
+	// Reload when the "Advanced Find only" setting changes (#57)
+	const advancedFindOnly = useAdvancedFindOnly();
 
 	// Load relationships when entity changes
 	useEffect(() => {
@@ -62,7 +68,7 @@ export function RelationshipPicker({
 		setLoading(true);
 		setError(null);
 
-		loadEntityRelationships(entityLogicalName)
+		loadEntityRelationships(entityLogicalName, advancedFindOnly)
 			.then((data) => {
 				debugLog("relationshipPicker", "Received relationship data:", {
 					entityLogicalName,
@@ -82,6 +88,7 @@ export function RelationshipPicker({
 						: `${rel.ReferencingEntity} → ${rel.ReferencedEntity} (${rel.SchemaName})`;
 
 					options.push({
+						id: relationshipKey(rel),
 						schemaName: rel.SchemaName,
 						displayText,
 						referencedEntity: rel.ReferencedEntity,
@@ -102,6 +109,7 @@ export function RelationshipPicker({
 						: `${rel.ReferencingEntity} → ${rel.ReferencedEntity} (${rel.SchemaName})`;
 
 					options.push({
+						id: relationshipKey(rel),
 						schemaName: rel.SchemaName,
 						displayText,
 						referencedEntity: rel.ReferencedEntity,
@@ -122,6 +130,7 @@ export function RelationshipPicker({
 					const attr2 = rel.Entity2IntersectAttribute || "";
 
 					options.push({
+						id: relationshipKey(rel),
 						schemaName: rel.SchemaName,
 						displayText: `${entity1} ↔ ${entity2} (${rel.SchemaName})`,
 						referencedEntity: entity2, // Store entity2 as "referenced" for compatibility
@@ -149,7 +158,7 @@ export function RelationshipPicker({
 				setError("Failed to load relationships");
 				setLoading(false);
 			});
-	}, [entityLogicalName]);
+	}, [entityLogicalName, advancedFindOnly]);
 
 	// Sync query with selected value
 	useEffect(() => {
@@ -183,14 +192,14 @@ export function RelationshipPicker({
 	};
 
 	const onOptionSelect: ComboboxProps["onOptionSelect"] = (_e, data) => {
-		const schemaName = data.optionValue;
+		const id = data.optionValue;
 		debugLog("relationshipPicker", "Relationship selected:", {
-			schemaName,
+			id,
 			optionText: data.optionText,
 		});
 
-		if (schemaName) {
-			const rel = relationships.find((r) => r.schemaName === schemaName);
+		if (id) {
+			const rel = relationships.find((r) => r.id === id);
 			if (rel) {
 				debugLog("relationshipPicker", "Found relationship details:", rel);
 				setQuery(data.optionText ?? "");
@@ -240,7 +249,7 @@ export function RelationshipPicker({
 					{categories["One-to-Many (1:N)"].length > 0 && (
 						<OptionGroup label="One-to-Many (1:N)">
 							{categories["One-to-Many (1:N)"].map((rel) => (
-								<Option key={rel.schemaName} value={rel.schemaName}>
+								<Option key={rel.id} value={rel.id}>
 									{rel.displayText}
 								</Option>
 							))}
@@ -249,7 +258,7 @@ export function RelationshipPicker({
 					{categories["Many-to-One (N:1)"].length > 0 && (
 						<OptionGroup label="Many-to-One (N:1)">
 							{categories["Many-to-One (N:1)"].map((rel) => (
-								<Option key={rel.schemaName} value={rel.schemaName}>
+								<Option key={rel.id} value={rel.id}>
 									{rel.displayText}
 								</Option>
 							))}
@@ -258,7 +267,7 @@ export function RelationshipPicker({
 					{categories["Many-to-Many (N:N)"].length > 0 && (
 						<OptionGroup label="Many-to-Many (N:N)">
 							{categories["Many-to-Many (N:N)"].map((rel) => (
-								<Option key={rel.schemaName} value={rel.schemaName}>
+								<Option key={rel.id} value={rel.id}>
 									{rel.displayText}
 								</Option>
 							))}

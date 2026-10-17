@@ -2,7 +2,7 @@
 
 A powerful, modern FetchXML query builder and data explorer for [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app). Inspired by the XrmToolBox FetchXML Builder, reimagined with React 18, Fluent UI v9, and seamless Dataverse integration.
 
-![Version](https://img.shields.io/badge/version-1.4.1--beta.15-blue)
+![Version](https://img.shields.io/badge/version-1.4.1--beta.16-blue)
 [![npm](https://img.shields.io/npm/v/@mohsinonxrm/pptb-fetchxml-studio?label=npm)](https://www.npmjs.com/package/@mohsinonxrm/pptb-fetchxml-studio)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
@@ -20,7 +20,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
   - **Safe mode changes** — Turning off aggregate, or switching a link-entity to a type that returns no attributes, lists what has to change and asks first.
 - **Full FetchXML support** — Aggregate queries, grouping, distinct, top/count, paging, and advanced hints
 - **Nested filters** — Create complex AND/OR filter groups with unlimited nesting
-- **Link-entity relationships** — Browse and add 1:N, N:1, and N:N relationships with inner/outer joins; N:N relationships join through their intersect entity, as documented
+- **Link-entity relationships** — Browse and add 1:N, N:1, and N:N relationships with inner/outer joins; N:N relationships join through their intersect entity, as documented; intersect entities (such as `systemuserroles` or `teammembership`) can be joined to each side of their N:N relationship
 
 ### 📊 Results Grid
 - **Virtualized DataGrid** — Handle large result sets with smooth scrolling (powered by react-window)
@@ -104,7 +104,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **Keyboard shortcuts** — `Ctrl+Enter` to execute query, copy XML to clipboard
 - **Display settings** — Toggle logical names vs display names in column headers; choose formatted, raw, or both value modes in the grid and exports
 - **Query scope settings** — Control which entities appear in the entity picker: *Publisher + Solution* (full filter), *Solution Only*, or *All Entities* (no filter). Persisted across sessions.
-- **Advanced Find Only toggle** — When on (default), limits entities and attributes to those marked `IsValidForAdvancedFind = true`. Disable to access all entities including system and developer tables. Filter is applied locally — toggling is instant with no additional API call.
+- **Advanced Find Only toggle** — When on (default), entities, attributes and relationships are limited to the ones Advanced Find shows (`IsValidForAdvancedFind`), in every entity scope. Turn it off to build queries Advanced Find can't: system and customization entities (saved views, forms, plug-in steps, solution components), intersect entities (team membership, user roles), and hidden attributes and relationships. Attributes that can't be read (`IsValidForRead = false`) are never listed. Hidden label attributes (such as `statuscodename`) can be filtered and sorted. Toggling is instant: metadata is fetched once and filtered locally. Attributes already in a query keep their operators and value inputs either way.
 
 ### 🔗 Tool-to-Tool (T2T) Integration
 - **Send to Tool button** — Launch another PPTB tool directly from FetchXML Studio, pre-loading it with the current FetchXML query and active Dataverse connection (one-way handoff).

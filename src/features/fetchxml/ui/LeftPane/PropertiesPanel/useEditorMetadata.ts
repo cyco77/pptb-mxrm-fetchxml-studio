@@ -5,16 +5,19 @@
  */
 import { useEffect, useState } from "react";
 import type { AttributeMetadata, EntityMetadata } from "../../../api/pptbClient";
-import { loadEntityAttributes, loadEntityMetadata, loadIsHierarchical } from "../../../api/dataverseMetadata";
+import { loadAllEntityAttributes, loadEntityMetadata, loadIsHierarchical } from "../../../api/dataverseMetadata";
 import { toAttributeTypeInfo, type AttributeTypeInfo } from "../../../model/attributeCapabilities";
 
-/** Attributes of an entity (Advanced Find-valid), or undefined while loading / unavailable. */
+/**
+ * Every attribute of an entity, for looking up attributes already in the query (not a picker, so
+ * the "Advanced Find only" setting doesn't apply, #57); undefined while loading / unavailable.
+ */
 export function useEntityAttributes(entityName: string | undefined): AttributeMetadata[] | undefined {
 	const [state, setState] = useState<{ entity?: string; attributes?: AttributeMetadata[] }>({});
 	useEffect(() => {
 		if (!entityName) return;
 		let cancelled = false;
-		loadEntityAttributes(entityName)
+		loadAllEntityAttributes(entityName)
 			.then((attributes) => !cancelled && setState({ entity: entityName, attributes }))
 			.catch(() => !cancelled && setState({ entity: entityName, attributes: undefined }));
 		return () => {

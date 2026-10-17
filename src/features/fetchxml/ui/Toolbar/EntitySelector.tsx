@@ -3,7 +3,7 @@
  * Adapts UI based on user privileges (Full Filter / Solutions-Only / Publishers-Only / Metadata-Only / No Access modes)
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
 	Combobox,
 	Option,
@@ -26,6 +26,7 @@ import {
 import { Add20Regular, LockClosed20Regular } from "@fluentui/react-icons";
 import { useAccessMode } from "../../../../shared/hooks/useAccessMode";
 import type { EntityScopeMode } from "../../model/displaySettings";
+import { isEntityInScope } from "../../state/metadataScope";
 import { usePublisherFilter } from "../../../../shared/hooks/usePublisherFilter";
 import { useSolutionFilter } from "../../../../shared/hooks/useSolutionFilter";
 import { useLazyMetadata } from "../../../../shared/hooks/useLazyMetadata";
@@ -174,9 +175,9 @@ export function EntitySelector({
 			entities = allEntities;
 		}
 
-		// Apply Advanced Find filter locally — no re-fetch needed when toggled
+		// Apply Advanced Find filter locally in every scope — no re-fetch needed when toggled (#57)
 		if (advancedFindOnly) {
-			entities = entities.filter((e) => e.IsValidForAdvancedFind !== false);
+			entities = entities.filter((e) => isEntityInScope(e, advancedFindOnly));
 		}
 
 		return entities;
@@ -284,6 +285,7 @@ export function EntitySelector({
 		}
 
 		// No validation needed, proceed with update
+		markScopeChange();
 		publisherFilter.updateSelectedPublishers(newPublisherIds);
 		setPublisherQuery("");
 	};
@@ -353,6 +355,7 @@ export function EntitySelector({
 		}
 
 		// No validation needed, proceed with update
+		markScopeChange();
 		if (effectiveScopeMode === "publisher-solution") {
 			publisherFilter.updateSelectedSolutions(newSolutionIds);
 		} else if (effectiveScopeMode === "solution-only") {
@@ -363,6 +366,7 @@ export function EntitySelector({
 
 	const handleConfirmPublisherChange = () => {
 		// User confirmed - proceed with publisher change, cascades to solutions and entity
+		markScopeChange();
 		publisherFilter.updateSelectedPublishers(pendingPublisherIds);
 		setShowConfirmDialog(false);
 		setPendingPublisherIds([]);
@@ -370,6 +374,7 @@ export function EntitySelector({
 
 	const handleConfirmSolutionChange = () => {
 		// User confirmed - proceed with solution change, entity will auto-clear via useEffect
+		markScopeChange();
 		if (effectiveScopeMode === "publisher-solution") {
 			publisherFilter.updateSelectedSolutions(pendingSolutionIds);
 		} else if (effectiveScopeMode === "solution-only") {
@@ -396,40 +401,6 @@ export function EntitySelector({
 			.map((sol) => sol.friendlyname);
 		return `${selectedNames.length} selected`;
 	}, [currentSelectedSolutionIds, currentSolutions]);
-
-	// Validate entity when available entities change due to the user actively changing
-	// their solution filter. Only clears when an active solution filter is in place —
-	// prevents resetting entities typed manually in the XML editor.
-	useEffect(() => {
-		if (!selectedEntity) return;
-
-		// Only auto-clear if the user has explicitly filtered to specific solutions.
-		// Without an active filter the entity may have been set via the XML editor;
-		// clearing it would be surprising and unwanted.
-		const hasActiveSolutionFilter =
-			(effectiveScopeMode === "publisher-solution" &&
-				publisherFilter.selectedSolutionIds.length > 0) ||
-			(effectiveScopeMode === "solution-only" && solutionFilter.selectedSolutionIds.length > 0);
-
-		if (!hasActiveSolutionFilter) return;
-
-		const isEntityStillAvailable = availableEntities.some(
-			(entity) => entity.LogicalName === selectedEntity,
-		);
-
-		if (!isEntityStillAvailable) {
-			onEntityChange("");
-			onNewQuery();
-		}
-	}, [
-		availableEntities,
-		selectedEntity,
-		onEntityChange,
-		onNewQuery,
-		effectiveScopeMode,
-		publisherFilter.selectedSolutionIds,
-		solutionFilter.selectedSolutionIds,
-	]);
 
 	// Entity search query with filteringhanges that would invalidate entity
 	const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -483,6 +454,51 @@ export function EntitySelector({
 			setEntityQuery("");
 		}
 	};
+
+	// Clear the query when the user changes the publisher / solution selection and the new selection
+	// doesn't include the query's entity (#57). Only after such a change: a query from Parse to Tree,
+	// a file, a view or another tool keeps its entity even when the selected solutions don't include
+	// it (the picker then shows its logical name). The check waits for the new selection's entity
+	// list, and uses that list before the "Advanced Find only" filter (toggling it never clears).
+	const scopeEntities =
+		effectiveScopeMode === "publisher-solution"
+			? publisherFilter.entities
+			: effectiveScopeMode === "solution-only"
+				? solutionFilter.entities
+				: undefined;
+	const scopeEntitiesLoading =
+		effectiveScopeMode === "publisher-solution"
+			? publisherFilter.entitiesLoading
+			: effectiveScopeMode === "solution-only"
+				? solutionFilter.entitiesLoading
+				: false;
+	const scopeChangedFrom = useRef<EntityMetadata[] | null>(null);
+	// Hoisted: the selection handlers above call it on user events
+	function markScopeChange() {
+		scopeChangedFrom.current = scopeEntities ?? null;
+	}
+	useEffect(() => {
+		const before = scopeChangedFrom.current;
+		if (before === null || !scopeEntities || scopeEntitiesLoading || scopeEntities === before) return;
+		scopeChangedFrom.current = null;
+		if (!selectedEntity) return;
+		const hasActiveSolutionFilter =
+			(effectiveScopeMode === "publisher-solution" && publisherFilter.selectedSolutionIds.length > 0) ||
+			(effectiveScopeMode === "solution-only" && solutionFilter.selectedSolutionIds.length > 0);
+		if (hasActiveSolutionFilter && !scopeEntities.some((entity) => entity.LogicalName === selectedEntity)) {
+			onEntityChange("");
+			onNewQuery();
+		}
+	}, [
+		scopeEntities,
+		scopeEntitiesLoading,
+		selectedEntity,
+		onEntityChange,
+		onNewQuery,
+		effectiveScopeMode,
+		publisherFilter.selectedSolutionIds,
+		solutionFilter.selectedSolutionIds,
+	]);
 
 	// Loading state during initial access check
 	if (accessLoading) {

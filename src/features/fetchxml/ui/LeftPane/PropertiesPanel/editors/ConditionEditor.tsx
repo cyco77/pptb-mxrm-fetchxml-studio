@@ -23,7 +23,7 @@ import {
 	operatorRequiresValue,
 	operatorValueShape,
 } from "../../../../model/operators";
-import { loadEntityAttributes, loadAttributeDetailedMetadata } from "../../../../api/dataverseMetadata";
+import { loadAllEntityAttributes, loadAttributeDetailedMetadata } from "../../../../api/dataverseMetadata";
 import type { AttributeMetadata } from "../../../../api/pptbClient";
 import { collectLinkEntityReferences, isConditionInRootEntityFilter } from "../../../../model/treeUtils";
 import { DOCS } from "../docLinks";
@@ -85,7 +85,8 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 			setSelectedAttribute(null);
 			return;
 		}
-		loadEntityAttributes(effectiveEntityName)
+		// A lookup, not a picker: every attribute, so hidden ones keep their operators (#57)
+		loadAllEntityAttributes(effectiveEntityName)
 			.then(async (attributes: AttributeMetadata[]) => {
 				const attr = attributes.find((a) => a.LogicalName === node.attribute);
 				const type = attr?.AttributeType;

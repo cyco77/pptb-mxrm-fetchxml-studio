@@ -115,3 +115,31 @@ describe("value shapes (#87)", () => {
 		expect(adaptValueForOperator("eq", "null", "x")).toBeUndefined();
 	});
 });
+
+describe("getOperatorsForAttribute: attribute types shown with Advanced Find only off (#57)", () => {
+	// Verified on the sandbox (2026-10-16) against hidden attributes of 15 entities
+	const ops = (AttributeType: string, typeName: string) =>
+		getOperatorsForAttribute({ AttributeType, AttributeTypeName: { Value: typeName } }).map((o) => o.value);
+
+	it("Virtual \"...name\" label attributes: null, not-null, eq and like", () => {
+		expect(ops("Virtual", "VirtualType").sort()).toEqual(["eq", "like", "not-null", "null"]);
+	});
+
+	it.each([
+		["Virtual", "ImageType"],
+		["Virtual", "FileType"],
+		["ManagedProperty", "ManagedPropertyType"],
+		["EntityName", "EntityNameType"],
+	])("%s (%s): null and not-null only (eq / like fail: 0x80040203)", (type, typeName) => {
+		expect(ops(type, typeName).sort()).toEqual(["not-null", "null"]);
+	});
+
+	it("PartyList: none (every condition fails: 0x80040203)", () => {
+		expect(ops("PartyList", "PartyListType")).toEqual([]);
+	});
+
+	it("multi-select choices (AttributeType Virtual) keep their own operators", () => {
+		expect(ops("Virtual", "MultiSelectPicklistType")).toContain("contain-values");
+		expect(ops("Virtual", "MultiSelectPicklistType")).not.toContain("like");
+	});
+});

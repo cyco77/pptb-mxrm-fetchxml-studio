@@ -296,22 +296,17 @@ export function TreeView({
 			// Get currently selected attribute names
 			const currentAttributeNames = entityNode.attributes.map((attr) => attr.name);
 
-			// Get all attributes for this entity
-			let attributes = metadataCache.getEntityAttributes(entityName);
-			if (!attributes) {
-				// Fetch from API
-				try {
-					attributes = await loadEntityAttributes(entityName);
-					metadataCache.setEntityAttributes(entityName, attributes);
-				} catch (error) {
-					console.error("Failed to load attributes:", error);
-					attributes = [];
-				}
+			// The attributes to offer, per the "Advanced Find only" setting (#57; cached by the loader)
+			let attributes: AttributeMetadata[] = [];
+			try {
+				attributes = await loadEntityAttributes(entityName);
+			} catch (error) {
+				console.error("Failed to load attributes:", error);
 			}
 
 			setSelectAttrsEntityId(entityNode.id);
 			setSelectAttrsDisplayName(entityDisplayName);
-			setSelectAttrsAttributes(attributes || []);
+			setSelectAttrsAttributes(attributes);
 			setSelectAttrsCurrentNames(currentAttributeNames);
 			setSelectAttrsDialogOpen(true);
 		},

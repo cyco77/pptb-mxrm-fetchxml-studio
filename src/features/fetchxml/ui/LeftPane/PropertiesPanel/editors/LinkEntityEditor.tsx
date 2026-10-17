@@ -32,6 +32,7 @@ import { RelationshipPicker, type RelationshipOption } from "../../../../../../s
 import { planManyToManyJoin } from "../../../../model/manyToMany";
 import { loadEntityMetadata } from "../../../../api/dataverseMetadata";
 import { useBuilder } from "../../../../state/builderContext";
+import { collectLinkEntityAliases, generateUniqueAlias } from "../../../../model/aliasUtils";
 import { DOCS } from "../docLinks";
 import { useEditorStyles } from "../editorStyles";
 import { Info, InfoCheckbox, InfoField, LeftoverSetting, SectionHeading, type Validation } from "../fields";
@@ -73,7 +74,7 @@ interface LinkEntityEditorProps {
 
 export function LinkEntityEditor({ node, parentEntityName, inFilter, findings, onUpdate }: LinkEntityEditorProps) {
 	const styles = useEditorStyles();
-	const { addLinkEntityWithConfig } = useBuilder();
+	const { addLinkEntityWithConfig, fetchQuery } = useBuilder();
 	const [pendingLinkType, setPendingLinkType] = useState<LinkType | null>(null);
 	const [relationshipError, setRelationshipError] = useState<string | null>(null);
 
@@ -182,6 +183,12 @@ export function LinkEntityEditor({ node, parentEntityName, inFilter, findings, o
 				updates.from = relationship.referencingAttribute;
 				updates.to = relationship.referencedAttribute;
 			}
+		}
+		// A new link-entity's placeholder alias ("new_entity…") becomes one for the related entity
+		if (node.alias?.startsWith("new_entity") && typeof updates.name === "string" && updates.name && fetchQuery) {
+			const otherAliases = collectLinkEntityAliases(fetchQuery);
+			otherAliases.delete(node.alias);
+			updates.alias = generateUniqueAlias(updates.name, otherAliases);
 		}
 		onUpdate(updates);
 		setUseRelationshipPicker(false);

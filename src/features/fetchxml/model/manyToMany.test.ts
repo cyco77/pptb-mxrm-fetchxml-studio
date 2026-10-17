@@ -3,7 +3,7 @@
  * resulting joins were executed live and matched the intersect entity's rows.
  */
 import { describe, expect, it } from "vitest";
-import { planManyToManyJoin, type ManyToManyRelationship } from "./manyToMany";
+import { planIntersectEntityJoins, planManyToManyJoin, relationshipKey, type IntersectRelationship, type ManyToManyRelationship } from "./manyToMany";
 
 const PK: Record<string, string> = { systemuser: "systemuserid", team: "teamid", connectionrole: "connectionroleid", appmodule: "appmoduleid", role: "roleid" };
 const pk = (e: string) => PK[e];
@@ -59,5 +59,90 @@ describe("planManyToManyJoin", () => {
 
 	it("returns undefined when the parent isn't part of the relationship", () => {
 		expect(planManyToManyJoin("account", "accountid", teammembership, pk)).toBeUndefined();
+	});
+});
+
+describe("planIntersectEntityJoins (#57)", () => {
+	// Sandbox metadata (2026-10-16); every join below ran live
+	const systemuserroles: IntersectRelationship = {
+		SchemaName: "systemuserroles_association",
+		MetadataId: "m1",
+		IsValidForAdvancedFind: true,
+		Entity1LogicalName: "role",
+		Entity2LogicalName: "systemuser",
+		Entity1IntersectAttribute: "roleid",
+		Entity2IntersectAttribute: "systemuserid",
+		IntersectEntityName: "systemuserroles",
+	};
+
+	it("joins the intersect entity to each side: from = that side's key, to = the intersect attribute", () => {
+		expect(planIntersectEntityJoins("systemuserroles", [systemuserroles], pk)).toEqual([
+			{
+				SchemaName: "systemuserroles_association",
+				RelationshipType: "ManyToOneRelationship",
+				MetadataId: "m1:1",
+				IsValidForAdvancedFind: true,
+				ReferencingEntity: "systemuserroles",
+				ReferencingAttribute: "roleid",
+				ReferencedEntity: "role",
+				ReferencedAttribute: "roleid",
+				IntersectSide: 1,
+			},
+			{
+				SchemaName: "systemuserroles_association",
+				RelationshipType: "ManyToOneRelationship",
+				MetadataId: "m1:2",
+				IsValidForAdvancedFind: true,
+				ReferencingEntity: "systemuserroles",
+				ReferencingAttribute: "systemuserid",
+				ReferencedEntity: "systemuser",
+				ReferencedAttribute: "systemuserid",
+				IntersectSide: 2,
+			},
+		]);
+	});
+
+	it("keeps polymorphic intersect attributes (listmember.entityid → contact.contactid)", () => {
+		const listcontact: IntersectRelationship = {
+			SchemaName: "listcontact_association",
+			MetadataId: "m2",
+			Entity1LogicalName: "list",
+			Entity2LogicalName: "contact",
+			Entity1IntersectAttribute: "listid",
+			Entity2IntersectAttribute: "entityid",
+			IntersectEntityName: "listmember",
+		};
+		const joins = planIntersectEntityJoins("listmember", [listcontact], (e) => ({ list: "listid", contact: "contactid" })[e]);
+		expect(joins.map((j) => `${j.ReferencedEntity}.${j.ReferencedAttribute} <- ${j.ReferencingAttribute}`)).toEqual([
+			"list.listid <- listid",
+			"contact.contactid <- entityid",
+		]);
+	});
+
+	it("self-referential: two joins to the same entity through different attributes", () => {
+		const selfRef: IntersectRelationship = {
+			SchemaName: "adx_kbarticle_kbarticle",
+			MetadataId: "m3",
+			Entity1LogicalName: "kbarticle",
+			Entity2LogicalName: "kbarticle",
+			Entity1IntersectAttribute: "kbarticleidone",
+			Entity2IntersectAttribute: "kbarticleidtwo",
+			IntersectEntityName: "adx_kbarticle_kbarticle",
+		};
+		const joins = planIntersectEntityJoins("adx_kbarticle_kbarticle", [selfRef], () => "kbarticleid");
+		expect(joins.map((j) => j.ReferencingAttribute)).toEqual(["kbarticleidone", "kbarticleidtwo"]);
+		expect(new Set(joins.map(relationshipKey)).size).toBe(2);
+	});
+
+	it("ignores relationships of other entities, and sides whose primary key is unknown", () => {
+		expect(planIntersectEntityJoins("systemuser", [systemuserroles], pk)).toEqual([]);
+		expect(planIntersectEntityJoins("systemuserroles", [systemuserroles], (e) => (e === "role" ? "roleid" : undefined))).toHaveLength(1);
+	});
+});
+
+describe("relationshipKey", () => {
+	it("is the schema name, plus the side for an intersect entity's joins", () => {
+		expect(relationshipKey({ SchemaName: "account_primary_contact" })).toBe("account_primary_contact");
+		expect(relationshipKey({ SchemaName: "systemuserroles_association", IntersectSide: 2 })).toBe("systemuserroles_association#2");
 	});
 });

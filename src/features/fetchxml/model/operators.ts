@@ -56,6 +56,7 @@ export const ALL_OPERATORS: OperatorDefinition[] = [
 			"Customer",
 			"Owner",
 			"Uniqueidentifier",
+			"Virtual",
 		],
 	},
 	{
@@ -110,7 +111,7 @@ export const ALL_OPERATORS: OperatorDefinition[] = [
 		value: "like",
 		label: "Like (pattern)",
 		requiresValue: true,
-		applicableTypes: ["String", "Memo"],
+		applicableTypes: ["String", "Memo", "Virtual"],
 	},
 	{
 		value: "not-like",
@@ -210,7 +211,14 @@ export const ALL_OPERATORS: OperatorDefinition[] = [
 		value: "null",
 		label: "Is Null",
 		requiresValue: false,
+		// Virtual (the "...name" label attributes), Image, File, ManagedProperty and EntityName only
+		// appear with "Advanced Find only" off; null / not-null verified on each (#57)
 		applicableTypes: [
+			"Virtual",
+			"Image",
+			"File",
+			"ManagedProperty",
+			"EntityName",
 			"MultiSelectPicklist",
 			"String",
 			"Memo",
@@ -235,6 +243,11 @@ export const ALL_OPERATORS: OperatorDefinition[] = [
 		label: "Is Not Null",
 		requiresValue: false,
 		applicableTypes: [
+			"Virtual",
+			"Image",
+			"File",
+			"ManagedProperty",
+			"EntityName",
 			"MultiSelectPicklist",
 			"String",
 			"Memo",
@@ -654,10 +667,13 @@ export function getOperatorsForAttribute(
 	isHierarchical?: boolean,
 ): OperatorDefinition[] {
 	if (!attribute?.AttributeType) return ALL_OPERATORS;
-	const type =
-		attribute.AttributeTypeName?.Value === "MultiSelectPicklistType"
-			? "multiselectpicklist"
-			: attribute.AttributeType.replace(/Type$/, "").toLowerCase();
+	// Virtual covers several types: AttributeTypeName tells multi-select choices, images and files
+	// apart from the "...name" label attributes (VirtualType)
+	const typeName = attribute.AttributeTypeName?.Value;
+	const byTypeName = !!typeName && (attribute.AttributeType === "Virtual" || typeName === "MultiSelectPicklistType");
+	const type = (byTypeName ? typeName : attribute.AttributeType)
+		.replace(/Type$/, "")
+		.toLowerCase();
 	const dateOnly = attribute.DateTimeBehavior?.Value === "DateOnly";
 	return ALL_OPERATORS.filter((op) => {
 		if (op.hierarchyPrimaryKeyOnly) return !!attribute.IsPrimaryId && isHierarchical !== false;
