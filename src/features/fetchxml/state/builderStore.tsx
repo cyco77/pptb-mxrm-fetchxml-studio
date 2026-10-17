@@ -3,7 +3,7 @@
  * Manages FetchXML query structure and tree operations
  */
 
-import { useReducer, type ReactNode } from "react";
+import { useMemo, useReducer, type ReactNode } from "react";
 import { BuilderContext, type BuilderContextValue, type LoadFetchXmlOptions } from "./builderContext";
 import type {
 	FetchNode,
@@ -993,101 +993,106 @@ export interface ViewLoadInfo {
 export function BuilderProvider({ children }: { children: ReactNode }) {
 	const [state, dispatch] = useReducer(builderReducer, initialState);
 
-	const contextValue: BuilderContextValue = {
-		...state,
-		setEntity: (entityName: string) => dispatch({ type: "SET_ENTITY", entityName }),
-		selectNode: (nodeId: NodeId) => dispatch({ type: "SELECT_NODE", nodeId }),
-		addAttribute: (parentId: NodeId) => dispatch({ type: "ADD_ATTRIBUTE", parentId }),
-		addAttributeByName: (parentId: NodeId, attributeName: string) =>
-			dispatch({ type: "ADD_ATTRIBUTE_BY_NAME", parentId, attributeName }),
-		updateAttributes: (parentId: NodeId, attributeNames: string[]) =>
-			dispatch({ type: "UPDATE_ATTRIBUTES", parentId, attributeNames }),
-		addAllAttributes: (parentId: NodeId) => dispatch({ type: "ADD_ALL_ATTRIBUTES", parentId }),
-		addOrder: (parentId: NodeId) => dispatch({ type: "ADD_ORDER", parentId }),
-		addFilter: (parentId: NodeId) => dispatch({ type: "ADD_FILTER", parentId }),
-		addSubfilter: (filterId: NodeId) => dispatch({ type: "ADD_SUBFILTER", filterId }),
-		addCondition: (filterId: NodeId) => dispatch({ type: "ADD_CONDITION", filterId }),
-		addLinkEntity: (parentId: NodeId) => dispatch({ type: "ADD_LINK_ENTITY", parentId }),
-		addLinkEntityWithConfig: (
-			parentId: NodeId,
-			name: string,
-			from: string,
-			to: string,
-			linkType: "inner" | "outer",
-			relationshipType?: "N1" | "1N" | "NN",
-		): NodeId => {
-			const id = generateId();
-			dispatch({
-				type: "ADD_LINK_ENTITY_WITH_CONFIG",
-				id,
-				parentId,
-				name,
-				from,
-				to,
-				linkType,
-				relationshipType,
-			});
-			return id;
-		},
-		removeNode: (nodeId: NodeId) => dispatch({ type: "REMOVE_NODE", nodeId }),
-		updateNode: (nodeId: NodeId, updates: Record<string, unknown>) =>
-			dispatch({ type: "UPDATE_NODE", nodeId, updates }),
-		newQuery: () => dispatch({ type: "NEW_QUERY" }),
-		loadFetchXml: (xmlString: string, options?: LoadFetchXmlOptions): ParseResult => {
-			const result = parseFetchXml(xmlString);
-			if (result.success && result.fetchNode) {
+	// The actions are created once (dispatch never changes) and the context value only changes with the
+	// state, so consumers can list builder actions as hook dependencies without re-running every render (#65)
+	const actions = useMemo(
+		() => ({
+			setEntity: (entityName: string) => dispatch({ type: "SET_ENTITY", entityName }),
+			selectNode: (nodeId: NodeId) => dispatch({ type: "SELECT_NODE", nodeId }),
+			addAttribute: (parentId: NodeId) => dispatch({ type: "ADD_ATTRIBUTE", parentId }),
+			addAttributeByName: (parentId: NodeId, attributeName: string) =>
+				dispatch({ type: "ADD_ATTRIBUTE_BY_NAME", parentId, attributeName }),
+			updateAttributes: (parentId: NodeId, attributeNames: string[]) =>
+				dispatch({ type: "UPDATE_ATTRIBUTES", parentId, attributeNames }),
+			addAllAttributes: (parentId: NodeId) => dispatch({ type: "ADD_ALL_ATTRIBUTES", parentId }),
+			addOrder: (parentId: NodeId) => dispatch({ type: "ADD_ORDER", parentId }),
+			addFilter: (parentId: NodeId) => dispatch({ type: "ADD_FILTER", parentId }),
+			addSubfilter: (filterId: NodeId) => dispatch({ type: "ADD_SUBFILTER", filterId }),
+			addCondition: (filterId: NodeId) => dispatch({ type: "ADD_CONDITION", filterId }),
+			addLinkEntity: (parentId: NodeId) => dispatch({ type: "ADD_LINK_ENTITY", parentId }),
+			addLinkEntityWithConfig: (
+				parentId: NodeId,
+				name: string,
+				from: string,
+				to: string,
+				linkType: "inner" | "outer",
+				relationshipType?: "N1" | "1N" | "NN",
+			): NodeId => {
+				const id = generateId();
 				dispatch({
-					type: "LOAD_FETCHXML",
-					fetchNode: result.fetchNode,
-					preserveLayout: options?.preserveLayout,
+					type: "ADD_LINK_ENTITY_WITH_CONFIG",
+					id,
+					parentId,
+					name,
+					from,
+					to,
+					linkType,
+					relationshipType,
 				});
-			}
-			return result;
-		},
-		loadView: (xmlString: string, viewInfo: ViewLoadInfo, layoutXml?: string): ParseResult => {
-			const result = parseFetchXml(xmlString);
-			if (result.success && result.fetchNode) {
+				return id;
+			},
+			removeNode: (nodeId: NodeId) => dispatch({ type: "REMOVE_NODE", nodeId }),
+			updateNode: (nodeId: NodeId, updates: Record<string, unknown>) =>
+				dispatch({ type: "UPDATE_NODE", nodeId, updates }),
+			newQuery: () => dispatch({ type: "NEW_QUERY" }),
+			loadFetchXml: (xmlString: string, options?: LoadFetchXmlOptions): ParseResult => {
+				const result = parseFetchXml(xmlString);
+				if (result.success && result.fetchNode) {
+					dispatch({
+						type: "LOAD_FETCHXML",
+						fetchNode: result.fetchNode,
+						preserveLayout: options?.preserveLayout,
+					});
+				}
+				return result;
+			},
+			loadView: (xmlString: string, viewInfo: ViewLoadInfo, layoutXml?: string): ParseResult => {
+				const result = parseFetchXml(xmlString);
+				if (result.success && result.fetchNode) {
+					dispatch({
+						type: "LOAD_VIEW",
+						fetchNode: result.fetchNode,
+						viewInfo: {
+							id: viewInfo.id,
+							type: viewInfo.type,
+							originalFetchXml: xmlString,
+							entitySetName: viewInfo.entitySetName,
+							name: viewInfo.name,
+						},
+						layoutXml,
+					});
+				}
+				return result;
+			},
+			clearLoadedView: () => dispatch({ type: "CLEAR_LOADED_VIEW" }),
+			setLoadedView: (viewInfo: ViewLoadInfo) =>
 				dispatch({
-					type: "LOAD_VIEW",
-					fetchNode: result.fetchNode,
+					type: "SET_LOADED_VIEW",
 					viewInfo: {
 						id: viewInfo.id,
 						type: viewInfo.type,
-						originalFetchXml: xmlString,
+						// originalFetchXml is supplied by the caller, which has entity metadata available.
+						// The store never derives/guesses the primary key itself.
+						originalFetchXml: viewInfo.originalFetchXml,
 						entitySetName: viewInfo.entitySetName,
 						name: viewInfo.name,
 					},
-					layoutXml,
-				});
-			}
-			return result;
-		},
-		clearLoadedView: () => dispatch({ type: "CLEAR_LOADED_VIEW" }),
-		setLoadedView: (viewInfo: ViewLoadInfo) =>
-			dispatch({
-				type: "SET_LOADED_VIEW",
-				viewInfo: {
-					id: viewInfo.id,
-					type: viewInfo.type,
-					// originalFetchXml is supplied by the caller, which has entity metadata available.
-					// The store never derives/guesses the primary key itself.
-					originalFetchXml: viewInfo.originalFetchXml,
-					entitySetName: viewInfo.entitySetName,
-					name: viewInfo.name,
-				},
-			}),
-		setColumnConfig: (config: LayoutXmlConfig) => dispatch({ type: "SET_COLUMN_CONFIG", config }),
-		updateColumnWidth: (columnName: string, width: number) =>
-			dispatch({ type: "UPDATE_COLUMN_WIDTH", columnName, width }),
-		reorderColumns: (fromIndex: number, toIndex: number) =>
-			dispatch({ type: "REORDER_COLUMNS", fromIndex, toIndex }),
-		syncLayoutWithFetchXml: (attributeTypeMap?: Map<string, string>, primaryIdAttribute?: string) =>
-			dispatch({ type: "SYNC_LAYOUT_WITH_FETCHXML", attributeTypeMap, primaryIdAttribute }),
-		setSort: (plan: SortPlan, descending: boolean, isMultiSort: boolean) =>
-			dispatch({ type: "SET_SORT", plan, descending, isMultiSort }),
-		setRetrieveAllRecords: (enabled: boolean) =>
-			dispatch({ type: "SET_RETRIEVE_ALL_RECORDS", enabled }),
-	};
+				}),
+			setColumnConfig: (config: LayoutXmlConfig) => dispatch({ type: "SET_COLUMN_CONFIG", config }),
+			updateColumnWidth: (columnName: string, width: number) =>
+				dispatch({ type: "UPDATE_COLUMN_WIDTH", columnName, width }),
+			reorderColumns: (fromIndex: number, toIndex: number) =>
+				dispatch({ type: "REORDER_COLUMNS", fromIndex, toIndex }),
+			syncLayoutWithFetchXml: (attributeTypeMap?: Map<string, string>, primaryIdAttribute?: string) =>
+				dispatch({ type: "SYNC_LAYOUT_WITH_FETCHXML", attributeTypeMap, primaryIdAttribute }),
+			setSort: (plan: SortPlan, descending: boolean, isMultiSort: boolean) =>
+				dispatch({ type: "SET_SORT", plan, descending, isMultiSort }),
+			setRetrieveAllRecords: (enabled: boolean) =>
+				dispatch({ type: "SET_RETRIEVE_ALL_RECORDS", enabled }),
+		}),
+		[],
+	);
+	const contextValue = useMemo<BuilderContextValue>(() => ({ ...state, ...actions }), [state, actions]);
 
 	return <BuilderContext.Provider value={contextValue}>{children}</BuilderContext.Provider>;
 }

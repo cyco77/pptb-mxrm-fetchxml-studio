@@ -305,7 +305,7 @@ export function FetchXmlEditor({
 			// Reset input so same file can be loaded again
 			event.target.value = "";
 		},
-		[addMessage],
+		[addMessage, onEditorStateChange],
 	);
 
 	// Reset to tree-generated XML

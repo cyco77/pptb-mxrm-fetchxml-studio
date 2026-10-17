@@ -283,7 +283,10 @@ export function TreeView({
 				}
 			}, 250);
 		}
-	}, [selectedNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+		// Only a new selection expands and scrolls: findPathToNode reads the current tree, and re-running
+		// on every tree edit would keep re-expanding and scrolling while the user works (#65)
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selectedNodeId]);
 
 	// Handle opening the Select Attributes dialog
 	const handleOpenSelectAttributes = useCallback(
