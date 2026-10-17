@@ -24,6 +24,8 @@ import { debugLog } from "../../../shared/utils/debug";
 import { responseHasFormattedValues } from "./formattedValues";
 import { metadataCache } from "../state/cache";
 import { nextLinkToQueryPath, parseFetchXmlPagingCookie } from "./paging";
+import { formatDataverseError } from "./dataverseErrors";
+import { withThrottleRetry } from "./throttleRetry";
 import { readManagedPropertyValue, sortViewsByQueryType } from "../model/savedViews";
 
 export interface EntityMetadata {
@@ -2127,7 +2129,8 @@ export async function deleteRecord(entitySetName: string, recordId: string): Pro
 	debugLog("recordAPI", `📡 Deleting record: ${entitySetName}(${recordId})`);
 
 	try {
-		await window.dataverseAPI!.delete(entitySetName, recordId);
+		// Retried after service protection errors (#96): Dataverse rejected the request unprocessed
+		await withThrottleRetry(() => window.dataverseAPI!.delete(entitySetName, recordId));
 		debugLog("recordAPI", `✅ Record deleted: ${entitySetName}(${recordId})`);
 	} catch (error) {
 		console.error("deleteRecord: Failed:", error);
@@ -2393,15 +2396,18 @@ export async function executeWorkflow(
 	);
 
 	try {
-		await window.dataverseAPI!.execute({
-			operationName: "ExecuteWorkflow",
-			operationType: "action",
-			entityName: "workflow",
-			entityId: workflowId,
-			parameters: {
-				EntityId: recordId,
-			},
-		});
+		// Retried after service protection errors (#96): Dataverse rejected the request unprocessed
+		await withThrottleRetry(() =>
+			window.dataverseAPI!.execute({
+				operationName: "ExecuteWorkflow",
+				operationType: "action",
+				entityName: "workflow",
+				entityId: workflowId,
+				parameters: {
+					EntityId: recordId,
+				},
+			}),
+		);
 
 		debugLog("workflowAPI", `✅ Workflow executed successfully`);
 	} catch (error) {
@@ -2478,7 +2484,7 @@ export async function executeWorkflowBatch(
 				return {
 					success: false,
 					recordId,
-					error: error instanceof Error ? error.message : String(error),
+					error: formatDataverseError(error), // actionable text for documented codes (#96)
 				};
 			}
 		});
@@ -2611,7 +2617,7 @@ export async function deleteRecordsBatch(
 				return {
 					success: false,
 					recordId,
-					error: error instanceof Error ? error.message : String(error),
+					error: formatDataverseError(error), // actionable text for documented codes (#96)
 				};
 			}
 		});

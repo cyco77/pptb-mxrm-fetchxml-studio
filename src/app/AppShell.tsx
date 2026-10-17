@@ -72,6 +72,8 @@ import {
 	type PagingState,
 } from "../features/fetchxml/api/paging";
 import type { FetchXmlResult } from "../features/fetchxml/api/pptbClient";
+import { formatDataverseError } from "../features/fetchxml/api/dataverseErrors";
+import { withThrottleRetry } from "../features/fetchxml/api/throttleRetry";
 import { getQueryEntities } from "../features/fetchxml/model/treeUtils";
 import { NON_RETURNING_LINK_TYPES } from "../features/fetchxml/model/fetchxmlRules";
 import { planRemoveColumns, planSortByColumn, resolveColumn } from "../features/fetchxml/model/queryColumns";
@@ -885,11 +887,8 @@ function AppContent() {
 		} catch (error) {
 			if (run !== resultRunRef.current) return;
 			console.error("Failed to execute FetchXML:", error);
-			const message =
-				error instanceof Error
-					? error.message
-					: "An unexpected error occurred while executing the query.";
-			setExecuteError(message);
+			// Documented Dataverse errors get actionable text; Dataverse's own message follows (#96)
+			setExecuteError(formatDataverseError(error, "An unexpected error occurred while executing the query."));
 			setQueryResult({ query, rows: [] });
 			setIsExecuting(false);
 		}
@@ -935,10 +934,12 @@ function AppContent() {
 	 * the decoded paging cookie (when Dataverse returned one) and the executed query's own count.
 	 */
 	const fetchNextPage = async (state: PagingState): Promise<{ result: FetchXmlResult; next: PagingState }> => {
-		const result =
+		// Pages are sent one after another: wait and retry after service protection errors (#96)
+		const result = await withThrottleRetry(() =>
 			state.mode === "view"
-				? await executeNextLink(state.nextLink ?? "")
-				: await executeFetchXml(addPagingToFetchXml(state.xml, state.nextPage, state.pagingCookie, state.pageSize));
+				? executeNextLink(state.nextLink ?? "")
+				: executeFetchXml(addPagingToFetchXml(state.xml, state.nextPage, state.pagingCookie, state.pageSize)),
+		);
 		return { result, next: advancePaging(state, result) };
 	};
 
@@ -985,7 +986,7 @@ function AppContent() {
 			setPagingNotice({
 				kind: "error",
 				page: state?.nextPage,
-				message: error instanceof Error ? error.message : String(error),
+				message: formatDataverseError(error), // (#96)
 			});
 		} finally {
 			if (isCurrent()) {
@@ -1030,7 +1031,7 @@ function AppContent() {
 			setPagingNotice({
 				kind: "error",
 				page: state.nextPage,
-				message: error instanceof Error ? error.message : String(error),
+				message: formatDataverseError(error), // (#96)
 			});
 		} finally {
 			if (isCurrent()) setIsLoadingMore(false);
@@ -1116,7 +1117,7 @@ function AppContent() {
 			setExportStatus((prev) => ({
 				...prev,
 				isExporting: false,
-				error: error instanceof Error ? error.message : "Export to Excel failed. Please try again.",
+				error: formatDataverseError(error, "Export to Excel failed. Please try again."), // (#96)
 			}));
 		}
 	};
@@ -1401,7 +1402,7 @@ function AppContent() {
 				successCount++;
 			} catch (error) {
 				errors.push(
-					`Failed to delete ${recordId}: ${error instanceof Error ? error.message : String(error)}`,
+					`Failed to delete ${recordId}: ${formatDataverseError(error)}`, // (#96)
 				);
 			}
 		}

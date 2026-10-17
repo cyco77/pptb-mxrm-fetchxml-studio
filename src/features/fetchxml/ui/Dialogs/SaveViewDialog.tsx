@@ -49,6 +49,7 @@ import {
 	type ValidatorIssue,
 	type Solution,
 } from "../../api/pptbClient";
+import { formatDataverseError } from "../../api/dataverseErrors";
 import { SolutionPicker } from "./SolutionPicker";
 import { canOverwriteView, getValidationStatus } from "../../model/savedViews";
 
@@ -420,7 +421,7 @@ export function SaveViewDialog({
 			onSaveComplete(viewId, viewType, name.trim());
 		} catch (error) {
 			console.error("Failed to save view:", error);
-			setSaveError(error instanceof Error ? error.message : "Failed to save view");
+			setSaveError(formatDataverseError(error, "Failed to save view")); // (#96)
 		} finally {
 			setIsSaving(false);
 		}
