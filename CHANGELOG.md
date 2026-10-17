@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.20] - 2026-10-17
+
+### 🔧 Fixed
+
+- **The tool icon looked small in PPTB (#121).** PPTB draws tool icons in a 20×20 box, but the hexagon only filled 56×48 of the icons' 64×64 canvas, so it showed at about 17×15 px.
+  - Both icons (`icon.svg` and the Insider `icon-insider.svg`) now crop their `viewBox` to the hexagon: `4 8 56 48`. They draw at about 20×17 px.
+  - The artwork is unchanged; no shape or stroke falls outside the new box.
+  - The build still emits the right variant to `dist/icons/icon.svg`, and `pptb-validate` passes.
+
 ## [1.4.1-beta.19] - 2026-10-17
 
 ### 🔧 Fixed
