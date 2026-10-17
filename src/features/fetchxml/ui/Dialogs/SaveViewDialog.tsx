@@ -50,6 +50,7 @@ import {
 	type Solution,
 } from "../../api/pptbClient";
 import { formatDataverseError } from "../../api/dataverseErrors";
+import { holdClose } from "../../api/host";
 import { SolutionPicker } from "./SolutionPicker";
 import { canOverwriteView, getValidationStatus } from "../../model/savedViews";
 
@@ -352,6 +353,8 @@ export function SaveViewDialog({
 
 		setIsSaving(true);
 		setSaveError(null);
+		// The host warns before the tab closes while the view is saved and published (#70)
+		const releaseClose = holdClose();
 
 		try {
 			let viewId: string;
@@ -423,6 +426,7 @@ export function SaveViewDialog({
 			console.error("Failed to save view:", error);
 			setSaveError(formatDataverseError(error, "Failed to save view")); // (#96)
 		} finally {
+			releaseClose();
 			setIsSaving(false);
 		}
 	}, [

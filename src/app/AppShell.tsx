@@ -89,6 +89,7 @@ import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid"
 import { SettingsDrawer } from "../features/fetchxml/ui/Settings/SettingsDrawer";
 import { usePersistedSettings } from "../shared/hooks/usePersistedSettings";
 import { useAccessMode } from "../shared/hooks/useAccessMode";
+import { copyText, holdClose, openUrl, whileHoldingClose } from "../features/fetchxml/api/host";
 import { metadataCache } from "../features/fetchxml/state/cache";
 import { nextConnectionScope, type ConnectionScope } from "../shared/hooks/connectionIdentity";
 
@@ -1035,6 +1036,8 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 		state = { ...state, isRetrieveAllInProgress: true, retrieveAll: true };
 		setIsLoadingMore(true);
 		setPaging(state);
+		// The host warns before the tab closes while Retrieve All runs (#70)
+		const releaseClose = holdClose();
 		try {
 			while (state?.moreRecords) {
 				const { result, next } = await fetchNextPage(state);
@@ -1053,6 +1056,7 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 				message: formatDataverseError(error), // (#96)
 			});
 		} finally {
+			releaseClose();
 			if (isCurrent()) {
 				setIsLoadingMore(false);
 				if (pagingRef.current) setPaging({ ...pagingRef.current, isRetrieveAllInProgress: false });
@@ -1322,10 +1326,11 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 				return;
 			}
 
-			// Open each selected record in a new tab
+			// Open each selected record in the connection's browser profile, already signed in to
+			// the right tenant (#70)
 			for (const recordId of recordIds) {
 				const url = buildRecordUrl(entityLogicalName, recordId, envUrl);
-				window.open(url, "_blank");
+				await openUrl(url);
 			}
 		},
 		[entityLogicalName],
@@ -1347,11 +1352,10 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 			const urls = recordIds.map((id) => buildRecordUrl(entityLogicalName, id, envUrl));
 			const textToCopy = urls.join("\n");
 
-			try {
-				await navigator.clipboard.writeText(textToCopy);
+			if (await copyText(textToCopy)) {
 				debugLog("app", `📋 Copied ${urls.length} record URL(s) to clipboard`);
-			} catch (error) {
-				console.error("Failed to copy to clipboard:", error);
+			} else {
+				console.error("Failed to copy to clipboard");
 			}
 		},
 		[entityLogicalName],
@@ -1439,49 +1443,54 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 
 		const recordIds = deleteDialogState.recordIds;
 		setDeleteProgress(null);
+		// The host warns before the tab closes while records are being deleted (#70)
+		const releaseClose = holdClose();
+		try {
+			// For batch delete (4+ records): $batch requests with the metadata EntitySetName on
+			// PPTB ≥ 1.2.7 (#61)
+			if (deleteDialogState.isBatchDelete) {
+				const result = await deleteRecordsBatch(
+					entityLogicalName,
+					recordIds,
+					(progress) => setDeleteProgress(progress),
+				);
 
-		// For batch delete (4+ records): $batch requests with the metadata EntitySetName on
-		// PPTB ≥ 1.2.7 (#61)
-		if (deleteDialogState.isBatchDelete) {
-			const result = await deleteRecordsBatch(
-				entityLogicalName,
-				recordIds,
-				(progress) => setDeleteProgress(progress),
-			);
+				if (result.succeeded > 0) {
+					debugLog("app", `✅ Batch deleted ${result.succeeded} of ${recordIds.length} records`);
+					// Re-execute query to refresh results
+					void handleExecuteRef.current();
+				}
 
-			if (result.succeeded > 0) {
-				debugLog("app", `✅ Batch deleted ${result.succeeded} of ${recordIds.length} records`);
+				return result;
+			}
+
+			// Sequential delete for 1-3 records
+			let successCount = 0;
+			const errors: string[] = [];
+
+			for (const recordId of recordIds) {
+				try {
+					await deleteRecord(entityLogicalName, recordId);
+					successCount++;
+				} catch (error) {
+					errors.push(
+						`Failed to delete ${recordId}: ${formatDataverseError(error)}`, // (#96)
+					);
+				}
+			}
+
+			if (successCount > 0) {
+				debugLog("app", `✅ Deleted ${successCount} of ${recordIds.length} records`);
 				// Re-execute query to refresh results
 				void handleExecuteRef.current();
 			}
 
-			return result;
-		}
-
-		// Sequential delete for 1-3 records
-		let successCount = 0;
-		const errors: string[] = [];
-
-		for (const recordId of recordIds) {
-			try {
-				await deleteRecord(entityLogicalName, recordId);
-				successCount++;
-			} catch (error) {
-				errors.push(
-					`Failed to delete ${recordId}: ${formatDataverseError(error)}`, // (#96)
-				);
+			if (errors.length > 0) {
+				console.error("Delete errors:", errors);
+				return { succeeded: successCount, failed: errors.length, errors };
 			}
-		}
-
-		if (successCount > 0) {
-			debugLog("app", `✅ Deleted ${successCount} of ${recordIds.length} records`);
-			// Re-execute query to refresh results
-			void handleExecuteRef.current();
-		}
-
-		if (errors.length > 0) {
-			console.error("Delete errors:", errors);
-			return { succeeded: successCount, failed: errors.length, errors };
+		} finally {
+			releaseClose();
 		}
 	}, [
 		entityLogicalName,
@@ -1568,7 +1577,8 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 			if (!entityLogicalName) {
 				return { succeeded: 0, failed: recordIds.length, errors: ["Entity not selected"] };
 			}
-			return executeWorkflowBatch(workflowId, recordIds, entityLogicalName, onProgress);
+			// The host warns before the tab closes while workflows are being started (#70)
+			return whileHoldingClose(() => executeWorkflowBatch(workflowId, recordIds, entityLogicalName, onProgress));
 		},
 		[entityLogicalName],
 	);

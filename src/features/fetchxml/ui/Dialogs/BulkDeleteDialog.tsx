@@ -32,6 +32,7 @@ import {
 	ErrorCircle20Regular,
 } from "@fluentui/react-icons";
 import { formatDataverseError } from "../../api/dataverseErrors";
+import { copyText, openUrl } from "../../api/host";
 
 const useStyles = makeStyles({
 	content: {
@@ -140,28 +141,17 @@ export function BulkDeleteDialog({
 	}, [state, onClose]);
 
 	const handleCopyUrl = useCallback(async () => {
-		if (result?.jobUrl) {
-			try {
-				await navigator.clipboard.writeText(result.jobUrl);
-				setCopied(true);
-				setTimeout(() => setCopied(false), 2000);
-			} catch {
-				// Fallback for older browsers
-				const textArea = document.createElement("textarea");
-				textArea.value = result.jobUrl;
-				document.body.appendChild(textArea);
-				textArea.select();
-				document.execCommand("copy");
-				document.body.removeChild(textArea);
-				setCopied(true);
-				setTimeout(() => setCopied(false), 2000);
-			}
+		// The ToolBox clipboard first, then the browser's (#70)
+		if (result?.jobUrl && (await copyText(result.jobUrl))) {
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
 		}
 	}, [result]);
 
 	const handleOpenJob = useCallback(() => {
+		// In the connection's browser profile (#70)
 		if (result?.jobUrl) {
-			window.open(result.jobUrl, "_blank");
+			void openUrl(result.jobUrl);
 		}
 	}, [result]);
 

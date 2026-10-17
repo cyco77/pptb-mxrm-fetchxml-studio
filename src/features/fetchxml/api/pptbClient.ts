@@ -31,7 +31,7 @@ import { memoizeForSession } from "./sessionCache";
 // Connection-change hook (#71): forget the memoized WhoAmI and privilege answers
 export { resetDataverseSessionCache } from "./sessionCache";
 import { readManagedPropertyValue, sortViewsByQueryType } from "../model/savedViews";
-import { canExecuteBatch, connectionGuard } from "./host";
+import { canExecuteBatch, connectionGuard, getPrimaryConnection } from "./host";
 import { deleteRecordsInBatches, type ExecuteBatch } from "./batchDelete";
 
 export interface EntityMetadata {
@@ -2076,11 +2076,9 @@ export async function downloadBase64File(
  */
 export async function getEnvironmentUrl(): Promise<string | null> {
 	try {
-		if (typeof window !== "undefined" && window.toolboxAPI?.connections?.getActiveConnection) {
-			const conn = await window.toolboxAPI.connections.getActiveConnection();
-			return conn?.url || null;
-		}
-		return null;
+		// Slot-aware on PPTB ≥ 1.2.7 (#70)
+		const conn = await getPrimaryConnection();
+		return conn?.url || null;
 	} catch (error) {
 		console.error("getEnvironmentUrl: Failed:", error);
 		return null;
