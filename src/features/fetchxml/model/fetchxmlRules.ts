@@ -5,7 +5,8 @@
  * Principle (#89): what the FetchXML reference documents is supported, plus what is verified to
  * work; only what Dataverse is known to reject is an error. Every rule below was executed against a
  * live Dataverse org through the PPTB request path; the error code Dataverse returns is quoted in
- * each message. Rules that need attribute metadata live in attributeCapabilities.ts.
+ * each message. Rules that need attribute metadata live in attributeCapabilities.ts; documented
+ * performance advice and query limits live in queryAdvisor.ts (#97).
  */
 
 import type {
@@ -18,6 +19,7 @@ import type {
 	OrderNode,
 } from "./nodes";
 import { operatorRequiresValue, operatorValueShape } from "./operators";
+import { adviseQuery } from "./queryAdvisor";
 
 export type RuleSeverity = "error" | "warning" | "info";
 export type RuleKind = "invalid" | "ignored" | "advice";
@@ -435,6 +437,9 @@ export function validateQueryRules(fetch: FetchNode): RuleFinding[] {
 				message: `${scope.container.name} has more than one filter; the FetchXML reference allows one. Dataverse combines them with 'and' — consider nesting them in one filter.` });
 		}
 	}
+
+	// ---- Query Advisor: documented anti-patterns and limits (#97)
+	findings.push(...adviseQuery(fetch));
 
 	return findings;
 }

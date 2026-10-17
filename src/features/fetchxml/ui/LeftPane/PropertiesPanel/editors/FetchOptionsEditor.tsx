@@ -161,6 +161,7 @@ export function FetchOptionsEditor({ node, findings, onUpdate }: FetchOptionsEdi
 					label="Aggregate query"
 					checked={options.aggregate === true}
 					onChange={handleAggregateChange}
+					validation={findingFor(findings, "aggregate")}
 					info={
 						<Info
 							text="Groups records and calculates values (count, sum, average, minimum, maximum). Every attribute then needs Group by or an aggregate function, and an alias."
@@ -172,6 +173,7 @@ export function FetchOptionsEditor({ node, findings, onUpdate }: FetchOptionsEdi
 					label="Distinct rows"
 					checked={options.distinct === true}
 					onChange={flag("distinct")}
+					validation={findingFor(findings, "distinct")}
 					info={<Info text="Leaves out duplicate rows from the results." href={DOCS.distinctResults} />}
 				/>
 				<InfoCheckbox
