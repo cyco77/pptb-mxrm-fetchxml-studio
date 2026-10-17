@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - New `model/columnFilters.ts`, with tests. Column filters live in their own `<filter type="and">`:
   - FetchXML allows one `<filter>` per entity, so the group nests inside the root filter. With no root filter, the group becomes the root filter.
-  - An `or` root filter is wrapped in an `and` filter, and unwrapped again when the last column filter is removed.
+  - An `or` root filter is wrapped in an `and` filter, and unwrapped again when the last column filter is removed. The store keeps the wrapper's ID (`columnFilterWrapperId`), so an `and` filter the user wrote is never unwrapped.
   - Link-entity columns use `entityname` (the alias, or the link-entity's name), per "Filters on link-entity" on Microsoft Learn.
 - The builder store tracks the group in `columnFilterId`, with actions `ADD_COLUMN_FILTER`, `REMOVE_COLUMN_FILTER` and `CLEAR_COLUMN_FILTERS`.
   - A FetchXML load (editor sync) relocates the group by position when its conditions match.

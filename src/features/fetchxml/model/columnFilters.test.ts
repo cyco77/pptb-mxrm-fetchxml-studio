@@ -7,6 +7,7 @@ import {
 	columnFilterConditions,
 	columnFilterTarget,
 	relocateColumnFilterGroup,
+	relocateColumnFilterWrapper,
 	removeColumnFilter,
 } from "./columnFilters";
 
@@ -123,7 +124,27 @@ describe("removeColumnFilter / clearColumnFilters", () => {
 	it("unwraps an 'or' root filter again when the last column filter goes", () => {
 		const or = parse(`<fetch><entity name="account"><filter type="or"><condition attribute="statecode" operator="eq" value="0" /><condition attribute="statecode" operator="eq" value="1" /></filter></entity></fetch>`);
 		const a = addColumnFilter(or, null, CITY, id);
-		expect(xml(removeColumnFilter(a.fetch, a.groupId, a.conditionId).fetch)).toBe(xml(or));
+		expect(a.wrapperId).toBe(a.fetch.entity.filters[0].id);
+		expect(xml(removeColumnFilter(a.fetch, a.groupId, a.conditionId, a.wrapperId).fetch)).toBe(xml(or));
+	});
+
+	it("keeps an 'and' wrapper the user wrote, even when it has the same shape", () => {
+		const authored = parse(`<fetch><entity name="account"><filter type="and"><filter type="or"><condition attribute="statecode" operator="eq" value="0" /><condition attribute="statecode" operator="eq" value="1" /></filter></filter></entity></fetch>`);
+		const a = addColumnFilter(authored, null, CITY, id);
+		expect(a.wrapperId).toBeUndefined();
+		expect(xml(removeColumnFilter(a.fetch, a.groupId, a.conditionId, null).fetch)).toBe(xml(authored));
+	});
+
+	it("keeps the wrapper when something was added to it since", () => {
+		const or = parse(`<fetch><entity name="account"><filter type="or"><condition attribute="statecode" operator="eq" value="0" /></filter></entity></fetch>`);
+		const a = addColumnFilter(or, null, CITY, id);
+		const root = a.fetch.entity.filters[0];
+		const edited = {
+			...a.fetch,
+			entity: { ...a.fetch.entity, filters: [{ ...root, conditions: [{ id: "u1", type: "condition" as const, attribute: "name", operator: "not-null" as const }] }] },
+		};
+		const removed = removeColumnFilter(edited, a.groupId, a.conditionId, a.wrapperId).fetch;
+		expect(removed.entity.filters[0].id).toBe(a.wrapperId);
 	});
 
 	it("clears every column filter", () => {
@@ -134,6 +155,16 @@ describe("removeColumnFilter / clearColumnFilters", () => {
 });
 
 describe("relocateColumnFilterGroup", () => {
+	it("finds the wrapper again after the query is parsed again", () => {
+		const or = parse(`<fetch><entity name="account"><filter type="or"><condition attribute="statecode" operator="eq" value="0" /></filter></entity></fetch>`);
+		const a = addColumnFilter(or, null, CITY, id);
+		const reparsed = parse(generateFetchXml(a.fetch));
+		const groupId = relocateColumnFilterGroup(a.fetch, reparsed, a.groupId);
+		const wrapperId = relocateColumnFilterWrapper(a.fetch, reparsed, a.wrapperId!, groupId);
+		expect(wrapperId).toBe(reparsed.entity.filters[0].id);
+		expect(xml(removeColumnFilter(reparsed, groupId, columnFilterConditions(reparsed, groupId)[0].id, wrapperId).fetch)).toBe(xml(or));
+	});
+
 	it("finds the group again after the query is parsed again", () => {
 		const base = parse(`<fetch><entity name="account"><filter><condition attribute="statecode" operator="eq" value="0" /></filter></entity></fetch>`);
 		const a = addColumnFilter(base, null, CITY, id);

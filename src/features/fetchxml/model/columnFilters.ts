@@ -8,7 +8,8 @@
  * - An entity has at most one <filter> (entity element reference), so the group is nested in it.
  *   With no root filter, the group becomes the root filter.
  * - A root filter of type "or" is wrapped in a new "and" root filter, so the column filters narrow
- *   the results instead of widening them. The query means the same otherwise.
+ *   the results instead of widening them. The query means the same otherwise. The wrapper's ID is
+ *   kept, so only that wrapper is unwrapped later, never an "and" filter the user wrote.
  * - Link-entity columns use entityname, which filters after the join, so outer joins filter the
  *   rows shown (Filters on link-entity).
  *
@@ -105,7 +106,7 @@ export function addColumnFilter(
 	groupId: NodeId | null,
 	condition: NewCondition,
 	generateId: () => NodeId,
-): { fetch: FetchNode; groupId: NodeId; conditionId: NodeId } {
+): { fetch: FetchNode; groupId: NodeId; conditionId: NodeId; wrapperId?: NodeId } {
 	const newCondition: ConditionNode = { ...condition, id: generateId(), type: "condition" };
 	const filters = fetch.entity.filters;
 	const path = groupId ? findPath(filters, groupId) : undefined;
@@ -141,7 +142,7 @@ export function addColumnFilter(
 		subfilters: [root, group],
 		links: [],
 	};
-	return result([wrapper, ...others]);
+	return { ...result([wrapper, ...others]), wrapperId: wrapper.id };
 }
 
 /** Removes a column filter's condition; the group goes when it's empty */
@@ -149,6 +150,7 @@ export function removeColumnFilter(
 	fetch: FetchNode,
 	groupId: NodeId | null,
 	conditionId: NodeId,
+	wrapperId: NodeId | null = null,
 ): { fetch: FetchNode; groupId: NodeId | null } {
 	const group = findColumnFilterGroup(fetch, groupId);
 	if (!group || !groupId) return { fetch, groupId: null };
@@ -157,19 +159,21 @@ export function removeColumnFilter(
 		const path = findPath(fetch.entity.filters, groupId)!;
 		return { fetch: withRootFilters(fetch, replaceAt(fetch.entity.filters, path, (g) => ({ ...g, conditions }))), groupId };
 	}
-	return { fetch: clearColumnFilters(fetch, groupId), groupId: null };
+	return { fetch: clearColumnFilters(fetch, groupId, wrapperId), groupId: null };
 }
 
-/** Removes the column-filter group */
-export function clearColumnFilters(fetch: FetchNode, groupId: NodeId | null): FetchNode {
+/** Removes the column-filter group, and the "and" wrapper addColumnFilter put around an "or" root filter */
+export function clearColumnFilters(fetch: FetchNode, groupId: NodeId | null, wrapperId: NodeId | null = null): FetchNode {
 	const path = groupId ? findPath(fetch.entity.filters, groupId) : undefined;
 	if (!path) return fetch;
 	const filters = replaceAt(fetch.entity.filters, path, () => undefined);
-	// Undo the wrapping of an "or" root filter: an "and" root left holding just that filter
+	// Undo the wrapping of an "or" root filter: only the wrapper addColumnFilter made, and only while
+	// it still holds just that filter (the user may have added to it since)
 	const [root, ...others] = filters;
 	if (
 		path.length === 2 &&
 		root &&
+		root.id === wrapperId &&
 		root.conjunction === "and" &&
 		root.conditions.length === 0 &&
 		root.links.length === 0 &&
@@ -189,6 +193,17 @@ const conditionsKey = (filter: FilterNode | undefined) =>
 	JSON.stringify(
 		filter?.conditions.map((c) => [c.attribute, c.operator, c.value ?? null, c.entityname ?? null]) ?? null,
 	);
+
+/** The wrapper's ID after the query was loaded again: the new root filter, when the group was relocated */
+export function relocateColumnFilterWrapper(
+	before: FetchNode | null,
+	after: FetchNode,
+	wrapperId: NodeId | null,
+	relocatedGroupId: NodeId | null,
+): NodeId | null {
+	if (!before || !wrapperId || !relocatedGroupId) return null;
+	return before.entity.filters[0]?.id === wrapperId ? (after.entity.filters[0]?.id ?? null) : null;
+}
 
 /**
  * The group's ID after the query was loaded again (editor sync gives every node a new ID): the
