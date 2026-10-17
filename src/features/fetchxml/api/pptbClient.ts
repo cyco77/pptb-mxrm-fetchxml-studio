@@ -26,6 +26,10 @@ import { metadataCache } from "../state/cache";
 import { nextLinkToQueryPath, parseFetchXmlPagingCookie } from "./paging";
 import { formatDataverseError } from "./dataverseErrors";
 import { withThrottleRetry } from "./throttleRetry";
+import { memoizeForSession } from "./sessionCache";
+
+// Connection-change hook (#71): forget the memoized WhoAmI and privilege answers
+export { resetDataverseSessionCache } from "./sessionCache";
 import { readManagedPropertyValue, sortViewsByQueryType } from "../model/savedViews";
 
 export interface EntityMetadata {
@@ -625,34 +629,9 @@ export async function executeFetchXml(fetchXml: string): Promise<FetchXmlResult>
 	// rows alive in the console)
 	debugLog("fetchXmlAPI", "Raw FetchXML response:", result);
 
-	// Check if formatted values are included
-	const hasFormatted = responseHasFormattedValues(result.value);
-	console.log(`🔍 Response includes formatted values: ${hasFormatted}`);
-
-	if (hasFormatted) {
-		console.log("✅ Formatted values detected! Example formatted keys:");
-		const formattedKeys = Object.keys(result.value[0] || {}).filter((k) => k.includes("@OData"));
-		console.log(formattedKeys.slice(0, 5));
-	} else {
-		console.warn("⚠️ NO FORMATTED VALUES DETECTED");
-		console.warn("");
-		console.warn("📋 The PPTB host's fetchXmlQuery() needs to update the Prefer header.");
-		console.warn("");
-		console.warn("🔧 In dataverseManager.ts (around line 405), change:");
-		console.warn('   FROM: Prefer: "return=representation"');
-		console.warn(
-			'   TO:   Prefer: "return=representation, odata.include-annotations=\\"OData.Community.Display.V1.FormattedValue\\""',
-		);
-		console.warn("");
-		console.warn("📖 Microsoft Learn reference:");
-		console.warn(
-			"   https://learn.microsoft.com/en-us/power-apps/developer/data-platform/fetchxml/select-columns?tabs=webapi#formatted-values",
-		);
-		console.warn("");
-		console.warn(
-			"💡 This will enable rich display: labels for picklists, names for lookups, formatted dates, etc.",
-		);
-	}
+	// The host sends Prefer: odata.include-annotations="*", so formatted values are expected (#71:
+	// the old warning about the host's Prefer header is obsolete)
+	debugLog("fetchXmlAPI", `Response includes formatted values: ${responseHasFormattedValues(result.value)}`);
 
 	debugLog("fetchXmlAPI", `✅ FetchXML query executed: ${result.value.length} records retrieved`);
 
@@ -743,9 +722,15 @@ export async function executePersonalView(
 }
 
 /**
- * Call WhoAmI to get current user context
+ * Call WhoAmI to get current user context. Memoized per connection (#71): startup called it from
+ * four places; resetDataverseSessionCache() clears it when the connection changes. A failed call
+ * (null) isn't kept.
  */
-export async function whoAmI(): Promise<WhoAmIResponse | null> {
+export function whoAmI(): Promise<WhoAmIResponse | null> {
+	return memoizeForSession("WhoAmI", retrieveWhoAmI, (user) => user !== null);
+}
+
+async function retrieveWhoAmI(): Promise<WhoAmIResponse | null> {
 	if (!isDataverseAvailable()) {
 		console.warn("PPTB Dataverse API not available");
 		return null;
@@ -784,8 +769,8 @@ export async function fetchXmlToSQL(fetchXml: string): Promise<string> {
 		parameters: { FetchXml: fetchXml },
 	})) as unknown as Record<string, unknown>;
 
-	// Log the raw result to assist debugging the undocumented response shape
-	console.log("FetchXMLToSQL raw result:", result);
+	// The raw result, to debug the undocumented response shape (debug only, #71)
+	debugLog("fetchXmlAPI", "FetchXMLToSQL raw result:", result);
 
 	// Try known property names first, then fall back to any non-metadata string value
 	const sql =
@@ -809,8 +794,21 @@ export async function fetchXmlToSQL(fetchXml: string): Promise<string> {
 	return sql;
 }
 
+/** RetrieveUserPrivilegeByPrivilegeName: whether the user has the privilege (throws on failure). */
+async function retrieveUserPrivilege(userId: string, privilegeName: string): Promise<boolean> {
+	const query = `systemusers(${userId})/Microsoft.Dynamics.CRM.RetrieveUserPrivilegeByPrivilegeName(PrivilegeName='${privilegeName}')`;
+	const result = await window.dataverseAPI!.queryData(query);
+	// RetrieveUserPrivilegeByPrivilegeName returns the response directly, not wrapped in .value
+	const response = result as unknown as PrivilegeCheckResponse;
+	const hasPrivilege = !!response?.RolePrivileges?.length;
+	debugLog("accessAPI", `checkPrivilegeByName(${privilegeName}): ${hasPrivilege ? "granted" : "denied"}`);
+	return hasPrivilege;
+}
+
 /**
- * Check if user has a specific privilege using RetrieveUserPrivilegeByPrivilegeName
+ * Check if user has a specific privilege using RetrieveUserPrivilegeByPrivilegeName. Memoized per
+ * user and privilege for the connection (#71): AppShell, EntitySelector, the record actions and
+ * Save view asked for the same privileges; resetDataverseSessionCache() clears it.
  */
 export async function checkPrivilegeByName(
 	userId: string,
@@ -821,21 +819,9 @@ export async function checkPrivilegeByName(
 	}
 
 	try {
-		const query = `systemusers(${userId})/Microsoft.Dynamics.CRM.RetrieveUserPrivilegeByPrivilegeName(PrivilegeName='${privilegeName}')`;
-		const result = await window.dataverseAPI!.queryData(query);
-
-		// Log raw response for debugging
-		console.log(`🔍 checkPrivilegeByName(${privilegeName}) raw response:`, result);
-
-		// RetrieveUserPrivilegeByPrivilegeName returns the response directly, not wrapped in .value
-		const response = result as unknown as PrivilegeCheckResponse;
-
-		const hasPrivilege = !!response?.RolePrivileges?.length;
-		console.log(
-			`✅ checkPrivilegeByName(${privilegeName}): ${hasPrivilege ? "GRANTED" : "DENIED"}`,
+		return await memoizeForSession(`privilege:${userId}:${privilegeName}`, () =>
+			retrieveUserPrivilege(userId, privilegeName),
 		);
-
-		return hasPrivilege;
 	} catch (error) {
 		// 0x80040203 = privilege name does not exist in this environment — expected for
 		// some entity-specific privileges (e.g. prvDeleteGitorganization). Warn, not error.
@@ -1056,21 +1042,16 @@ export async function getSolutionComponents(solutionIds: string[]): Promise<Solu
 			"$select=msdyn_name,msdyn_displayname,msdyn_logicalcollectionname,msdyn_solutionid,msdyn_componenttype";
 		const COMPONENT_TYPE_ENTITY = 1;
 
-		console.log("[API] getSolutionComponents - Querying solutions individually:", solutionIds);
+		debugLog("solutionComponentAPI", "Querying solutions individually:", solutionIds);
 
 		// Query each solution individually (virtual entity doesn't support OR filters properly)
 		const allComponents = await Promise.all(
 			solutionIds.map(async (solutionId) => {
 				const query = `msdyn_solutioncomponentsummaries?${SELECT}&$filter=msdyn_componenttype eq ${COMPONENT_TYPE_ENTITY} and msdyn_solutionid eq '${solutionId}'`;
 
-				console.log("[API] getSolutionComponents - Query for solution:", { solutionId, query });
-				debugLog("solutionComponentAPI", `📡 GET Solution components for solution: ${solutionId}`);
+				debugLog("solutionComponentAPI", `📡 GET Solution components for solution: ${solutionId}`, query);
 				const result = await window.dataverseAPI!.queryData(query);
-				console.log("[API] getSolutionComponents - Result for solution:", {
-					solutionId,
-					componentCount: result.value.length,
-					components: result.value,
-				});
+				debugLog("solutionComponentAPI", `Solution ${solutionId}: ${result.value.length} components`);
 				return result.value as unknown as SolutionComponent[];
 			}),
 		);
@@ -1090,12 +1071,6 @@ export async function getSolutionComponents(solutionIds: string[]): Promise<Solu
 			const nameA = a.msdyn_displayname || a.msdyn_name || "";
 			const nameB = b.msdyn_displayname || b.msdyn_name || "";
 			return nameA.localeCompare(nameB);
-		});
-
-		console.log("[API] getSolutionComponents - Combined results:", {
-			totalSolutions: solutionIds.length,
-			uniqueComponents: components.length,
-			componentNames: components.map((c) => c.msdyn_name),
 		});
 
 		debugLog(
@@ -1154,12 +1129,7 @@ export function filterCachedEntitiesByNames(logicalNames: string[]): EntityMetad
 	const nameSet = new Set(logicalNames);
 	const filtered = allEntities.filter((entity: EntityMetadata) => nameSet.has(entity.LogicalName));
 
-	console.log("[API] filterCachedEntitiesByNames - Filtered:", {
-		requestedCount: logicalNames.length,
-		requestedNames: logicalNames,
-		filteredCount: filtered.length,
-		filteredNames: filtered.map((e: EntityMetadata) => e.LogicalName),
-	});
+	debugLog("metadataAPI", `filterCachedEntitiesByNames: ${filtered.length} of ${logicalNames.length} entities`);
 
 	return filtered;
 }

@@ -11,6 +11,7 @@ import type {
 	Solution,
 	PublisherWithSolutions,
 } from "../api/pptbClient";
+import { debugLog } from "../../../shared/utils/debug";
 
 interface CachedEntityData {
 	metadata?: EntityMetadata;
@@ -127,7 +128,7 @@ class MetadataCache {
 			data: entities,
 			timestamp: Date.now(),
 		};
-		console.log("[Cache] Global entity metadata cached:", entities.length, "entities");
+		debugLog("metadataAPI", "[Cache] Global entity metadata cached:", entities.length, "entities");
 	}
 
 	/**
@@ -401,7 +402,7 @@ class MetadataCache {
 			data: entityNames,
 			timestamp: Date.now(),
 		});
-		console.log("[Cache] Solution components cached:", {
+		debugLog("metadataAPI", "[Cache] Solution components cached:", {
 			solutionId,
 			entityCount: entityNames.length,
 		});

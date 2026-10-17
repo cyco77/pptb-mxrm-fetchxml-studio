@@ -74,6 +74,7 @@ import {
 import type { FetchXmlResult } from "../features/fetchxml/api/pptbClient";
 import { formatDataverseError } from "../features/fetchxml/api/dataverseErrors";
 import { withThrottleRetry } from "../features/fetchxml/api/throttleRetry";
+import { debugLog } from "../shared/utils/debug";
 import { getQueryEntities } from "../features/fetchxml/model/treeUtils";
 import { NON_RETURNING_LINK_TYPES } from "../features/fetchxml/model/fetchxmlRules";
 import { planRemoveColumns, planSortByColumn, resolveColumn } from "../features/fetchxml/model/queryColumns";
@@ -454,35 +455,21 @@ function AppContent() {
 		};
 	}, [isDraggingVertical]);
 
-	// Check Dataverse API on mount
+	// Check Dataverse API on mount. WhoAmI is memoized per connection, so this shares the startup
+	// request with the privilege checks (#71); the details are debug output only.
 	useEffect(() => {
-		console.log("=== PPTB FetchXML Studio - Dataverse API Check ===");
-		console.log("Dataverse API Available:", isDataverseAvailable());
-
-		if (isDataverseAvailable()) {
-			console.log("window.dataverseAPI methods:", Object.keys(window.dataverseAPI || {}));
-
-			// Call WhoAmI to verify connection
-			whoAmI()
-				.then((result) => {
-					if (result) {
-						console.log("✅ WhoAmI Success:", {
-							UserId: result.UserId,
-							BusinessUnitId: result.BusinessUnitId,
-							OrganizationId: result.OrganizationId,
-						});
-					} else {
-						console.warn("⚠️ WhoAmI returned null - API may not be fully initialized");
-					}
-				})
-				.catch((error) => {
-					console.error("❌ WhoAmI Error:", error);
-				});
-		} else {
+		if (!isDataverseAvailable()) {
 			console.error("❌ Dataverse API not available on window object");
+			return;
 		}
-
-		console.log("===================================================");
+		whoAmI()
+			.then((result) => {
+				if (result) debugLog("app", "WhoAmI succeeded", { UserId: result.UserId });
+				else debugLog("app", "WhoAmI returned null - API may not be fully initialized");
+			})
+			.catch((error) => {
+				console.error("❌ WhoAmI Error:", error);
+			});
 	}, []);
 
 	// Check export privilege on mount
@@ -497,7 +484,7 @@ function AppContent() {
 						hasPrivilege,
 						privilegeChecked: true,
 					}));
-					console.log(`📊 Export to Excel privilege: ${hasPrivilege ? "GRANTED" : "DENIED"}`);
+					debugLog("app", `📊 Export to Excel privilege: ${hasPrivilege ? "GRANTED" : "DENIED"}`);
 				} else {
 					setExportStatus((prev) => ({
 						...prev,
@@ -551,7 +538,7 @@ function AppContent() {
 					privilegesChecked: true,
 				});
 
-				console.log(`🔐 Record action privileges for ${entityLogicalName}:`, {
+				debugLog("app", `🔐 Record action privileges for ${entityLogicalName}:`, {
 					canDelete,
 					canBulkDelete,
 					canRunWorkflow,
@@ -784,7 +771,7 @@ function AppContent() {
 				isCustomizable: overwritten?.isCustomizable,
 			});
 		}
-		console.log(`✅ View saved: ${viewName} (${viewType}) - ${viewId}`);
+		debugLog("app", `✅ View saved: ${viewName} (${viewType}) - ${viewId}`);
 	};
 
 	/**
@@ -829,7 +816,8 @@ function AppContent() {
 			if (loadedView) {
 				if (isUnmodifiedView(xmlToExecute, loadedView.originalFetchXml)) {
 					useViewExecution = true;
-					console.log(
+					debugLog(
+						"app",
 						`📋 Executing ${loadedView.type} view "${loadedView.name}" via ${
 							loadedView.type === "system" ? "savedQuery" : "userQuery"
 						}=${loadedView.id}`,
@@ -845,7 +833,8 @@ function AppContent() {
 
 			// If not using view execution (either no view, view was modified, or editor override), use FetchXML
 			if (!result) {
-				console.log(
+				debugLog(
+					"app",
 					synced
 						? "✏️ Executing editor FetchXML (loaded into the tree)"
 						: loadedView
@@ -979,7 +968,7 @@ function AppContent() {
 				state = { ...next, isRetrieveAllInProgress: next.moreRecords };
 				setPaging(state);
 			}
-			console.log("✅ Retrieve All complete");
+			debugLog("app", "✅ Retrieve All complete");
 		} catch (error) {
 			if (!isCurrent()) return;
 			console.error("Failed during Retrieve All:", error);
@@ -1024,7 +1013,7 @@ function AppContent() {
 			if (!isCurrent()) return;
 			appendPage(run, state, result, next);
 			setPaging(next);
-			console.log(`✅ Page ${next.currentPage} loaded: ${result.records.length} records`);
+			debugLog("app", `✅ Page ${next.currentPage} loaded: ${result.records.length} records`);
 		} catch (error) {
 			if (!isCurrent()) return;
 			console.error("Failed to load more records:", error);
@@ -1087,7 +1076,8 @@ function AppContent() {
 		}));
 
 		try {
-			console.log(
+			debugLog(
+				"app",
 				`📤 Exporting to Excel via ${builder.loadedView.type} view "${builder.loadedView.name}"...`,
 			);
 
@@ -1105,7 +1095,7 @@ function AppContent() {
 			// Trigger download
 			await downloadBase64File(result.excelFile, result.filename);
 
-			console.log(`✅ Export complete: ${result.filename}`);
+			debugLog("app", `✅ Export complete: ${result.filename}`);
 
 			// Clear exporting state on success
 			setExportStatus((prev) => ({
@@ -1143,7 +1133,7 @@ function AppContent() {
 		}));
 
 		try {
-			console.log(`📤 Exporting ${queryResult.rows.length} records locally...`);
+			debugLog("app", `📤 Exporting ${queryResult.rows.length} records locally...`);
 
 			// Build column display names map
 			const columnDisplayNames = new Map<string, string>();
@@ -1202,7 +1192,7 @@ function AppContent() {
 			// Trigger download
 			await downloadExcelFile(buffer, finalFileName);
 
-			console.log(`✅ Local export complete: ${finalFileName}`);
+			debugLog("app", `✅ Local export complete: ${finalFileName}`);
 
 			setExportStatus((prev) => ({
 				...prev,
@@ -1284,7 +1274,7 @@ function AppContent() {
 
 			try {
 				await navigator.clipboard.writeText(textToCopy);
-				console.log(`📋 Copied ${urls.length} record URL(s) to clipboard`);
+				debugLog("app", `📋 Copied ${urls.length} record URL(s) to clipboard`);
 			} catch (error) {
 				console.error("Failed to copy to clipboard:", error);
 			}
@@ -1306,7 +1296,7 @@ function AppContent() {
 			// Scenario 1: No selection - delete ALL records from view
 			if (recordIds.length === 0) {
 				if (!recordActionPrivileges.canBulkDelete) {
-					console.warn("Bulk delete privilege required to delete all records from view");
+					debugLog("app", "Bulk delete privilege required to delete all records from view");
 					return;
 				}
 				const totalRecords = queryResult?.rows.length || 0;
@@ -1384,7 +1374,7 @@ function AppContent() {
 			);
 
 			if (result.succeeded > 0) {
-				console.log(`✅ Batch deleted ${result.succeeded} of ${recordIds.length} records`);
+				debugLog("app", `✅ Batch deleted ${result.succeeded} of ${recordIds.length} records`);
 				// Re-execute query to refresh results
 				void handleExecuteRef.current();
 			}
@@ -1408,7 +1398,7 @@ function AppContent() {
 		}
 
 		if (successCount > 0) {
-			console.log(`✅ Deleted ${successCount} of ${recordIds.length} records`);
+			debugLog("app", `✅ Deleted ${successCount} of ${recordIds.length} records`);
 			// Re-execute query to refresh results
 			void handleExecuteRef.current();
 		}
@@ -1441,7 +1431,7 @@ function AppContent() {
 				}
 				const currentFetchXml = generateFetchXml(builder.fetchQuery);
 				const result = await submitBulkDeleteFromFetchXml(currentFetchXml, jobName);
-				console.log(`📤 Bulk delete job (all records) submitted: ${result.asyncOperationId}`);
+				debugLog("app", `📤 Bulk delete job (all records) submitted: ${result.asyncOperationId}`);
 				return result;
 			}
 
@@ -1460,7 +1450,7 @@ function AppContent() {
 				jobName,
 			);
 
-			console.log(`📤 Bulk delete job submitted: ${result.asyncOperationId}`);
+			debugLog("app", `📤 Bulk delete job submitted: ${result.asyncOperationId}`);
 			return result;
 		},
 		[

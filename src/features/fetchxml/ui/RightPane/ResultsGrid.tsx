@@ -82,6 +82,7 @@ import {
 	type CopyColumn,
 	type CopyValueMode,
 } from "./copyResults";
+import { debugLog } from "../../../../shared/utils/debug";
 
 /** Sort change event data passed to parent */
 export interface SortChangeData {
@@ -356,16 +357,16 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 	useEffect(() => {
 		const container = containerRef.current;
 		if (!container) {
-			console.log("[ResultsGrid] ResizeObserver: container ref is null");
+			debugLog("resultsGrid", "[ResultsGrid] ResizeObserver: container ref is null");
 			return;
 		}
 
-		console.log("[ResultsGrid] ResizeObserver: setting up observer on container", container);
+		debugLog("resultsGrid", "[ResultsGrid] ResizeObserver: setting up observer on container", container);
 
 		const observer = new ResizeObserver((entries) => {
 			for (const entry of entries) {
 				const { width, height } = entry.contentRect;
-				console.log("[ResultsGrid] ResizeObserver: dimensions updated", { width, height });
+				debugLog("resultsGrid", "[ResultsGrid] ResizeObserver: dimensions updated", { width, height });
 				setGridDimensions({ width, height });
 			}
 		});
@@ -381,7 +382,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 
 		const observer = new ResizeObserver(() => {
 			const height = header.offsetHeight;
-			console.log("[ResultsGrid] Header height:", height);
+			debugLog("resultsGrid", "[ResultsGrid] Header height:", height);
 			setHeaderHeight(height);
 		});
 
@@ -1236,7 +1237,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 			const threshold = Math.min(10, Math.max(1, Math.floor(rowCount * 0.1))); // 10 rows or 10% of data, whichever is smaller
 
 			if (visibleStopIndex >= rowCount - threshold && result.moreRecords) {
-				console.log("[ResultsGrid] Near bottom, triggering load more:", {
+				debugLog("resultsGrid", "[ResultsGrid] Near bottom, triggering load more:", {
 					visibleStopIndex,
 					rowCount,
 					threshold,
@@ -1274,7 +1275,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 		return withFilterBar(<div className={styles.emptyState}>No records found</div>);
 	}
 
-	console.log("[ResultsGrid] Rendering grid:", {
+	debugLog("resultsGrid", "[ResultsGrid] Rendering grid:", {
 		rowCount: result.rows.length,
 		columnCount: columns.length,
 		gridDimensions,
