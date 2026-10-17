@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2-beta.2] - 2026-10-17
+
+### ✨ Added
+
+- **Copy results to the clipboard (#50).**
+  - **Right-click a cell** for: Copy value; Copy raw value (GUID, number, ISO date, option value or true/false, when it differs from what's shown); Copy row; Copy selected rows; Copy column. Copy column gives one value per line, e.g. to paste into an `in` condition.
+  - **Ctrl+C** copies the selected rows, or the focused cell when no rows are selected. Text you've highlighted copies as usual.
+  - The command bar's new **Copy** menu copies the selected rows or all loaded rows, with values **as shown** or **raw** (GUIDs, numbers, ISO dates).
+  - Rows copy as tab-separated values with the grid's headers, in the grid's column order, so they paste into Excel as cells. Values with tabs, line breaks or quotes are quoted the way Excel writes them.
+  - A toast confirms what was copied, or says the clipboard couldn't be written.
+
+### 🏗️ Technical
+
+- New `copyResults.ts` (TSV building, value text, clipboard write with a fallback to `toolboxAPI.utils.copyToClipboard`), with tests.
+- `ResultsGrid` is now a `forwardRef` exposing `copyRows(scope, mode)`; `PreviewTabs` connects it to the command bar's Copy menu.
+- The cell menu is a single controlled Fluent `Menu`, positioned at the mouse. When opened with the keyboard's context menu key, it's positioned at the cell.
+
 ## [1.4.2-beta.1] - 2026-10-17
 
 ### 🔧 Fixed
