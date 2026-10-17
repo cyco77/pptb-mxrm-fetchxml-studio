@@ -130,6 +130,8 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 	const canCompareToAttribute = operatorComparesAttributes && compatibleTypes.length > 0;
 	const valueofFinding = findingFor(findings, "valueof");
 	const attributeType = selectedAttribute?.AttributeType;
+	// Multi-select choices are AttributeType Virtual; the type name tells them apart (#87)
+	const isMultiSelect = selectedAttribute?.AttributeTypeName?.Value === "MultiSelectPicklistType";
 
 	const showEntity = !columnFilter && ((isInRootFilter && linkEntityReferences.length > 0) || !!node.entityname);
 	const entityLabel = node.entityname
@@ -137,7 +139,8 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 		: `This entity (${entityName})`;
 
 	const renderLiteralValue = () => {
-		if (attributeType && OPTION_SET_TYPES.has(attributeType)) {
+		// eq / ne on a multi-select choice: one option value, the form verified live (#95)
+		if ((attributeType && OPTION_SET_TYPES.has(attributeType)) || isMultiSelect) {
 			return (
 				<OptionSetValuePicker
 					entityLogicalName={effectiveEntityName}
@@ -270,7 +273,20 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 				<InfoField
 					label="Operator"
 					required
-					info={<Info text="The operators listed depend on the attribute's type." href={DOCS.operators} />}
+					info={
+						<Info
+							text={[
+								operatorDef?.description,
+								isMultiSelect && !operatorDef?.description
+									? "For a choices attribute, contain-values matches records where any of the given options is selected."
+									: undefined,
+								"The operators listed depend on the attribute's type.",
+							]
+								.filter(Boolean)
+								.join(" ")}
+							href={operatorDef?.docsUrl ?? (isMultiSelect ? DOCS.choices : DOCS.operators)}
+						/>
+					}
 				>
 					<Dropdown
 						value={operatorDef?.label ?? node.operator ?? ""}
