@@ -89,6 +89,8 @@ import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid"
 import { SettingsDrawer } from "../features/fetchxml/ui/Settings/SettingsDrawer";
 import { usePersistedSettings } from "../shared/hooks/usePersistedSettings";
 import { useAccessMode } from "../shared/hooks/useAccessMode";
+import { metadataCache } from "../features/fetchxml/state/cache";
+import { nextConnectionScope, type ConnectionScope } from "../shared/hooks/connectionIdentity";
 
 const SIMPLE_PAGING_MESSAGE =
 	"Dataverse didn't return a paging cookie for this query (for example, it's sorted by a link-entity attribute or uses distinct), so pages are fetched with page numbers only. Microsoft recommends paging cookies; this works, but is slower for large result sets.";
@@ -216,8 +218,21 @@ const useStyles = makeStyles({
 	},
 });
 
+/**
+ * What outlives a connection change (#66): AppContent is remounted for the new connection, so
+ * this lives in AppShell.
+ */
+interface ConnectionCarryOver {
+	/** The launch prefill (T2T) was applied: never apply it again */
+	prefillConsumed: boolean;
+	/** Reads the current query's FetchXML (set by AppContent) */
+	readFetchXml?: () => string | undefined;
+	/** The query to load into the remounted AppContent */
+	fetchXml?: string;
+}
+
 export function AppShell() {
-	const { theme } = usePptbContext();
+	const { theme, connectionKey, connectionName } = usePptbContext();
 	// The PPTB host's theme (light / dark), resolved by the host (#67)
 	const isDark = theme === "dark";
 
@@ -226,19 +241,49 @@ export function AppShell() {
 		document.documentElement.style.colorScheme = isDark ? "dark" : "light";
 	}, [isDark]);
 
+	// Connection changed in place (PPTB ≥ 1.2.7, #66): everything loaded from the previous
+	// environment is stale (metadata cache, entity lists, publishers and solutions, privileges,
+	// results, the loaded view). Clear the cache and remount the builder and the app content as a
+	// new session; only the query itself is kept. Derived while rendering, so the cache is clear
+	// before the new tree's effects load metadata.
+	const carryOver = useRef<ConnectionCarryOver>({ prefillConsumed: false });
+	const [connectionScope, setConnectionScope] = useState<ConnectionScope>({ key: undefined, session: 0 });
+	const nextScope = nextConnectionScope(connectionScope, connectionKey);
+	if (nextScope.scope !== connectionScope) {
+		if (nextScope.changed) {
+			metadataCache.clear();
+			carryOver.current.fetchXml = carryOver.current.readFetchXml?.();
+		}
+		setConnectionScope(nextScope.scope);
+	}
+
+	// Tell the user why the tool reset (a host notification; no new UI)
+	const session = connectionScope.session;
+	useEffect(() => {
+		if (session === 0) return;
+		void window.toolboxAPI?.utils?.showNotification?.({
+			title: "Connection changed",
+			body: connectionName
+				? `FetchXML Studio reloaded its metadata for ${connectionName}. Results and the loaded view were cleared.`
+				: "FetchXML Studio has no connection now. Results and the loaded view were cleared.",
+			type: "info",
+		});
+		// Only when the session changes; the name is read for that session
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [session]);
+
 	return (
 		<FluentProvider theme={isDark ? webDarkTheme : webLightTheme}>
 			<ThemeProvider isDark={isDark}>
-				<BuilderProvider>
-					<AppContent />
+				<BuilderProvider key={session}>
+					<AppContent carryOver={carryOver.current} />
 				</BuilderProvider>
 			</ThemeProvider>
 		</FluentProvider>
 	);
 }
 
-
-function AppContent() {
+function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 	const styles = useStyles();
 	const builder = useBuilder();
 	const { loadAttributes, loadEntityMetadata, loadRelationships } = useLazyMetadata();
@@ -249,14 +294,30 @@ function AppContent() {
 
 	// Tools we can send the current query to, discovered via the "fetchxml" capability.
 	const { tools: sendToTools } = useSendToTools();
-	const prefillConsumedRef = useRef(false);
 
-	// Consume the inbound prefill exactly once. When a FetchXML query is supplied,
-	// load it (the root entity is derived from the FetchXML). When only an entity is
-	// supplied, start a fresh query rooted at that entity (metadata-driven).
+	// After a connection change (#66): load the query the previous session had, once
 	useEffect(() => {
-		if (launch.loading || prefillConsumedRef.current) return;
-		prefillConsumedRef.current = true;
+		const fetchXml = carryOver.fetchXml;
+		if (!fetchXml) return;
+		carryOver.fetchXml = undefined;
+		const result = builder.loadFetchXml(fetchXml);
+		if (!result.success) console.error("Connection change: couldn't reload the query:", result.errors);
+		// builder is intentionally omitted — runs once per session (mount)
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	// Lets AppShell read the current query when the connection changes (#66)
+	const currentFetchQuery = builder.fetchQuery;
+	useEffect(() => {
+		carryOver.readFetchXml = () => (currentFetchQuery ? generateFetchXml(currentFetchQuery) : undefined);
+	}, [carryOver, currentFetchQuery]);
+
+	// Consume the inbound prefill exactly once (per tool instance, not per connection, #66). When a
+	// FetchXML query is supplied, load it (the root entity is derived from the FetchXML). When only
+	// an entity is supplied, start a fresh query rooted at that entity (metadata-driven).
+	useEffect(() => {
+		if (launch.loading || carryOver.prefillConsumed) return;
+		carryOver.prefillConsumed = true;
 
 		if (!launch.context) return;
 
@@ -317,6 +378,14 @@ function AppContent() {
 	// New); pageRun also changes on Stop, which keeps the loaded rows.
 	const resultRunRef = useRef(0);
 	const pageRunRef = useRef(0);
+	// Unmounting (e.g. the connection changed, #66) stops page loops still running for these results
+	useEffect(
+		() => () => {
+			resultRunRef.current++;
+			pageRunRef.current++;
+		},
+		[],
+	);
 
 	// Export to Excel state
 	const [exportStatus, setExportStatus] = useState<{

@@ -41,6 +41,10 @@ class MetadataCache {
 	private filteredEntitiesCache: Map<string, CacheEntry<EntityMetadata[]>> = new Map(); // keyed by sorted solution IDs
 	private solutionComponentsCache: Map<string, CacheEntry<string[]>> = new Map(); // Entity names per solution ID
 
+	// Bumped by clear(). A request started before a clear (e.g. on the previous connection, #66)
+	// must not write its answer into the cleared cache.
+	private generation = 0;
+
 	// Cache TTL: 5 minutes
 	private readonly TTL = 5 * 60 * 1000;
 
@@ -277,14 +281,28 @@ class MetadataCache {
 	}
 
 	/**
-	 * Clear all cache
+	 * Call before starting a request; the returned check says whether the cache hasn't been
+	 * cleared since, i.e. whether the answer may still be cached.
+	 */
+	generationGuard(): () => boolean {
+		const started = this.generation;
+		return () => this.generation === started;
+	}
+
+	/**
+	 * Clear all cache, including in-flight request promises (#66: everything here belongs to one
+	 * connection)
 	 */
 	clear(): void {
+		this.generation++;
 		this.entities.clear();
 		this.allEntitiesCache = null;
+		this.allEntityMetadataCache = null;
 		this.publishersCache = null;
+		this.publishersWithSolutionsCache = null;
 		this.solutionsCache.clear();
 		this.filteredEntitiesCache.clear();
+		this.solutionComponentsCache.clear();
 	}
 
 	/**

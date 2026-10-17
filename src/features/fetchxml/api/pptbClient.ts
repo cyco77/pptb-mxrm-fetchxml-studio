@@ -31,6 +31,7 @@ import { memoizeForSession } from "./sessionCache";
 // Connection-change hook (#71): forget the memoized WhoAmI and privilege answers
 export { resetDataverseSessionCache } from "./sessionCache";
 import { readManagedPropertyValue, sortViewsByQueryType } from "../model/savedViews";
+import { connectionGuard } from "./host";
 
 export interface EntityMetadata {
 	LogicalName: string;
@@ -558,8 +559,9 @@ async function resolveFetchXmlEntitySet(
 	if (!logicalName) return undefined;
 	let metadata = metadataCache.getEntityMetadata(logicalName);
 	if (!metadata) {
+		const isCurrent = metadataCache.generationGuard();
 		metadata = await getEntityMetadata(logicalName);
-		metadataCache.setEntityMetadata(logicalName, metadata);
+		if (isCurrent()) metadataCache.setEntityMetadata(logicalName, metadata);
 	}
 	if (!metadata.EntitySetName) return undefined;
 	return { entitySetName: metadata.EntitySetName, logicalCollectionName: metadata.LogicalCollectionName };
@@ -1100,16 +1102,20 @@ export async function getAllEntitiesForScopes(): Promise<EntityMetadata[]> {
 	const inFlight = metadataCache.getAllEntityMetadataPromise();
 	if (inFlight) return inFlight;
 
+	const isCurrent = metadataCache.generationGuard();
 	try {
 		const promise = getAllEntities(false);
 		metadataCache.setAllEntityMetadataPromise(promise);
 		const entities = await promise;
 		debugLog("metadataAPI", `getAllEntitiesForScopes - Fetched: ${entities.length} entities`);
-		metadataCache.setAllEntityMetadata(entities);
-		metadataCache.clearAllEntityMetadataPromise();
+		// Not after a connection change (#66): these are the previous environment's entities
+		if (isCurrent()) {
+			metadataCache.setAllEntityMetadata(entities);
+			metadataCache.clearAllEntityMetadataPromise();
+		}
 		return entities;
 	} catch (error) {
-		metadataCache.clearAllEntityMetadataPromise();
+		if (isCurrent()) metadataCache.clearAllEntityMetadataPromise();
 		console.error("[API] getAllEntitiesForScopes - Failed:", error);
 		throw error;
 	}
@@ -2434,11 +2440,21 @@ export async function executeWorkflowBatch(
 	// Track timing for ETA calculation
 	const batchTimes: number[] = [];
 	let batchesCompleted = 0;
+	// Stop if the tool's connection changes in place (PPTB ≥ 1.2.7, #66): later requests would run
+	// the workflow in the new environment, where the same record IDs can exist
+	const stillOnConnection = await connectionGuard();
 
 	// Process batches sequentially (each batch processes in parallel)
 	for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
 		const batchRecordIds = batches[batchIndex];
 		const batchStartTime = Date.now();
+
+		if (!(await stillOnConnection())) {
+			const remaining = batches.slice(batchIndex).flat();
+			result.failed += remaining.length;
+			result.errors.push(...remaining.map((id) => `Record ${id}: Not run: the tool's connection changed`));
+			break;
+		}
 
 		debugLog(
 			"workflowAPI",
