@@ -2,7 +2,7 @@
 
 A powerful, modern FetchXML query builder and data explorer for [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app). Inspired by the XrmToolBox FetchXML Builder, reimagined with React 18, Fluent UI v9, and seamless Dataverse integration.
 
-![Version](https://img.shields.io/badge/version-1.4.2--beta.6-blue)
+![Version](https://img.shields.io/badge/version-1.4.2--beta.7-blue)
 [![npm](https://img.shields.io/npm/v/@mohsinonxrm/pptb-fetchxml-studio?label=npm)](https://www.npmjs.com/package/@mohsinonxrm/pptb-fetchxml-studio)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
@@ -185,10 +185,9 @@ npm run preview
 
 # Validate package manifest against PPTB registry rules
 npm run validate
-
-# Finalize for publishing (validate + build)
-npm run finalize-package
 ```
+
+**Releases.** CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests, PPTB validation, the build and a package-contents check on every pull request. Pushing a `vX.Y.Z` tag on `main` publishes to npm with provenance and creates the GitHub Release; see [RELEASING.md](RELEASING.md).
 
 **Tool icon.** `package.json` points `icon` at `icons/icon.svg` under `dist/`, where Power Platform ToolBox looks for it. The build bundles `icons/icon-insider.svg` (gold stamp) for prerelease versions such as `1.4.1-beta.8`, and `icons/icon.svg` for releases.
 
@@ -200,12 +199,15 @@ npm run finalize-package
 # Unit tests (Vitest + jsdom): parser, serializer, rules, round-trip over the Microsoft Learn examples
 npm test
 
-# Watch mode / coverage
+# Watch mode
 npm run test:watch
-npm run coverage
 
-# Lint
+# Type check and lint
+npm run typecheck
 npm run lint
+
+# Formatting (Prettier)
+npm run format:check
 ```
 
 ### Debug Logging
