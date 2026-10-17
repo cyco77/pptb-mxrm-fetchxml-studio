@@ -35,6 +35,7 @@ import {
 import { Dismiss24Regular, Search20Regular } from "@fluentui/react-icons";
 import type { AttributeMetadata, RelationshipMetadata } from "../../api/pptbClient";
 import { metadataCache } from "../../state/cache";
+import { relationshipKey } from "../../model/manyToMany";
 
 const useStyles = makeStyles({
 	drawer: {
@@ -361,7 +362,7 @@ export function AddColumnsPanel({
 
 	const handleExpandRelationship = useCallback(
 		async (relationship: RelationshipMetadata, relatedEntity: string) => {
-			const relKey = relationship.SchemaName;
+			const relKey = relationshipKey(relationship);
 
 			setExpandedRelationships((prev) => {
 				const next = new Set(prev);
@@ -429,7 +430,7 @@ export function AddColumnsPanel({
 				// Check if already selected
 				const existingIndex = prev.findIndex(
 					(col) =>
-						col.relationship.SchemaName === relationship.SchemaName &&
+						relationshipKey(col.relationship) === relationshipKey(relationship) &&
 						col.attribute.LogicalName === attribute.LogicalName
 				);
 
@@ -449,7 +450,7 @@ export function AddColumnsPanel({
 		(relationship: RelationshipMetadata, attribute: AttributeMetadata) => {
 			return selectedRelatedCols.some(
 				(col) =>
-					col.relationship.SchemaName === relationship.SchemaName &&
+					relationshipKey(col.relationship) === relationshipKey(relationship) &&
 					col.attribute.LogicalName === attribute.LogicalName
 			);
 		},
@@ -584,12 +585,12 @@ export function AddColumnsPanel({
 												<Tree aria-label="Lookup relationships">
 													{filteredN1Relationships.map((relItem) => {
 														const rel = relItem.relationship;
-														const isExpanded = expandedRelationships.has(rel.SchemaName);
+														const isExpanded = expandedRelationships.has(relationshipKey(rel));
 														const relatedAttrs = relatedAttributesCache.get(relItem.relatedEntity);
 														const isLoading = loadingEntities.has(relItem.relatedEntity);
 
 														return (
-															<TreeItem key={rel.SchemaName} itemType="branch" open={isExpanded}>
+															<TreeItem key={relationshipKey(rel)} itemType="branch" open={isExpanded}>
 																<TreeItemLayout
 																	onClick={() =>
 																		handleExpandRelationship(rel, relItem.relatedEntity)
@@ -701,12 +702,12 @@ export function AddColumnsPanel({
 												<Tree aria-label="One-to-many relationships">
 													{filtered1NRelationships.map((relItem) => {
 														const rel = relItem.relationship;
-														const isExpanded = expandedRelationships.has(rel.SchemaName);
+														const isExpanded = expandedRelationships.has(relationshipKey(rel));
 														const relatedAttrs = relatedAttributesCache.get(relItem.relatedEntity);
 														const isLoading = loadingEntities.has(relItem.relatedEntity);
 
 														return (
-															<TreeItem key={rel.SchemaName} itemType="branch" open={isExpanded}>
+															<TreeItem key={relationshipKey(rel)} itemType="branch" open={isExpanded}>
 																<TreeItemLayout
 																	onClick={() =>
 																		handleExpandRelationship(rel, relItem.relatedEntity)

@@ -108,10 +108,13 @@ export function AttributePicker({
 	const selectedOptions = value && value !== "new_attribute" ? [value] : [];
 
 	if (error) {
-		// Fallback to regular input on error
+		// Fallback to a free-text input on error (e.g. a new link-entity's placeholder name). Keeps
+		// selectedOptions: React reuses this Combobox, and Fluent's controlled state becomes undefined
+		// (and crashes the app) if the prop disappears.
 		return (
 			<Combobox
 				aria-labelledby={comboId}
+				selectedOptions={selectedOptions}
 				value={query}
 				onChange={(ev) => {
 					const inputValue = ev.target.value;

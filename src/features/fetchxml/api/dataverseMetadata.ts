@@ -6,6 +6,7 @@
 import * as pptbClient from "../api/pptbClient";
 import { metadataCache } from "../state/cache";
 import { isAttributeInScope, isRelationshipInScope, metadataScope } from "../state/metadataScope";
+import { planIntersectEntityJoins, type IntersectRelationship } from "../model/manyToMany";
 import type { EntityMetadata, AttributeMetadata, RelationshipMetadata } from "../api/pptbClient";
 
 /**
@@ -141,8 +142,36 @@ type EntityRelationships = {
 };
 
 /**
+ * An intersect entity's many-to-many relationship becomes a many-to-one join to each side
+ * (planIntersectEntityJoins, #57): joining "through" the intersect entity from itself makes no
+ * sense, and Dataverse gives it no many-to-one relationships for those attributes.
+ */
+async function withIntersectEntityJoins(logicalName: string, relationships: EntityRelationships): Promise<EntityRelationships> {
+	const own = relationships.manyToMany.filter((r) => r.IntersectEntityName === logicalName);
+	if (!own.length) return relationships;
+	const targets = [...new Set(own.flatMap((r) => [r.Entity1LogicalName, r.Entity2LogicalName]).filter((e): e is string => !!e))];
+	const keys = new Map<string, string>();
+	await Promise.all(
+		targets.map(async (target) => {
+			try {
+				keys.set(target, (await loadEntityMetadata(target)).PrimaryIdAttribute);
+			} catch {
+				// No primary key, no join to that side
+			}
+		}),
+	);
+	const joins = planIntersectEntityJoins(logicalName, own as IntersectRelationship[], (entity) => keys.get(entity));
+	return {
+		oneToMany: relationships.oneToMany,
+		manyToOne: [...relationships.manyToOne, ...joins],
+		manyToMany: relationships.manyToMany.filter((r) => r.IntersectEntityName !== logicalName),
+	};
+}
+
+/**
  * The relationships the pickers offer (#57): all of them, or only those Advanced Find shows while
- * "Advanced Find only" is on. Every relationship is fetched once and cached.
+ * "Advanced Find only" is on. Every relationship is fetched once and cached; an intersect entity
+ * also gets a join to each side of its many-to-many relationship.
  * @param advancedFindOnly - Defaults to the current setting
  */
 export async function loadEntityRelationships(
@@ -152,7 +181,7 @@ export async function loadEntityRelationships(
 	const cacheKey = `${logicalName}__all`;
 	let relationships = metadataCache.getEntityRelationships(cacheKey);
 	if (!relationships) {
-		relationships = await pptbClient.getEntityRelationships(logicalName, false);
+		relationships = await withIntersectEntityJoins(logicalName, await pptbClient.getEntityRelationships(logicalName, false));
 		metadataCache.setEntityRelationships(cacheKey, relationships);
 	}
 	const inScope = (r: RelationshipMetadata) => isRelationshipInScope(r, advancedFindOnly);

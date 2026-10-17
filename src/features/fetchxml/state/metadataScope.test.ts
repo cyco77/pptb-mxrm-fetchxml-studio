@@ -105,3 +105,46 @@ describe("metadata loaders (#57)", () => {
 		expect(relationshipQueries.every((q) => !q.includes("$filter"))).toBe(true);
 	});
 });
+
+describe("intersect entities get a join to each side of their many-to-many relationship (#57)", () => {
+	beforeEach(() => {
+		metadataCache.clear();
+		const queryData = vi.fn(async (query: string) => {
+			if (query.includes("ManyToManyRelationships")) {
+				return {
+					value: [
+						{
+							SchemaName: "systemuserroles_association",
+							IsValidForAdvancedFind: true,
+							Entity1LogicalName: "role",
+							Entity2LogicalName: "systemuser",
+							Entity1IntersectAttribute: "roleid",
+							Entity2IntersectAttribute: "systemuserid",
+							IntersectEntityName: "systemuserroles",
+						},
+					],
+				};
+			}
+			return { value: [] }; // Dataverse gives intersect entities no 1:N / N:1 for these attributes
+		});
+		const getEntityMetadata = vi.fn(async (name: string) => ({ LogicalName: name, PrimaryIdAttribute: `${name}id` }));
+		(window as unknown as { dataverseAPI: unknown }).dataverseAPI = { queryData, getEntityMetadata };
+	});
+
+	afterEach(() => {
+		delete (window as unknown as { dataverseAPI?: unknown }).dataverseAPI;
+	});
+
+	it("offers role and systemuser as many-to-one joins instead of a join through itself", async () => {
+		const relationships = await loadEntityRelationships("systemuserroles", false);
+		expect(relationships.manyToMany).toEqual([]);
+		expect(relationships.manyToOne.map((r) => `${r.ReferencingAttribute} -> ${r.ReferencedEntity}.${r.ReferencedAttribute}`)).toEqual([
+			"roleid -> role.roleid",
+			"systemuserid -> systemuser.systemuserid",
+		]);
+	});
+
+	it("follow the relationship's Advanced Find flag", async () => {
+		expect((await loadEntityRelationships("systemuserroles", true)).manyToOne).toHaveLength(2);
+	});
+});

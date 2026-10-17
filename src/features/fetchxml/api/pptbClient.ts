@@ -99,6 +99,11 @@ export interface RelationshipMetadata {
 	Entity1IntersectAttribute?: string;
 	Entity2IntersectAttribute?: string;
 	IntersectEntityName?: string;
+	/**
+	 * Set by FetchXML Studio on the many-to-one joins it derives for an intersect entity: which side of
+	 * its many-to-many relationship the join goes to (#57). Not Dataverse metadata.
+	 */
+	IntersectSide?: 1 | 2;
 }
 
 export interface FetchXmlResult {

@@ -75,6 +75,7 @@ import type { FetchXmlResult } from "../features/fetchxml/api/pptbClient";
 import { getQueryEntities } from "../features/fetchxml/model/treeUtils";
 import { NON_RETURNING_LINK_TYPES } from "../features/fetchxml/model/fetchxmlRules";
 import { planRemoveColumns, planSortByColumn, resolveColumn } from "../features/fetchxml/model/queryColumns";
+import { relationshipKey } from "../features/fetchxml/model/manyToMany";
 import { toAttributeTypeInfo } from "../features/fetchxml/model/attributeCapabilities";
 import type { FetchNode } from "../features/fetchxml/model/nodes";
 import { generateLayoutXml } from "../features/fetchxml/model/layoutxml";
@@ -1692,7 +1693,8 @@ function AppContent() {
 						// Group by relationship to create link-entities
 						const byRelationship = new Map<string, RelatedEntityColumn[]>();
 						for (const col of relatedColumns) {
-							const key = col.relationship.SchemaName;
+							// An intersect entity's two joins share a schema name (#57)
+							const key = relationshipKey(col.relationship);
 							if (!byRelationship.has(key)) {
 								byRelationship.set(key, []);
 							}
