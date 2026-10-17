@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-17
+
+The v1.4.1 milestone: correctness against Dataverse, a complete properties panel, and the open bugs. It was iterated through `1.4.1-beta.1` to `1.4.1-beta.20` (detailed below). Every behaviour was checked against Microsoft Learn and a live Dataverse environment: valid FetchXML is never refused, only queries Dataverse rejects are blocked, and warnings are reserved for what can't be determined.
+
+### ✨ Added
+
+- **A complete, metadata-driven properties panel (#90b).** Every node type has an editor covering the FetchXML reference, with info popovers linking to the docs. Tree badges show link types, aggregates and other options at a glance.
+- **Lossless Parse to Tree (#90a).** Every documented FetchXML attribute round-trips, as do unknown, namespaced and legacy attributes. All 60 Microsoft Learn FetchXML examples round-trip without loss. When Parse to Tree would remove or correct something, it asks first and lists the changes (#89).
+- **Validation that matches Dataverse (#48, #89, #90b, #94, #87).**
+  - Errors are only for queries Dataverse rejects; notes never block.
+  - Every rule was verified live.
+  - Valid but unusual FetchXML (e.g. SQL 4 CDS's `xmlns:generator`, or `link-type="natural"`) is accepted.
+- **Condition operators per attribute (#87).**
+  - The operators offered follow a live operator × attribute-type matrix.
+  - Value inputs match each operator: whole numbers for "x" operators, a fiscal period plus year, `between`, lists.
+  - The four documented fiscal "x" operators were added.
+- **Many-to-many joins (#85).** An N:N relationship joins through its intersect entity, as documented. Intersect entities (`systemuserroles`, `teammembership`, …) can be joined to each side of their N:N relationship (#57).
+- **Paging and Retrieve All (#58, #60).**
+  - The documented paging cookie is used, with page-number paging when Dataverse returns none.
+  - Views follow `@odata.nextLink` past 5,000 rows.
+  - **Stop** keeps the rows already loaded, and a failed page shows a message with **Retry**.
+- **Advanced Find Only applies everywhere (#57).** It applies to entities, attributes and relationships in every entity scope. With it off, FetchXML Studio builds queries Advanced Find can't: system and customization entities, intersect entities, and hidden attributes and relationships. Unreadable attributes are never offered.
+- **Select Attributes (#52):** a wider dialog with resizable columns, one-line cells, a type filter, "Selected only" and a selection count.
+
+### 🔧 Fixed
+
+- **Root entity and record IDs (#54, #59).** The root entity is detected correctly, and FetchXML is never modified: no primary key is injected.
+- **FetchXML runs against the entity's real Web API entity set name (#61).**
+- **Editor mode (#102).** Execute, Save and Send to Tool run exactly what's in the editor.
+- **Escaping and aliases (#63, #94).**
+  - Every generated value is escaped, and apostrophes stay literal for Power Automate.
+  - Corrected aliases update their references.
+  - The Intellisense, Power Automate and Web API snippets follow the docs.
+- **Results grid columns (#114).**
+  - Edit / Add columns and header sorting write valid FetchXML for aliased and link-entity columns and aggregate queries.
+  - Columns of link-entities without an alias show in the grid.
+- **Parse to Tree, files and views keep their query (#57).** Changing the publisher or solution selection never clears the query.
+- **Selecting a new link-entity no longer crashes the app.**
+- **Dark theme (#67)** covers the whole tool and follows PPTB's theme live, including System.
+- **Link-entities (#86, #88):** switching to not any / not all keeps filters, and "None" is never written as a value.
+- **The "+ New" button** is no longer covered by the entity box in a narrow pane (#53).
+- **The tool icon** is bundled under `dist/` and fills PPTB's icon slot (#62, #121). It shows in PPTB once PowerPlatformToolBox/desktop-app#738 ships.
+
+### 🏗️ Technical
+
+- **Dependencies:** Fluent UI React v9 upgraded to 9.74.9 (#104), and `package-lock.json` is committed.
+- **Tests and lint:** Vitest with 507 tests (#64). Lint passes with zero warnings and runs as `eslint . --max-warnings=0` (#65).
+
 ## [1.4.1-beta.20] - 2026-10-17
 
 ### 🔧 Fixed
