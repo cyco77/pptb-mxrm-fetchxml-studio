@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2-beta.4] - 2026-10-17
+
+### 🔧 Fixed
+
+- **Operators now follow the docs for every attribute type (#95).**
+  - Multi-line text (Memo) attributes offer Equals, Not Equals, In and Not In. The operators reference covers them under "String", and they passed the live operator matrix.
+  - Choices (multi-select) attributes offer Equals, Not Equals, In and Not In, as listed in the choices doc, alongside Contains Values / Does Not Contain Values. Equals and Not Equals use the option picker.
+  - The Operator info popover explains the operator you picked, with a link to its page:
+    - the hierarchy operators: primary key of a hierarchical entity only, up to 100 levels;
+    - the hierarchy security operators: Hierarchy Depth;
+    - Contains Values: full-text indexing, so new records can take a few seconds to match;
+    - Equals User Language.
+
+### 🏗️ Technical
+
+- `operators.matrix.test.ts` asserts the operator list for 28 attribute cases. Each row cites the operators reference, the choices doc or the hierarchy doc, or the #87 live matrix.
+  - Operators are only ever added on that evidence, never removed.
+  - Kept on purpose: user and team operators on user lookups and Uniqueidentifier, because they're verified live.
+  - Not offered: Equals Business on Owner (accepted, but it can never match).
+
 ## [1.4.2-beta.3] - 2026-10-17
 
 ### ✨ Added
