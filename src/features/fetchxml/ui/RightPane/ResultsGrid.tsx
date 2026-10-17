@@ -1377,7 +1377,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 							</MenuItem>
 							<MenuItem
 								onClick={() =>
-									void copy(columnToText(result.rows, cellMenuContent.column), `${cellMenuContent.column.header} column`)
+									void copy(columnToText(visibleRows, cellMenuContent.column), `${cellMenuContent.column.header} column`)
 								}
 							>
 								Copy column

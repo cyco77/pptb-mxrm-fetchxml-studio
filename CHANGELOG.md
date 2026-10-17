@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2-beta.6] - 2026-10-17
+
+### 🔧 Fixed
+
+- **Saved views (#93).**
+  - **An unmodified loaded view runs by its view ID again**, so Retrieve All pages through it with `@odata.nextLink`. The stored FetchXML is now compared in the tree's generated form, so default attributes such as `descending="false"` no longer cause a mismatch. The comparison is exact; it used to strip whitespace, which hid edits inside attribute values.
+  - **Personal views shared with you appear in Load View.** Before, only views owned by you or your teams were listed. Dataverse applies access rights when reading `userquery`, per Saved queries on Microsoft Learn.
+  - **Load View lists every type of view**, each labelled. Public views come first (default on top), then Advanced find, Associated, Quick find, Lookup and the others. Overwriting keeps the view's query type; Save As creates a public view.
+  - **Saved layoutxml now follows the documented form.**
+    - `object` (the entity type code) and the row `id` (the primary key) come from metadata.
+    - `jump` is the primary name attribute; it used to be the first column, which could be a lookup.
+    - A loaded view keeps its own `jump` and `imageproviderfunctionname`.
+    - A query without a column layout gets one generated, instead of an empty layoutxml.
+    - Attribute values are escaped.
+  - **Save View dialog:**
+    - High and critical performance messages show as errors (saving still isn't blocked).
+    - A validation call that fails now says so, instead of showing "0 validation messages".
+    - "FetchXML is valid" now reads "No performance issues found".
+  - **System views that aren't customizable** (`iscustomizable` false) can't be overwritten: the dialog explains this and points to Save As.
+  - **Load View reports problems:** an error when a view's FetchXML can't be loaded (it used to fail silently), and a warning listing what the tree had to change.
+
+### 🏗️ Technical
+
+- System views are checked with `ValidateSavedQuery` before they're saved. It's bound to the `savedqueries` collection (`savedqueries/Microsoft.Dynamics.CRM.ValidateSavedQuery`, per the Web API reference); it used to be called unbound, and in fact was never called. A rejection shows in the existing Save failed bar. There's no `userquery` binding, so personal views aren't validated this way.
+- New `model/savedViews.ts` (`isUnmodifiedView`, query type labels and order, managed property reading, Load View notices) and `buildViewLayoutXml` in `layoutxml.ts`, with tests.
+
 ## [1.4.2-beta.5] - 2026-10-17
 
 ### 🔧 Fixed

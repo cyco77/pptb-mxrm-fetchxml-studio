@@ -80,7 +80,8 @@ import { relationshipKey } from "../features/fetchxml/model/manyToMany";
 import { columnFilterConditions, type NewCondition } from "../features/fetchxml/model/columnFilters";
 import { toAttributeTypeInfo } from "../features/fetchxml/model/attributeCapabilities";
 import type { FetchNode, LinkEntityNode } from "../features/fetchxml/model/nodes";
-import { generateLayoutXml } from "../features/fetchxml/model/layoutxml";
+import { buildViewLayoutXml } from "../features/fetchxml/model/layoutxml";
+import { getViewLoadNotice, isUnmodifiedView } from "../features/fetchxml/model/savedViews";
 import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid";
 import { SettingsDrawer } from "../features/fetchxml/ui/Settings/SettingsDrawer";
 import { usePersistedSettings } from "../shared/hooks/usePersistedSettings";
@@ -750,15 +751,16 @@ function AppContent() {
 
 	// Generate LayoutXML from column config for saving
 	const layoutXml = useMemo(() => {
-		if (!builder.columnConfig || !entityMetadata) {
+		if (!builder.fetchQuery || !entityMetadata) {
 			return "";
 		}
-		return generateLayoutXml({
-			...builder.columnConfig,
+		// object, row id and jump from the root Entity's metadata (#93)
+		return buildViewLayoutXml(builder.columnConfig, builder.fetchQuery, {
 			objectTypeCode: entityMetadata.ObjectTypeCode,
 			primaryIdAttribute: entityMetadata.PrimaryIdAttribute,
+			primaryNameAttribute: entityMetadata.PrimaryNameAttribute,
 		});
-	}, [builder.columnConfig, entityMetadata]);
+	}, [builder.columnConfig, builder.fetchQuery, entityMetadata]);
 
 	// Handle save view completion - update loaded view state
 	const handleSaveViewComplete = (
@@ -768,12 +770,16 @@ function AppContent() {
 	) => {
 		// Update the builder's loaded view state so subsequent saves overwrite the same view.
 		if (entityMetadata && builder.fetchQuery) {
+			// Overwriting keeps the view's query type; Save As creates a public view (#93)
+			const overwritten = builder.loadedView?.id === viewId ? builder.loadedView : null;
 			builder.setLoadedView({
 				id: viewId,
 				type: viewType,
 				entitySetName: entityMetadata.EntitySetName,
 				name: viewName,
 				originalFetchXml: generateFetchXml(builder.fetchQuery),
+				queryType: overwritten ? overwritten.queryType : 0,
+				isCustomizable: overwritten?.isCustomizable,
 			});
 		}
 		console.log(`✅ View saved: ${viewName} (${viewType}) - ${viewId}`);
@@ -819,10 +825,7 @@ function AppContent() {
 			let useViewExecution = false;
 
 			if (loadedView) {
-				const isUnmodified =
-					xmlToExecute.replace(/\s+/g, "") === loadedView.originalFetchXml.replace(/\s+/g, "");
-
-				if (isUnmodified) {
+				if (isUnmodifiedView(xmlToExecute, loadedView.originalFetchXml)) {
 					useViewExecution = true;
 					console.log(
 						`📋 Executing ${loadedView.type} view "${loadedView.name}" via ${
@@ -1520,17 +1523,24 @@ function AppContent() {
 						onViewLoad={(viewInfo: LoadedViewInfo) => {
 							// Load the view's FetchXML into the tree while preserving view info
 							// Pass layoutxml for column configuration if available
-							builder.loadView(
+							const result = builder.loadView(
 								viewInfo.originalFetchXml,
 								{
 									id: viewInfo.id,
 									type: viewInfo.type,
 									entitySetName: viewInfo.entitySetName,
 									name: viewInfo.name,
-									originalFetchXml: viewInfo.originalFetchXml,
+									queryType: viewInfo.queryType,
+									isCustomizable: viewInfo.isCustomizable,
 								},
 								viewInfo.layoutxml,
 							);
+							// Say when the view couldn't be loaded, or the tree changed its query (#93)
+							const notice = getViewLoadNotice(viewInfo.name, result);
+							if (notice) {
+								if (!result.success) console.error("Failed to parse view FetchXML:", result.errors);
+								void window.toolboxAPI?.utils?.showNotification?.(notice);
+							}
 						}}
 					/>
 					{builder.fetchQuery ? (
