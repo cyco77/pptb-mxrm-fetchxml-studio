@@ -2,7 +2,7 @@
 
 A powerful, modern FetchXML query builder and data explorer for [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app). Inspired by the XrmToolBox FetchXML Builder, reimagined with React 18, Fluent UI v9, and seamless Dataverse integration.
 
-![Version](https://img.shields.io/badge/version-1.5.0--beta.1-blue)
+![Version](https://img.shields.io/badge/version-1.5.0--beta.2-blue)
 [![npm](https://img.shields.io/npm/v/@mohsinonxrm/pptb-fetchxml-studio?label=npm)](https://www.npmjs.com/package/@mohsinonxrm/pptb-fetchxml-studio)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
@@ -122,6 +122,23 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **Bulk delete privilege check** — Validates `prvBulkDelete` before surfacing bulk delete
 - **Workflow privilege check** — Validates `prvReadWorkflow` + `prvWorkflowExecution` before showing workflow picker
 - **View save privilege check** — Validates `prvWriteQuery` / `prvWriteCustomization` / `prvPublishCustomization` / `prvWriteUserQuery` before save operations
+
+## ✏️ What this tool changes
+
+FetchXML Studio only reads from Dataverse until you start one of the operations below. Each one asks for confirmation first. They all run as the connected user, or as the user PPTB is impersonating, so Dataverse applies that user's security roles.
+
+| Operation | When | What it does in Dataverse |
+|---|---|---|
+| **Delete records** | Results → **Delete** with 1–100 rows selected | Deletes the selected records. 1–3 records are deleted one request each; 4–100 are deleted in a batch, with progress. Needs the entity's Delete privilege. |
+| **Bulk Delete** | Results → **Delete** with more than 100 rows selected, or with **no rows selected**, or **Bulk Delete** | Submits an asynchronous Bulk Delete job (`BulkDelete`). It runs on the server, and you can track it under Settings → Data Management → Bulk Record Deletion. With no rows selected, the job deletes **every record the query matches**, not just the rows loaded in the grid. Needs the Bulk Delete privilege (`prvBulkDelete`). |
+| **Run workflow** | Results → **Run Workflow** on selected rows | Starts the chosen on-demand workflow (`ExecuteWorkflow`) once per selected record. What the workflow does is up to the workflow. |
+| **Save view (personal)** | **Save As** / **Save**, Personal view | Creates or updates a `userquery` record (your personal view). |
+| **Save view (system)** | **Save As** / **Save**, System view | Checks the query with `ValidateSavedQuery`, then creates or updates a `savedquery` record and publishes it (`PublishXml`). Optionally adds it to the unmanaged solution you choose (`AddSolutionComponent`). Overwriting a view that isn't customizable is blocked. |
+
+Nothing else writes to Dataverse:
+- **Export (Server)** asks Dataverse to build an Excel file (`ExportToExcel`) and changes no data.
+- **Export (Local)** writes an `.xlsx` file to the location you choose.
+- **Display settings** (logical names, value format, entity source, Advanced Find only) are stored by Power Platform ToolBox on your machine, not in Dataverse.
 
 ## 🖼️ Interface Overview
 
