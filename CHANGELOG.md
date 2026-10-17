@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2-beta.7] - 2026-10-17
+
+### 🏗️ Technical
+
+- **The shared CI/CD and release standard, same as Command Bar Studio and Dataverse Request Studio (#130).**
+  - **CI** (`ci.yml`) runs on every PR and on pushes to `dev`/`main`: typecheck, lint, tests, `pptb-validate`, the build, then `check-pack.mjs`. That last step checks the package contains the required files (including `pptb.config.json` and `dist/icons/icon.svg`), contains no `src/`, `.map` or `.github/` files, and stays within a size budget of 3 MB packed / 10 MB unpacked.
+  - **Releases** (`release.yml`) come from `v*` tags:
+    - the tag must match `package.json`;
+    - npm publishing uses trusted publishing with provenance, and `-beta.N` versions go to the `beta` dist-tag;
+    - the GitHub Release has generated notes, and betas are marked as pre-releases.
+    - See `RELEASING.md`.
+  - **Repository tooling:**
+    - Added Prettier (`.prettierrc`, `format`/`format:check`), `.gitattributes` (LF), a `typecheck` script (`tsc -b`) and `engines.node >=22`.
+    - Removed the `coverage` and `finalize-package` scripts and `@vitest/coverage-v8`.
+    - Shorter PR template; the issue forms are trimmed to Bug and Feature.
+- **`tmp` updated to 0.2.7 in the lockfile, which clears the high-severity runtime `npm audit` finding (#77).** It wasn't exploitable in the tool: exceljs's browser build doesn't include tmp. The minimatch and brace-expansion findings were already fixed.
+
 ## [1.4.2-beta.6] - 2026-10-17
 
 ### 🔧 Fixed
