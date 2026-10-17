@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-10-17
+
+The v1.4.2 milestone: the features other users asked for, a results grid that works from the query, saved views that behave as documented, operators that follow the docs, and the CI/CD and release setup shared with Command Bar Studio and Dataverse Request Studio. It was iterated through `1.4.2-beta.1` to `1.4.2-beta.7` (detailed below). Behaviour follows Microsoft Learn and the live operator matrix. Valid FetchXML is never refused, and a Dataverse error is shown as it is.
+
+### ✨ Added
+
+- **Copy results to the clipboard (#50).**
+  - Right-click a cell to copy its value, its raw value (GUID, number, ISO date or option value), the row, the selected rows or the column.
+  - **Ctrl+C** copies the selected rows, or the focused cell.
+  - The command bar's **Copy** menu copies the selected or all loaded rows, as shown or raw.
+  - Rows copy as tab-separated values with headers, so they paste into Excel as cells.
+- **Column filters that write FetchXML (#23).**
+  - Clicking a column header opens a menu: **Sort**, **Filter by…** and **Clear filter**. Shift+click still adds the column to a multi-column sort.
+  - **Filter by…** uses the condition editor's operators and value pickers, adds a `<condition>` and runs the query again, so the filter covers every record.
+  - Active filters show as removable tags above the grid.
+  - Column filters are kept in their own `<filter type="and">`, apart from the conditions you built. Link-entity columns use `entityname`.
+- **Quick search over the loaded rows (#23).** It filters the loaded rows as you type, in any column, using the values as shown, and highlights matches.
+- **Operator help (#95).** The Operator info popover explains the selected operator and links to its doc page: the hierarchy operators, the hierarchy security operators, Contains Values and Equals User Language.
+
+### 🔧 Fixed
+
+- **Results grid columns come from the query (#91).** They used to come from the first row, which Dataverse returns without its null values.
+  - Lookups that are empty in row 1 now show their values.
+  - `<all-attributes />` columns from every loaded page are shown.
+  - `matchfirstrowusingcrossapply` columns appear and can be sorted and filtered.
+  - The local Excel export has exactly the grid's columns.
+- **Saved views (#93).**
+  - An unmodified loaded view runs by its view ID, so Retrieve All pages through it.
+  - Personal views shared with you appear in Load View.
+  - Every type of view is listed, each labelled.
+  - Saved layoutxml uses the documented `jump`, `object` and row `id`.
+  - System views are checked with `ValidateSavedQuery`, and views that aren't customizable can't be overwritten.
+  - Load View reports views it can't load or had to change.
+- **Operators per attribute type (#95).** Memo attributes gain Equals, Not Equals, In and Not In, as do choices (multi-select), which use the option picker. All are documented, verified live, or both. No operator was removed.
+- **Tree (#24, #25).**
+  - Selecting a node no longer scrolls the tree to the bottom.
+  - A node added from an Add menu is selected and scrolled into view.
+- **Header sort for aggregate and aliased link-entity columns (#92)** was confirmed fixed by #114, and is now covered by tests.
+
+### 🏗️ Technical
+
+- **CI/CD and releases (#130).**
+  - CI runs typecheck, lint, tests, `pptb-validate`, the build and a package-contents check on every PR and on pushes to `dev`/`main`.
+  - Releases come from `v*` tags: npm trusted publishing with provenance, and GitHub Releases with generated notes (see `RELEASING.md`).
+  - Prettier config, `.gitattributes` (LF), `engines.node >=22`.
+- **Security (#77).** `tmp` was updated to 0.2.7, which clears the high-severity runtime `npm audit` finding.
+- **Tests.** 637 tests, up from 507. New suites:
+  - copy (`copyResults`);
+  - column filters (`columnFilters`);
+  - search highlighting;
+  - the operator matrix;
+  - grid columns (`resultColumns`);
+  - saved views (`savedViews`) and layoutxml.
+
 ## [1.4.2-beta.7] - 2026-10-17
 
 ### 🏗️ Technical
