@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2-beta.3] - 2026-10-17
+
+### ✨ Added
+
+- **Column filters that write FetchXML (#23).**
+  - Clicking a column header opens a menu: Sort (A to Z / Z to A; smallest to largest for numbers; oldest to newest for dates), **Filter by…**, and **Clear filter** when the column is filtered. Shift+click still adds the column to a multi-column sort.
+  - **Filter by…** opens the property panel's condition editor for that column: operators and values from the attribute's metadata.
+  - **Apply** adds a `<condition>` to the query and runs it again, so the filter covers every record.
+  - Filtered columns show a filter icon. Active filters show as tags above the grid ("Annual Revenue greater than 200000"; choice values by label). Dismiss a tag, or use **Clear all**, to remove filters and run the query again.
+- **Quick search over the loaded rows (#23).**
+  - The search box above the grid filters the loaded rows as you type, matching any column's value as shown, with matches highlighted.
+  - The info bar shows how many loaded rows match.
+  - The Copy menu's "All loaded rows" becomes "All matching rows".
+  - Rows the search hides are deselected, and scrolling doesn't load more pages while searching.
+
+### 🔧 Changed
+
+- **Clicking a column header opens the header menu instead of sorting straight away.** Sort is the menu's first item. Shift+click still sorts directly.
+
+### 🏗️ Technical
+
+- New `model/columnFilters.ts`, with tests. Column filters live in their own `<filter type="and">`:
+  - FetchXML allows one `<filter>` per entity, so the group nests inside the root filter. With no root filter, the group becomes the root filter.
+  - An `or` root filter is wrapped in an `and` filter, and unwrapped again when the last column filter is removed.
+  - Link-entity columns use `entityname` (the alias, or the link-entity's name), per "Filters on link-entity" on Microsoft Learn.
+- The builder store tracks the group in `columnFilterId`, with actions `ADD_COLUMN_FILTER`, `REMOVE_COLUMN_FILTER` and `CLEAR_COLUMN_FILTERS`.
+  - A FetchXML load (editor sync) relocates the group by position when its conditions match.
+  - Loading a view, changing the entity or starting a new query drops the group.
+- AppShell runs the query once the filter change has committed.
+- `ConditionEditor` takes a `columnFilter` option: the column fixes the attribute, so the Entity, Attribute and Compare-to fields are hidden.
+- Search highlighting reads the search text from a context (`SearchHighlightContext`), so typing doesn't rebuild the grid's columns. The text cell renderers wrap their text in `HighlightText`.
+
 ## [1.4.2-beta.2] - 2026-10-17
 
 ### ✨ Added
