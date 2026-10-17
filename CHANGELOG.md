@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.3] - 2026-10-17
+
+### ✨ Added
+
+- **Dataverse errors explain what to do (#96).** For documented error codes, the error bar, paging notices, export, delete, bulk delete, workflow and Save view messages start with what to do. Dataverse's own message follows after "Details:". Undocumented codes are shown unchanged. Covered:
+  - service protection limits (429, 0x80072322/21/26);
+  - the 50,000-record aggregate limit (0x8004E023);
+  - the quick find record limit;
+  - more than 500 conditions or 15 link-entities;
+  - query throttling and timeouts caused by leading wildcards, calculated attributes or other anti-patterns;
+  - aggregate mistakes;
+  - invalid condition values;
+  - missing attributes or entities;
+  - entity set names Web API doesn't recognise;
+  - records not found;
+  - missing privileges.
+- **Throttling back-off (#96).** When Dataverse service protection limits are hit, deletes, workflow runs and page loads wait and retry: per `Retry-After` when it's given, otherwise 2, 4 and 8 seconds. Each wait is capped at 60 seconds, with at most 3 retries.
+- **Pages over Power Platform ToolBox's 16 MB response limit (#68).**
+  - **Load more and Retrieve All:** the page is requested again at half the size, at most three times and never below 100 rows. The pages that follow keep the smaller size.
+  - **The first page and saved views:** the error explains how to make the response smaller (fewer attributes, or a smaller `count`), and nothing is retried.
+
+### 🔧 Changed
+
+- **Fewer startup calls and a quiet console (#71).**
+  - WhoAmI and each privilege check are sent once per connection, and concurrent callers share one request.
+  - Raw query results, privilege responses, payloads and routine status no longer go to the console. They're behind the debug flags (`src/shared/utils/debug.ts`), which are now all off by default.
+  - The Electron IPC prefix is removed from errors shown to users.
+
+### 🏗️ Technical
+
+- New modules, each with tests:
+  - `api/dataverseErrors.ts`: reads the PPTB 1.2.7 host's error formats and maps documented codes to Microsoft Learn;
+  - `api/throttleRetry.ts`;
+  - `api/sessionCache.ts`: `resetDataverseSessionCache()`, to be called on a connection change (#66);
+  - `api/pageRecovery.ts`.
+
 ## [1.5.0-beta.2] - 2026-10-17
 
 ### 📝 Documentation
