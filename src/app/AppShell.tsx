@@ -1440,10 +1440,11 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 		const recordIds = deleteDialogState.recordIds;
 		setDeleteProgress(null);
 
-		// For batch delete (4+ records), use $batch endpoint
+		// For batch delete (4+ records): $batch requests with the metadata EntitySetName on
+		// PPTB ≥ 1.2.7 (#61)
 		if (deleteDialogState.isBatchDelete) {
 			const result = await deleteRecordsBatch(
-				entityLogicalName, // Use logical name, API will pluralize
+				entityLogicalName,
 				recordIds,
 				(progress) => setDeleteProgress(progress),
 			);

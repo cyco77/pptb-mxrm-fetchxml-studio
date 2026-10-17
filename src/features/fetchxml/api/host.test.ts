@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { connectionGuard, getPrimaryConnection } from "./host";
+import { canExecuteBatch, connectionGuard, getPrimaryConnection } from "./host";
 
 // Host APIs are feature-detected, so older hosts (and the dev server) degrade gracefully
 
@@ -13,6 +13,7 @@ beforeEach(() => {
 afterEach(() => {
 	vi.restoreAllMocks();
 	delete (window as unknown as { toolboxAPI?: unknown }).toolboxAPI;
+	delete (window as unknown as { dataverseAPI?: unknown }).dataverseAPI;
 });
 
 describe("getPrimaryConnection", () => {
@@ -30,6 +31,14 @@ describe("getPrimaryConnection", () => {
 		expect((await getPrimaryConnection())?.id).toBe("b");
 		setToolbox(undefined);
 		expect(await getPrimaryConnection()).toBeNull();
+	});
+});
+
+describe("canExecuteBatch", () => {
+	it("detects dataverseAPI.executeBatch", () => {
+		expect(canExecuteBatch()).toBe(false);
+		(window as unknown as { dataverseAPI: unknown }).dataverseAPI = { executeBatch: vi.fn() };
+		expect(canExecuteBatch()).toBe(true);
 	});
 });
 

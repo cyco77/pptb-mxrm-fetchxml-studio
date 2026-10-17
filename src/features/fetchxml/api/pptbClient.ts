@@ -31,7 +31,8 @@ import { memoizeForSession } from "./sessionCache";
 // Connection-change hook (#71): forget the memoized WhoAmI and privilege answers
 export { resetDataverseSessionCache } from "./sessionCache";
 import { readManagedPropertyValue, sortViewsByQueryType } from "../model/savedViews";
-import { connectionGuard } from "./host";
+import { canExecuteBatch, connectionGuard } from "./host";
+import { deleteRecordsInBatches, type ExecuteBatch } from "./batchDelete";
 
 export interface EntityMetadata {
 	LogicalName: string;
@@ -557,6 +558,17 @@ async function resolveFetchXmlEntitySet(
 ): Promise<{ entitySetName: string; logicalCollectionName?: string } | undefined> {
 	const logicalName = getFetchXmlEntityName(fetchXml);
 	if (!logicalName) return undefined;
+	return resolveEntitySet(logicalName);
+}
+
+/**
+ * EntitySetName (and LogicalCollectionName) of a table from metadata (cached), for Web API URLs
+ * the host would otherwise build with its pluralizer (#61). Undefined when metadata has none.
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/webapi/web-api-service-documents#entity-set-name
+ */
+export async function resolveEntitySet(
+	logicalName: string,
+): Promise<{ entitySetName: string; logicalCollectionName?: string } | undefined> {
 	let metadata = metadataCache.getEntityMetadata(logicalName);
 	if (!metadata) {
 		const isCurrent = metadataCache.generationGuard();
@@ -2093,21 +2105,46 @@ export function buildRecordUrl(
 }
 
 /**
- * Delete a single record
- * @param entitySetName OData entity set name (e.g., "accounts")
- * @param recordId GUID of the record to delete
+ * The entity set to delete from with executeBatch (#61), or undefined to use the host's
+ * dataverseAPI.delete: on hosts without executeBatch (< 1.2.7), or when metadata has no
+ * EntitySetName. dataverseAPI.delete takes a logical name and pluralizes it on the host.
  */
-export async function deleteRecord(entitySetName: string, recordId: string): Promise<void> {
+async function deleteEntitySet(entityLogicalName: string): Promise<string | undefined> {
+	if (!canExecuteBatch()) return undefined;
+	try {
+		return (await resolveEntitySet(entityLogicalName))?.entitySetName;
+	} catch (error) {
+		console.warn("Delete: entity set name lookup failed, using the host's delete:", error);
+		return undefined;
+	}
+}
+
+const hostExecuteBatch: ExecuteBatch = (requests) => window.dataverseAPI!.executeBatch(requests);
+
+/**
+ * Delete a single record. Uses the metadata EntitySetName through executeBatch (#61).
+ * @param entityLogicalName Logical name of the entity (e.g., "account")
+ * @param recordId GUID of the record to delete
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/webapi/update-delete-entities-using-web-api#basic-delete
+ */
+export async function deleteRecord(entityLogicalName: string, recordId: string): Promise<void> {
 	if (!isDataverseAvailable()) {
 		throw new Error("PPTB Dataverse API not available");
 	}
 
-	debugLog("recordAPI", `📡 Deleting record: ${entitySetName}(${recordId})`);
+	debugLog("recordAPI", `📡 Deleting record: ${entityLogicalName}(${recordId})`);
 
 	try {
-		// Retried after service protection errors (#96): Dataverse rejected the request unprocessed
-		await withThrottleRetry(() => window.dataverseAPI!.delete(entitySetName, recordId));
-		debugLog("recordAPI", `✅ Record deleted: ${entitySetName}(${recordId})`);
+		const entitySetName = await deleteEntitySet(entityLogicalName);
+		if (entitySetName) {
+			// The batch path retries service protection errors itself (batchDelete.ts)
+			const result = await deleteRecordsInBatches(entitySetName, [recordId], { executeBatch: hostExecuteBatch });
+			if (result.failed > 0) throw new Error(result.errors[0]?.replace(`${recordId}: `, "") || "Delete failed");
+		} else {
+			// Retried after service protection errors (#96): Dataverse rejected the request unprocessed
+			await withThrottleRetry(() => window.dataverseAPI!.delete(entityLogicalName, recordId));
+		}
+		debugLog("recordAPI", `✅ Record deleted: ${entityLogicalName}(${recordId})`);
 	} catch (error) {
 		console.error("deleteRecord: Failed:", error);
 		throw error;
@@ -2558,21 +2595,36 @@ export interface BatchDeleteResult {
 }
 
 /**
- * Delete multiple records using parallel delete requests via PPTB API
- * Recommended for 1-100 records. For larger sets, use submitBulkDelete.
- * Uses batches of parallel requests for performance while respecting rate limits.
+ * Delete multiple records. Recommended for 1-100 records; for larger sets, use submitBulkDelete.
  *
- * @param entitySetName OData entity set name (e.g., "accounts")
+ * PPTB ≥ 1.2.7: OData $batch requests through dataverseAPI.executeBatch with the metadata
+ * EntitySetName (#61, batchDelete.ts). Older hosts: groups of parallel single DELETE requests
+ * through dataverseAPI.delete (host-pluralized entity set; not $batch).
+ *
+ * @param entityLogicalName Logical name of the entity (e.g., "account")
  * @param recordIds Array of record GUIDs to delete
  * @param onProgress Callback for progress updates with ETA
- * @param batchSize Number of concurrent requests per batch (default: 10)
+ * @param batchSize Parallel requests per group on the fallback path (default: 10)
  */
 export async function deleteRecordsBatch(
-	entitySetName: string,
+	entityLogicalName: string,
 	recordIds: string[],
 	onProgress?: (progress: BatchDeleteProgress) => void,
 	batchSize: number = 10,
 ): Promise<BatchDeleteResult> {
+	const entitySetName = await deleteEntitySet(entityLogicalName);
+	if (entitySetName) {
+		debugLog("recordAPI", `📡 Deleting ${recordIds.length} records from ${entitySetName} with $batch`);
+		const batchResult = await deleteRecordsInBatches(entitySetName, recordIds, {
+			executeBatch: hostExecuteBatch,
+			onProgress,
+			// Stop if the tool's connection changes in place (#66)
+			shouldContinue: await connectionGuard(),
+		});
+		debugLog("recordAPI", `✅ Delete complete: ${batchResult.succeeded} succeeded, ${batchResult.failed} failed`);
+		return batchResult;
+	}
+
 	const result: BatchDeleteResult = { succeeded: 0, failed: 0, errors: [] };
 	const total = recordIds.length;
 
@@ -2597,7 +2649,7 @@ export async function deleteRecordsBatch(
 		// Execute deletes in parallel within the batch
 		const deletePromises = batchRecordIds.map(async (recordId) => {
 			try {
-				await deleteRecord(entitySetName, recordId);
+				await window.dataverseAPI!.delete(entityLogicalName, recordId);
 				return { success: true, recordId };
 			} catch (error) {
 				return {

@@ -49,3 +49,8 @@ export async function connectionGuard(): Promise<() => Promise<boolean>> {
 		}
 	};
 }
+
+/** Whether the host exposes dataverseAPI.executeBatch (PPTB ≥ 1.2.7) */
+export function canExecuteBatch(): boolean {
+	return typeof window !== "undefined" && typeof window.dataverseAPI?.executeBatch === "function";
+}
