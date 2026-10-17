@@ -190,6 +190,7 @@ export function LoadViewPicker({
 					name: view.name,
 					layoutxml: view.layoutxml, // Include layoutxml for column configuration
 					queryType: view.queryType,
+					isCustomizable: view.isCustomizable,
 				};
 				onViewSelect(viewInfo);
 				debugLog("viewAPI", `Selected view: ${view.name} (${view.type}) - ID: ${view.id}`);

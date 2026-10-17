@@ -72,6 +72,8 @@ export interface LoadedViewState {
 	name: string;
 	/** The view's querytype (0 = public view); overwriting a view keeps it (#93) */
 	queryType?: number;
+	/** System views: false when the iscustomizable managed property doesn't allow updates (#93) */
+	isCustomizable?: boolean;
 }
 
 export interface BuilderState {

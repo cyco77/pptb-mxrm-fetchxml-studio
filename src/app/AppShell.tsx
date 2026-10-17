@@ -779,6 +779,7 @@ function AppContent() {
 				name: viewName,
 				originalFetchXml: generateFetchXml(builder.fetchQuery),
 				queryType: overwritten ? overwritten.queryType : 0,
+				isCustomizable: overwritten?.isCustomizable,
 			});
 		}
 		console.log(`✅ View saved: ${viewName} (${viewType}) - ${viewId}`);
@@ -1530,6 +1531,7 @@ function AppContent() {
 									entitySetName: viewInfo.entitySetName,
 									name: viewInfo.name,
 									queryType: viewInfo.queryType,
+									isCustomizable: viewInfo.isCustomizable,
 								},
 								viewInfo.layoutxml,
 							);

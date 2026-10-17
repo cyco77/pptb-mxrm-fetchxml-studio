@@ -83,6 +83,43 @@ export function sortViewsByQueryType<T extends SortableView>(views: T[]): T[] {
 	);
 }
 
+/**
+ * Overall result of ValidateFetchXmlExpression, which returns "warnings and suggestions about the
+ * performance of the query", each with a Severity from 0 (low) to 3 (critical). High and critical
+ * show as errors; it is advice only and never blocks saving (#93).
+ * https://learn.microsoft.com/power-apps/developer/data-platform/webapi/reference/validatefetchxmlexpression
+ * https://learn.microsoft.com/power-apps/developer/data-platform/webapi/reference/validatorissue
+ */
+export function getValidationStatus(
+	messages: ReadonlyArray<{ Severity: number }>,
+): "valid" | "warning" | "error" {
+	if (messages.length === 0) return "valid";
+	return messages.some((m) => m.Severity >= 2) ? "error" : "warning";
+}
+
+/**
+ * Whether a loaded view can be overwritten (#93). A system view is updated only "if the
+ * IsCustomizable managed property allows the view to be updated":
+ * https://learn.microsoft.com/power-apps/developer/model-driven-apps/customize-entity-views#update-views
+ * Personal views have no such property, and an unknown value isn't blocked (Dataverse decides).
+ */
+export function canOverwriteView(view: { type: "system" | "personal"; isCustomizable?: boolean }): boolean {
+	return view.type !== "system" || view.isCustomizable !== false;
+}
+
+/**
+ * Reads a ManagedProperty column (e.g. savedquery.iscustomizable) from a Web API record: the Web API
+ * returns a BooleanManagedProperty complex type, whose Value is the setting.
+ * https://learn.microsoft.com/power-apps/developer/data-platform/webapi/reference/booleanmanagedproperty
+ */
+export function readManagedPropertyValue(value: unknown): boolean | undefined {
+	if (typeof value === "boolean") return value;
+	if (value && typeof value === "object" && typeof (value as { Value?: unknown }).Value === "boolean") {
+		return (value as { Value: boolean }).Value;
+	}
+	return undefined;
+}
+
 export interface ViewLoadNotice {
 	title: string;
 	body: string;

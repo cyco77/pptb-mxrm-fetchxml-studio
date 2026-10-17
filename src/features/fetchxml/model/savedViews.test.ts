@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { parseFetchXml } from "./fetchxmlParser";
 import { generateFetchXml } from "./fetchxml";
-import { getQueryTypeLabel, getViewLoadNotice, isUnmodifiedView, sortViewsByQueryType } from "./savedViews";
+import {
+	canOverwriteView,
+	getQueryTypeLabel,
+	getValidationStatus,
+	getViewLoadNotice,
+	isUnmodifiedView,
+	readManagedPropertyValue,
+	sortViewsByQueryType,
+} from "./savedViews";
 
 /** FetchXML as Dataverse stores it for a system view: legacy attributes and spelled-out defaults. */
 const STORED_VIEW_FETCHXML = `<fetch version="1.0" output-format="xml-platform" mapping="logical" distinct="false">
@@ -84,6 +92,37 @@ describe("query types (#93)", () => {
 			"Lookup View",
 			"Unknown",
 		]);
+	});
+});
+
+describe("saving (#93)", () => {
+	it("shows high and critical performance messages as errors", () => {
+		expect(getValidationStatus([])).toBe("valid");
+		expect(getValidationStatus([{ Severity: 0 }, { Severity: 1 }])).toBe("warning");
+		expect(getValidationStatus([{ Severity: 1 }, { Severity: 2 }])).toBe("error");
+		expect(getValidationStatus([{ Severity: 3 }])).toBe("error");
+	});
+
+	it("blocks overwriting only a system view that isn't customizable", () => {
+		expect(canOverwriteView({ type: "system", isCustomizable: false })).toBe(false);
+		expect(canOverwriteView({ type: "system", isCustomizable: true })).toBe(true);
+		// Unknown: Dataverse decides
+		expect(canOverwriteView({ type: "system" })).toBe(true);
+		expect(canOverwriteView({ type: "personal", isCustomizable: false })).toBe(true);
+	});
+
+	it("reads the iscustomizable managed property", () => {
+		expect(
+			readManagedPropertyValue({
+				Value: false,
+				CanBeChanged: false,
+				ManagedPropertyLogicalName: "iscustomizableanddeletable",
+			}),
+		).toBe(false);
+		expect(readManagedPropertyValue({ Value: true })).toBe(true);
+		expect(readManagedPropertyValue(true)).toBe(true);
+		expect(readManagedPropertyValue(undefined)).toBeUndefined();
+		expect(readManagedPropertyValue({})).toBeUndefined();
 	});
 });
 

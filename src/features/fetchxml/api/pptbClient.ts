@@ -24,7 +24,7 @@ import { debugLog } from "../../../shared/utils/debug";
 import { responseHasFormattedValues } from "./formattedValues";
 import { metadataCache } from "../state/cache";
 import { nextLinkToQueryPath, parseFetchXmlPagingCookie } from "./paging";
-import { sortViewsByQueryType } from "../model/savedViews";
+import { readManagedPropertyValue, sortViewsByQueryType } from "../model/savedViews";
 
 export interface EntityMetadata {
 	LogicalName: string;
@@ -1179,6 +1179,8 @@ export interface SavedView {
 	isDefault?: boolean;
 	/** The querytype column: 0 for public views (savedViews.ts getQueryTypeLabel, #93) */
 	queryType?: number;
+	/** System views: the iscustomizable managed property; false means it can't be overwritten (#93) */
+	isCustomizable?: boolean;
 }
 
 /**
@@ -1201,6 +1203,8 @@ export interface LoadedViewInfo {
 	layoutxml?: string;
 	/** The view's querytype, kept when it is overwritten (#93) */
 	queryType?: number;
+	/** System views: false when the view isn't customizable, so it can't be overwritten (#93) */
+	isCustomizable?: boolean;
 }
 
 /**
@@ -1343,7 +1347,7 @@ export async function getSystemViews(entityLogicalName: string): Promise<SavedVi
 		// componentstate = 0: Published (not unpublished/deleted)
 		// statecode = 0: Active views only
 		const query =
-			`savedqueries?$select=savedqueryid,name,fetchxml,layoutxml,isdefault,querytype` +
+			`savedqueries?$select=savedqueryid,name,fetchxml,layoutxml,isdefault,querytype,iscustomizable` +
 			`&$filter=(returnedtypecode eq '${entityLogicalName}' and componentstate eq 0 and statecode eq 0)` +
 			`&$orderby=name asc`;
 
@@ -1360,6 +1364,7 @@ export async function getSystemViews(entityLogicalName: string): Promise<SavedVi
 				type: "system" as const,
 				isDefault: record.isdefault as boolean | undefined,
 				queryType: record.querytype as number | undefined,
+				isCustomizable: readManagedPropertyValue(record.iscustomizable),
 			})),
 		);
 
@@ -1514,8 +1519,11 @@ export async function validateFetchXmlExpression(
 }
 
 /**
- * Validate SavedQuery before creation/update
- * @see https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/reference/validatesavedquery
+ * Validate a system view's FetchXML before it is created or updated (#93). Throws Dataverse's error
+ * when the query isn't valid for the query type. The action is bound to the savedquery collection
+ * (POST savedqueries/Microsoft.Dynamics.CRM.ValidateSavedQuery) and has no userquery binding, so
+ * it is used for system views only.
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/webapi/reference/validatesavedquery
  */
 export async function validateSavedQuery(fetchXml: string, queryType: number = 0): Promise<void> {
 	if (!isDataverseAvailable()) {
@@ -1526,6 +1534,7 @@ export async function validateSavedQuery(fetchXml: string, queryType: number = 0
 
 	try {
 		await window.dataverseAPI!.execute({
+			entityName: "savedquery",
 			operationName: "ValidateSavedQuery",
 			operationType: "action",
 			parameters: {
