@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2-beta.5] - 2026-10-17
+
+### 🔧 Fixed
+
+- **Grid columns come from the query, not from the first row (#91).** Dataverse leaves null values out of each row, so columns used to depend on which values row 1 happened to have.
+  - **Lookups:** a lookup that's empty in the first row no longer shows "—" in every row. Raw mode, "both" mode and Copy raw value work too, because the column is keyed `_name_value` from metadata.
+  - **Empty attributes:** every attribute in the query is a column, even when no loaded row has a value.
+  - **All attributes:** `<all-attributes />`, and a root entity without attribute elements, show every attribute that has a value in any loaded row, including link-entity all-attributes. Later pages add new columns at the end, and existing columns never move.
+  - **Cross-apply:** `matchfirstrowusingcrossapply` columns, which Dataverse returns by schema name, now appear, and can be sorted, filtered and removed.
+  - **Exists and in:** attributes inside `exists`/`in` link-entities are never grid columns. Those link types return no columns.
+  - **Excel export:** local Excel export has exactly the grid's columns, in the grid's order. It no longer adds the primary key on its own.
+
+### 🏗️ Technical
+
+- New `model/resultColumns.ts` (`resultColumns`, `orderByLayout`), with tests. The grid and the local Excel export both use it.
+  - `QueryResult` carries the query that ran instead of a precomputed `columns` list.
+  - `resolveColumn` maps cross-apply schema-name keys back to their attribute.
+- #92 (header sort writing invalid orders) was already fixed by #114. New tests cover aggregate link-entity columns, an aggregate attribute without an alias, and sorting a root lookup from its `_name_value` column.
+
 ## [1.4.2-beta.4] - 2026-10-17
 
 ### 🔧 Fixed
