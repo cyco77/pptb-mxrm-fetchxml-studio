@@ -153,20 +153,18 @@ describe("Query Advisor: documented limits", () => {
 		expect(advice(ACC(nested)).filter((f) => f.severity === "error" && f.message.includes("0x8004430D"))).toHaveLength(1);
 	});
 
-	it("over 15 only with link-entities inside filters: warning (can't be determined)", () => {
+	it("link-entities inside filters don't count toward 15 (verified live: 14 joined + 2 any run)", () => {
 		const xml = ACC(`${links(14)}<filter>${links(2, "any").replace(/alias="l/g, 'alias="f')}</filter>`);
-		const found = advice(xml).filter((f) => f.message.includes("0x8004430D"));
-		expect(found).toHaveLength(1);
-		expect(found[0]).toMatchObject({ element: "fetch", severity: "warning", kind: "invalid" });
+		expect(advice(xml).filter((f) => f.message.includes("0x8004430D"))).toEqual([]);
 		expect(getExecutionErrors(parseFetchXml(xml))).toEqual([]);
 	});
 
-	it("500 conditions and link-entities: no finding", () => {
-		expect(advice(ACC(`${conditions(499)}${links(1)}`)).filter((f) => f.message.includes("0x8004430C"))).toEqual([]);
+	it("500 conditions plus a link-entity: no finding (link-entities don't count, verified live)", () => {
+		expect(advice(ACC(`${conditions(500)}${links(1)}`)).filter((f) => f.message.includes("0x8004430C"))).toEqual([]);
 	});
 
-	it("501 conditions and link-entities: error (0x8004430C)", () => {
-		const found = advice(ACC(`${conditions(500)}${links(1)}`)).filter((f) => f.message.includes("0x8004430C"));
+	it("501 conditions: error (0x8004430C, verified live)", () => {
+		const found = advice(ACC(conditions(501))).filter((f) => f.message.includes("0x8004430C"));
 		expect(found).toHaveLength(1);
 		expect(found[0]).toMatchObject({ element: "fetch", severity: "error", kind: "invalid" });
 		expect(found[0].message).toContain("501");

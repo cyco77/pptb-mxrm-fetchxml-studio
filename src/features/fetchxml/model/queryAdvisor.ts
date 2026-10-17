@@ -22,8 +22,12 @@ const NON_RETURNING = new Set(["exists", "in", "any", "not any", "all", "not all
 
 /** https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/join-tables#limitations */
 export const MAX_LINK_ENTITIES = 15;
-/** https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/filter-rows#condition-limits */
-export const MAX_CONDITIONS_AND_LINKS = 500;
+/**
+ * https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/filter-rows#condition-limits
+ * The docs count condition and link-entity elements together; live (2026-10-17) Dataverse counts
+ * conditions only: 500 conditions + a link-entity run, 501 conditions fail with 0x8004430C.
+ */
+export const MAX_CONDITIONS = 500;
 /** https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/page-results#fetchxml-paging-models */
 export const SIMPLE_PAGING_LIMIT = 50_000;
 /** Default page size for standard entities (page-results) */
@@ -165,24 +169,19 @@ export function adviseQuery(fetch: FetchNode): RuleFinding[] {
 	}
 
 	// ---- limits
-	// More than 15 link-entities: 0x8004430D (join-tables). The limit is stated for link-entity
-	// elements; whether link-entities inside a filter count isn't verified, so exceeding it only with
-	// them is a warning.
+	// More than 15 link-entities: 0x8004430D (join-tables). Verified live 2026-10-17: 16 joined
+	// link-entities fail, and link-entities inside a filter don't count (14 joined + 2 any run).
 	const joined = links.filter((l) => !l.inFilter);
 	if (joined.length > MAX_LINK_ENTITIES) {
 		for (const { link } of joined.slice(MAX_LINK_ENTITIES)) {
 			push({ element: "link-entity", nodeId: link.id, severity: "error", kind: "invalid",
 				message: `A query can have at most ${MAX_LINK_ENTITIES} link-entities; this one has ${joined.length} (Dataverse rejects it: 0x8004430D). Remove link-entities, or split the query.` });
 		}
-	} else if (links.length > MAX_LINK_ENTITIES) {
-		push({ element: "fetch", nodeId: fetch.id, severity: "warning", kind: "invalid",
-			message: `A query can have at most ${MAX_LINK_ENTITIES} link-entities (0x8004430D); this one has ${links.length}, ${links.length - joined.length} of them inside filters, which may count toward the limit.` });
 	}
-	// More than 500 conditions and link-entities: 0x8004430C (filter-rows › Condition limits)
-	const conditionCount = conditions.length + links.length;
-	if (conditionCount > MAX_CONDITIONS_AND_LINKS) {
+	// More than 500 conditions: 0x8004430C (filter-rows › Condition limits; link-entities don't count, verified live)
+	if (conditions.length > MAX_CONDITIONS) {
 		push({ element: "fetch", nodeId: fetch.id, severity: "error", kind: "invalid",
-			message: `A query can have at most ${MAX_CONDITIONS_AND_LINKS} conditions and link-entities in total; this one has ${conditionCount} (Dataverse rejects it: 0x8004430C). Combine conditions with the in operator.` });
+			message: `A query can have at most ${MAX_CONDITIONS} conditions; this one has ${conditions.length} (Dataverse rejects it: 0x8004430C). Combine conditions with the in operator.` });
 	}
 	// GET URLs are limited to 32,768 characters (0x80060888). Studio sends FetchXML in the URL; the
 	// host and organization URL add to it, so the exact limit can't be determined here.
