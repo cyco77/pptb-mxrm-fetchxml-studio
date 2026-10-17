@@ -682,7 +682,7 @@ export async function executeNextLink(nextLink: string): Promise<FetchXmlResult>
 /**
  * Execute a System View (savedquery) by its ID
  * Uses the optimized ?savedQuery={id} parameter instead of fetching and executing fetchXml
- * @see https://learn.microsoft.com/en-us/power-apps/developer/data-platform/saved-queries#use-a-saved-query-in-fetchxml
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/webapi/retrieve-and-execute-predefined-queries#predefined-queries
  */
 export async function executeSystemView(
 	entitySetName: string,
@@ -712,7 +712,7 @@ export async function executeSystemView(
 /**
  * Execute a Personal View (userquery) by its ID
  * Uses the optimized ?userQuery={id} parameter instead of fetching and executing fetchXml
- * @see https://learn.microsoft.com/en-us/power-apps/developer/data-platform/saved-queries#use-a-saved-query-in-fetchxml
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/webapi/retrieve-and-execute-predefined-queries#predefined-queries
  */
 export async function executePersonalView(
 	entitySetName: string,
@@ -1188,7 +1188,7 @@ export interface LoadedViewInfo {
 	id: string;
 	/** View type for determining execution method */
 	type: "system" | "personal";
-	/** Original FetchXML from the view - used for comparison */
+	/** The view's FetchXML as stored in Dataverse; it is compared in generated form once parsed (#93) */
 	originalFetchXml: string;
 	/** Entity set name for the execution URL */
 	entitySetName: string;

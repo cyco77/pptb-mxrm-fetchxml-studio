@@ -81,6 +81,7 @@ import { columnFilterConditions, type NewCondition } from "../features/fetchxml/
 import { toAttributeTypeInfo } from "../features/fetchxml/model/attributeCapabilities";
 import type { FetchNode, LinkEntityNode } from "../features/fetchxml/model/nodes";
 import { generateLayoutXml } from "../features/fetchxml/model/layoutxml";
+import { getViewLoadNotice, isUnmodifiedView } from "../features/fetchxml/model/savedViews";
 import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid";
 import { SettingsDrawer } from "../features/fetchxml/ui/Settings/SettingsDrawer";
 import { usePersistedSettings } from "../shared/hooks/usePersistedSettings";
@@ -819,10 +820,7 @@ function AppContent() {
 			let useViewExecution = false;
 
 			if (loadedView) {
-				const isUnmodified =
-					xmlToExecute.replace(/\s+/g, "") === loadedView.originalFetchXml.replace(/\s+/g, "");
-
-				if (isUnmodified) {
+				if (isUnmodifiedView(xmlToExecute, loadedView.originalFetchXml)) {
 					useViewExecution = true;
 					console.log(
 						`📋 Executing ${loadedView.type} view "${loadedView.name}" via ${
@@ -1520,17 +1518,22 @@ function AppContent() {
 						onViewLoad={(viewInfo: LoadedViewInfo) => {
 							// Load the view's FetchXML into the tree while preserving view info
 							// Pass layoutxml for column configuration if available
-							builder.loadView(
+							const result = builder.loadView(
 								viewInfo.originalFetchXml,
 								{
 									id: viewInfo.id,
 									type: viewInfo.type,
 									entitySetName: viewInfo.entitySetName,
 									name: viewInfo.name,
-									originalFetchXml: viewInfo.originalFetchXml,
 								},
 								viewInfo.layoutxml,
 							);
+							// Say when the view couldn't be loaded, or the tree changed its query (#93)
+							const notice = getViewLoadNotice(viewInfo.name, result);
+							if (notice) {
+								if (!result.success) console.error("Failed to parse view FetchXML:", result.errors);
+								void window.toolboxAPI?.utils?.showNotification?.(notice);
+							}
 						}}
 					/>
 					{builder.fetchQuery ? (

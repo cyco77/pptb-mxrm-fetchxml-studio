@@ -7,7 +7,7 @@ import { createContext, useContext } from "react";
 import type { NodeId } from "../model/nodes";
 import type { LayoutXmlConfig } from "../model/layoutxml";
 import type { ParseResult } from "../model/fetchxmlParser";
-import type { BuilderState, ViewLoadInfo } from "./builderStore";
+import type { BuilderState, ViewLoadInfo, ViewSourceInfo } from "./builderStore";
 import type { SortPlan } from "../model/queryColumns";
 import type { NewCondition } from "../model/columnFilters";
 
@@ -44,7 +44,7 @@ export interface BuilderContextValue extends BuilderState {
 	newQuery: () => void;
 	loadFetchXml: (xmlString: string, options?: LoadFetchXmlOptions) => ParseResult;
 	/** Load a view's FetchXML while preserving view info for execution optimization */
-	loadView: (xmlString: string, viewInfo: ViewLoadInfo, layoutXml?: string) => ParseResult;
+	loadView: (xmlString: string, viewInfo: ViewSourceInfo, layoutXml?: string) => ParseResult;
 	/** Clear the loaded view info (called when FetchXML is manually edited) */
 	clearLoadedView: () => void;
 	/** Update loaded view info after save (without re-parsing FetchXML) */
