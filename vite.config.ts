@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -30,7 +31,8 @@ function toolIcon(): Plugin {
 async function devHarness(command: string, mode: string): Promise<Plugin[]> {
 	if (command !== "serve" || mode !== "harness") return [];
 	// Not VITE_-prefixed, so these stay server-side and never reach the client bundle.
-	const env = loadEnv(mode, process.cwd(), "");
+	// .env.local next to this file, whichever directory vite was started from
+	const env = loadEnv(mode, fileURLToPath(new URL(".", import.meta.url)), "");
 	if (!env.DATAVERSE_URL) {
 		throw new Error(
 			"[fxs-harness] Set DATAVERSE_URL=https://<org>.crm.dynamics.com (environment variable or " +
