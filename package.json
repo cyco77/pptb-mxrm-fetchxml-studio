@@ -1,6 +1,6 @@
 {
 	"name": "@mohsinonxrm/pptb-fetchxml-studio",
-	"version": "1.4.1-beta.18",
+	"version": "1.4.1-beta.19",
 	"type": "module",
 	"displayName": "FetchXML Studio",
 	"description": "A powerful, modern FetchXML query builder and data explorer for Microsoft Dataverse and Dynamics 365.",
@@ -58,7 +58,7 @@
 		"dev": "vite",
 		"build": "tsc -b && vite build",
 		"validate": "pptb-validate",
-		"lint": "eslint .",
+		"lint": "eslint . --max-warnings=0",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"coverage": "vitest run --coverage",

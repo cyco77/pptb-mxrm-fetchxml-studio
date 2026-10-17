@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1-beta.19] - 2026-10-17
+
+### 🔧 Fixed
+
+Lint is clean: `npm run lint` now runs `eslint . --max-warnings=0` and passes with zero warnings (#65). The hook-dependency warnings were fixed rather than suppressed, and two of them were real bugs:
+- **The Code tab's Web API snippet could show a stale entity set name.** The snippet didn't update when the entity set name finished loading.
+- **Loading FetchXML from a file could report through a stale editor callback.** That handler didn't list the callback as a dependency.
+
+### 🏗️ Technical
+
+- `builderStore.tsx`: the builder's actions are created once (`dispatch` never changes), and the context value is memoized on the state. Consumers can list builder actions as hook dependencies, and they only re-render when the builder's state changes.
+- `AppShell.tsx`:
+  - the layout sync effect lists `syncLayoutWithFetchXml`, which is now stable;
+  - the 1:N / N:N check uses `LinkEntityNode[]` instead of `typeof builder…`;
+  - record deletes re-run the query through a ref to the latest `handleExecute`, called after the `await`, instead of a version captured when the callback was created.
+- `CodePanel.tsx` / `FetchXmlEditor.tsx`: the missing dependencies above.
+- `TreeView.tsx`: the one `eslint-disable` without a reason now explains why the effect runs only on selection changes.
+- `eslint.config.js`: ignores `.claude/`, which holds local, git-ignored prototypes.
 ## [1.4.1-beta.18] - 2026-10-17
 
 ### 🔧 Fixed

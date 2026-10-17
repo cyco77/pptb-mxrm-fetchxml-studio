@@ -251,7 +251,9 @@ export function CodePanel({ fetchXml }: CodePanelProps) {
 					environmentUrl,
 				);
 		}
-	}, [selectedFormat, fetchXml, qeCode, sqlCode, environmentUrl]);
+		// paEntitySetName loads after the query changes: without it the Web API snippet kept the old
+		// (or no) entity set name (#65)
+	}, [selectedFormat, fetchXml, qeCode, sqlCode, environmentUrl, paEntitySetName]);
 
 	const handleCopy = useCallback(() => {
 		const code = currentCode();

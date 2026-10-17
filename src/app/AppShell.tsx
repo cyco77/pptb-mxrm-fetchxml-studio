@@ -77,7 +77,7 @@ import { NON_RETURNING_LINK_TYPES } from "../features/fetchxml/model/fetchxmlRul
 import { planRemoveColumns, planSortByColumn, resolveColumn } from "../features/fetchxml/model/queryColumns";
 import { relationshipKey } from "../features/fetchxml/model/manyToMany";
 import { toAttributeTypeInfo } from "../features/fetchxml/model/attributeCapabilities";
-import type { FetchNode } from "../features/fetchxml/model/nodes";
+import type { FetchNode, LinkEntityNode } from "../features/fetchxml/model/nodes";
 import { generateLayoutXml } from "../features/fetchxml/model/layoutxml";
 import { collectAttributesFromFetchXml } from "../features/fetchxml/model/layoutxml";
 import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid";
@@ -674,6 +674,7 @@ function AppContent() {
 
 	// Sync layout with FetchXML when needed (e.g., after adding/removing attributes)
 	// Also sync when columnConfig is null but there are attributes (ensures columns button works)
+	const { syncLayoutWithFetchXml } = builder; // stable: builder actions are created once (#65)
 	useEffect(() => {
 		const hasAttributes = (builder.fetchQuery?.entity?.attributes?.length ?? 0) > 0;
 		const needsSync = builder.layoutNeedsSync || (hasAttributes && !builder.columnConfig);
@@ -689,7 +690,7 @@ function AppContent() {
 					attributeTypeMap.set(name, attr.AttributeType || "");
 				});
 			}
-			builder.syncLayoutWithFetchXml(attributeTypeMap, entityMetadata?.PrimaryIdAttribute);
+			syncLayoutWithFetchXml(attributeTypeMap, entityMetadata?.PrimaryIdAttribute);
 		}
 	}, [
 		builder.layoutNeedsSync,
@@ -697,6 +698,7 @@ function AppContent() {
 		builder.columnConfig,
 		attributeMetadata,
 		entityMetadata,
+		syncLayoutWithFetchXml,
 	]);
 
 	// Generate FetchXML from builder state — exactly what the user built, nothing injected (#59).
@@ -710,7 +712,7 @@ function AppContent() {
 	const hasOneToManyRelationship = useMemo(() => {
 		if (!builder.fetchQuery?.entity?.links) return false;
 
-		const checkLinks = (links: typeof builder.fetchQuery.entity.links): boolean => {
+		const checkLinks = (links: LinkEntityNode[]): boolean => {
 			for (const link of links) {
 				// Check if this link-entity is a 1-N or N-N relationship
 				if (link.relationshipType === "1N" || link.relationshipType === "NN") {
@@ -938,6 +940,13 @@ function AppContent() {
 			setIsExecuting(false);
 		}
 	};
+
+	// The latest handleExecute, for callbacks that re-run the query after an await (record deletes):
+	// they call the current version instead of listing a function that changes every render (#65)
+	const handleExecuteRef = useRef(handleExecute);
+	useLayoutEffect(() => {
+		handleExecuteRef.current = handleExecute;
+	});
 
 	/**
 	 * Fetch the page after `state` (#58, #60): saved views follow @odata.nextLink; FetchXML sets page,
@@ -1389,7 +1398,7 @@ function AppContent() {
 			if (result.succeeded > 0) {
 				console.log(`✅ Batch deleted ${result.succeeded} of ${recordIds.length} records`);
 				// Re-execute query to refresh results
-				handleExecute();
+				void handleExecuteRef.current();
 			}
 
 			return result;
@@ -1413,7 +1422,7 @@ function AppContent() {
 		if (successCount > 0) {
 			console.log(`✅ Deleted ${successCount} of ${recordIds.length} records`);
 			// Re-execute query to refresh results
-			handleExecute();
+			void handleExecuteRef.current();
 		}
 
 		if (errors.length > 0) {
@@ -1424,7 +1433,6 @@ function AppContent() {
 		entityLogicalName,
 		deleteDialogState.recordIds,
 		deleteDialogState.isBatchDelete,
-		handleExecute,
 	]);
 
 	/**
