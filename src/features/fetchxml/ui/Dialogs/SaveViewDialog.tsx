@@ -448,9 +448,9 @@ export function SaveViewDialog({
 	// Dialog title
 	const dialogTitle = useMemo(() => {
 		if (isOverwriteMode) {
-			return shouldPublish ? "Save and Publish View" : "Save View";
+			return shouldPublish ? "Save and publish view" : "Save view";
 		}
-		return "Save As New View";
+		return "Save as new view";
 	}, [isOverwriteMode, shouldPublish]);
 
 	// What the save writes, for the environment and scope block (#69)
@@ -554,7 +554,7 @@ export function SaveViewDialog({
 							</Field>
 							{/* View Type Selection - only for Save As */}
 							{!isOverwriteMode && (
-								<Field label="View Type">
+								<Field label="View type">
 									<RadioGroup
 										value={viewType}
 										onChange={(_, data) => setViewType(data.value as "system" | "personal")}
@@ -562,7 +562,7 @@ export function SaveViewDialog({
 									>
 										<Radio
 											value="personal"
-											label="Personal View"
+											label="Personal view"
 											disabled={!personalPrivileges?.canWrite}
 										/>
 										<div className={styles.radioDescription}>
@@ -572,7 +572,7 @@ export function SaveViewDialog({
 										</div>
 										<Radio
 											value="system"
-											label="System View"
+											label="System view"
 											disabled={!systemPrivileges?.canWrite}
 										/>
 										<div className={styles.radioDescription}>
@@ -613,7 +613,7 @@ export function SaveViewDialog({
 							{isOverwriteMode && !isOverwriteBlocked && loadedView && (
 								<MessageBar intent="warning" className={styles.overwriteWarning}>
 									<MessageBarBody>
-										<MessageBarTitle>Overwrite Warning</MessageBarTitle>
+										<MessageBarTitle>Overwrite warning</MessageBarTitle>
 										This will overwrite the existing view "{loadedView.name}".
 									</MessageBarBody>
 								</MessageBar>
@@ -630,7 +630,7 @@ export function SaveViewDialog({
 						{saveError && (
 							<MessageBar intent="error">
 								<MessageBarBody>
-									<MessageBarTitle>Save Failed</MessageBarTitle>
+									<MessageBarTitle>Save failed</MessageBarTitle>
 									{saveError}
 								</MessageBarBody>
 							</MessageBar>
@@ -641,7 +641,7 @@ export function SaveViewDialog({
 							Cancel
 						</Button>
 						<Button appearance="primary" onClick={handleSave} disabled={!canSave}>
-							{isSaving ? <Spinner size="tiny" /> : shouldPublish ? "Save and Publish" : "Save"}
+							{isSaving ? <Spinner size="tiny" /> : shouldPublish ? "Save and publish" : "Save"}
 						</Button>
 					</DialogActions>
 				</DialogBody>

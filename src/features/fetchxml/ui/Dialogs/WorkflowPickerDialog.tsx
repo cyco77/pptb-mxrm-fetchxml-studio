@@ -416,7 +416,7 @@ export function WorkflowPickerDialog({
 							onClick={handleExecute}
 							disabled={!selectedWorkflowId || workflows.length === 0 || !scopeConfirmed}
 						>
-							Run Workflow
+							Run workflow
 						</Button>
 					</>
 				);
@@ -441,7 +441,7 @@ export function WorkflowPickerDialog({
 	return (
 		<Dialog open={open} onOpenChange={(_, data) => !data.open && handleClose()}>
 			<DialogSurface>
-				<DialogTitle>Run Workflow</DialogTitle>
+				<DialogTitle>Run workflow</DialogTitle>
 				<DialogBody>
 					<DialogContent className={styles.content}>{renderContent()}</DialogContent>
 				</DialogBody>

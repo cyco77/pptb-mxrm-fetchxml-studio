@@ -841,7 +841,7 @@ export function PreviewTabs({
 												{pagingNotice.kind === "error"
 													? "Couldn't load all records"
 													: pagingNotice.kind === "stopped"
-														? "Retrieve All stopped"
+														? "Retrieve all stopped"
 														: "Paging without a paging cookie"}
 											</MessageBarTitle>
 											{pagingNotice.kind === "error"

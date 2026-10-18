@@ -381,7 +381,7 @@ export function ResultsCommandBar({
 										hasSelection ? "Delete selected records" : "Delete all records from view"
 									}
 								>
-									{hasSelection ? "Delete" : "Delete All"}
+									{hasSelection ? "Delete" : "Delete all"}
 								</SplitButton>
 							)}
 						</MenuTrigger>
@@ -396,7 +396,7 @@ export function ResultsCommandBar({
 										onClick={onBulkDelete}
 										disabled={isDeleteDisabled}
 									>
-										Bulk Delete (Job)
+										Bulk delete (job)
 									</MenuItem>
 								)}
 							</MenuList>
@@ -416,7 +416,7 @@ export function ResultsCommandBar({
 								disabled={!hasSelection || isWorkflowDisabled}
 								aria-label="Run workflow on selected records"
 							>
-								Run Workflow
+								Run workflow
 							</MenuButton>
 						</MenuTrigger>
 						<MenuPopover>

@@ -185,7 +185,7 @@ export function BulkDeleteDialog({
 							<>
 								<MessageBar intent="error">
 									<MessageBarBody>
-										<MessageBarTitle>Danger Zone</MessageBarTitle>
+										<MessageBarTitle>Danger zone</MessageBarTitle>
 										This will delete ALL records matching your current FetchXML query!
 									</MessageBarBody>
 								</MessageBar>
@@ -225,7 +225,7 @@ export function BulkDeleteDialog({
 							</>
 						)}
 
-						<Field label="Job Name" required>
+						<Field label="Job name" required>
 							<Input
 								value={jobName}
 								onChange={(_, data) => setJobName(data.value)}
@@ -265,7 +265,7 @@ export function BulkDeleteDialog({
 
 							{result?.jobUrl && (
 								<div className={styles.jobUrlRow}>
-									<Link onClick={handleOpenJob}>Open Job Status</Link>
+									<Link onClick={handleOpenJob}>Open job status</Link>
 									<Button
 										appearance="subtle"
 										size="small"
@@ -324,7 +324,7 @@ export function BulkDeleteDialog({
 							onClick={handleConfirm}
 							disabled={!jobName.trim() || (isAllRecords && !confirmAllRecords) || !scopeConfirmed}
 						>
-							Submit Bulk Delete
+							Submit bulk delete
 						</Button>
 					</>
 				);

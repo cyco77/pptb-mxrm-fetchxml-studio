@@ -208,7 +208,7 @@ export function DeleteConfirmDialog({
 	};
 
 	const isSingle = recordCount === 1;
-	const title = isSingle ? "Delete Record" : `Delete ${recordCount} Records`;
+	const title = isSingle ? "Delete record" : `Delete ${recordCount} Records`;
 	const message = isSingle
 		? `Are you sure you want to delete this ${entityDisplayName || "record"}?`
 		: `Are you sure you want to delete ${recordCount} ${entityDisplayName || "records"}?`;
@@ -303,7 +303,7 @@ export function DeleteConfirmDialog({
 					<>
 						<MessageBar intent="warning">
 							<MessageBarBody>
-								<MessageBarTitle>Partial Success</MessageBarTitle>
+								<MessageBarTitle>Partial success</MessageBarTitle>
 								{result && (
 									<>
 										{result.succeeded} of {result.succeeded + result.failed} records deleted.
@@ -338,7 +338,7 @@ export function DeleteConfirmDialog({
 					<>
 						<div className={styles.warningRow}>
 							<DismissCircle20Regular />
-							<Text weight="semibold">Delete Failed</Text>
+							<Text weight="semibold">Delete failed</Text>
 						</div>
 
 						<Text className={styles.errorMessage}>{error}</Text>
