@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a vX.Y.Z (or vX.Y.Z-beta.N) tag publishes the package to npm through
+# Pushing a vX.Y.Z (or vX.Y.Z-beta.N / -rc.N) tag publishes the package to npm through
 # trusted publishing (no npm token) and creates the GitHub Release. See RELEASING.md.
 
 on:
@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # the stable-tag check below needs main's history
+          fetch-depth: 0 # choosing the channel needs main's and support/*'s history
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -32,28 +32,50 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
             exit 1
           fi
-      - name: Stable releases come from main
+      - name: Choose the release channel
+        id: channel
         run: |
-          # Betas (vX.Y.Z-beta.N) are tagged on dev; a stable tag must be on main, so a stray
-          # tag on dev can't replace npm "latest" (RELEASING.md)
-          case "$GITHUB_REF_NAME" in *-*) exit 0 ;; esac
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Stable tag $GITHUB_REF_NAME is not on main. Tag the dev → main merge commit, or use a -beta.N version on dev."
-            exit 1
-          fi
+          # RELEASING.md: -beta.N / -rc.N -> npm "beta" (GitHub pre-release). A stable tag on
+          # main -> "latest". A stable tag on support/X.Y -> "support-X.Y", never "latest".
+          # Anything else fails here, so a stray tag can't replace "latest".
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            *-beta.*|*-rc.*)
+              dist_tag=beta; latest=false; prerelease=true ;;
+            *-*)
+              echo "::error::Unsupported pre-release $GITHUB_REF_NAME. Use -beta.N or -rc.N (RELEASING.md)."
+              exit 1 ;;
+            *)
+              prerelease=false
+              line="${version%.*}"
+              if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+                dist_tag=latest; latest=true
+              elif git rev-parse --verify --quiet "origin/support/$line" >/dev/null &&
+                   git merge-base --is-ancestor "$GITHUB_SHA" "origin/support/$line"; then
+                dist_tag="support-$line"; latest=false
+              else
+                echo "::error::Stable tag $GITHUB_REF_NAME is on neither main nor support/$line. Tag the release → main merge commit (RELEASING.md)."
+                exit 1
+              fi ;;
+          esac
+          echo "Publishing $GITHUB_REF_NAME to npm \"$dist_tag\" (GitHub latest: $latest, pre-release: $prerelease)"
+          {
+            echo "dist_tag=$dist_tag"
+            echo "latest=$latest"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
       - run: npm ci
       - run: npm test
       - run: npm run validate
       - run: npm run build
       - name: Publish to npm
-        run: |
-          dist_tag=latest
-          case "$GITHUB_REF_NAME" in *-*) dist_tag=beta ;; esac
-          npm publish --provenance --access public --tag "$dist_tag"
+        env:
+          DIST_TAG: ${{ steps.channel.outputs.dist_tag }}
+        run: npm publish --provenance --access public --tag "$DIST_TAG"
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.channel.outputs.latest }}
+          PRERELEASE: ${{ steps.channel.outputs.prerelease }}
         run: |
-          prerelease=""
-          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes $prerelease
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes --latest="$LATEST" --prerelease="$PRERELEASE"
