@@ -104,7 +104,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **C# QueryExpression** — Full SDK object graph (`QueryExpression`, `ColumnSet`, `FilterExpression`, `ConditionExpression`, `LinkEntity`, `OrderExpression`) via the Dataverse `FetchXmlToQueryExpression` API; supports aggregate queries with `XrmAggregateType` and `XrmDateTimeGrouping`
 - **C# FetchExpression** — Simple `new FetchExpression(@"...")` wrapper using a verbatim string literal
 - **JavaScript** — `Xrm.WebApi.retrieveMultipleRecords` call for model-driven apps and PCF components
-- **pac CLI** — `pac org fetch --xml "..."` command for the Power Platform CLI
+- **pac CLI** — `pac env fetch --xml '...'` for the Power Platform CLI, as a bash / zsh line and a PowerShell line. The XML is single-quoted, so the shell never expands values such as `$100` or `$(...)`
 - **Power Automate** — Field-by-field form mirroring the Dataverse "List rows" connector UI; table name resolved from `EntityDefinitions` metadata (not a heuristic), each field individually copyable; Top Count is taken only from `top` (`count` is a page size)
 - **Web API** — Full OData URL with request headers (including `Prefer: odata.include-annotations="*"` for formatted values and paging cookies), the documented paging-cookie steps, a cURL snippet and a PowerShell `Invoke-RestMethod` example; entity set name resolved from metadata
 - **SQL** — Dataverse-generated T-SQL via `FetchXMLToSQL` (undocumented API, labelled Preview)

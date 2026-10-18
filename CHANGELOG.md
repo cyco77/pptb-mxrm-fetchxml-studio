@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🔧 Fixed
+
+- **pac CLI snippet: the shell no longer expands FetchXML values (#166, found by CodeQL).** The XML was wrapped in double quotes with only `"` escaped, so bash and zsh expanded values such as `$100`, `$(…)` or backticks when the snippet was pasted, and PowerShell rejected `\"`. The snippet now single-quotes the XML on a **bash / zsh** line (`'` written as `'''`) and a **PowerShell 7.3+** line (`'` written as `''`), and points to `--xmlFile` for Windows PowerShell 5.1. It uses `pac env fetch`: `pac org` was renamed `pac env` in pac 1.32, and `org` still works.
+
 ### 🏗️ Technical
 
 - **Release branches (`RELEASING.md`).** A minor release now stabilizes on its own `release/X.Y` branch, cut from `dev` at the feature freeze, so `dev` is never frozen. Betas (`-beta.N`, `-rc.N`) are tagged there and publish to npm `beta`. A stable release merges `release/X.Y` → `main` and is tagged there (npm `latest`). Fixes go to the oldest supported branch that has the bug and merge forward (`main` → `release/*` → `dev`).
