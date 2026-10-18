@@ -8,15 +8,17 @@ import "./shared/utils/debug";
 // stylesheet, syntax highlighting and line numbers always render correctly.
 //
 // Monaco's root entry ("monaco-editor") loads every language and, since 0.56, bundles the CSS,
-// HTML, JSON and TypeScript worker scripts (~10 MB). FXS only shows XML, C#, JavaScript, shell
-// and plain text, so it uses the tree-shakeable entry points Monaco 0.56 added instead: the
-// editor core, all editor features, and just the language definitions it needs (#145).
+// HTML, JSON and TypeScript worker scripts (~10 MB). FXS only shows XML, C#, JavaScript, shell,
+// SQL (the Code tab's FetchXML to SQL) and plain text, so it uses the tree-shakeable entry points
+// Monaco 0.56 added instead: the editor core, all editor features, and just the language
+// definitions it needs (#145).
 import * as monaco from "monaco-editor/editor";
 import "monaco-editor/features/register.all";
 import "monaco-editor/languages/definitions/xml/register";
 import "monaco-editor/languages/definitions/csharp/register";
 import "monaco-editor/languages/definitions/javascript/register";
 import "monaco-editor/languages/definitions/shell/register";
+import "monaco-editor/languages/definitions/sql/register";
 import { loader } from "@monaco-editor/react";
 
 // Run Monaco's editor worker on the main thread. PPTB's CSP has no `worker-src`, so `blob:`
