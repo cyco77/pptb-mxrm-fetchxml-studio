@@ -2,47 +2,68 @@
 
 The npm package `@mohsinonxrm/pptb-fetchxml-studio` is published by CI
 (`.github/workflows/release.yml`) when a `v*` tag is pushed. Nobody runs `npm publish`
-locally.
+locally. The same process is used by Command Bar Studio and Dataverse Request Studio.
 
 ## Branches
 
-- Work happens on branches cut from `dev` and merged into `dev` by PR.
-- A release is a PR from `dev` into `main`. Merge it with a **merge commit**, so `main`
-  and `dev` keep the same history.
-- CI (`ci.yml`) runs on every PR and on pushes to `dev` and `main`.
+| Branch | Holds | npm |
+|---|---|---|
+| `main` | The current **stable** release, plus hotfixes | `latest` |
+| `dev` | Integration of everything merged; **betas** are tagged here | `beta` |
 
-## Cutting a release
+- Work happens on branches cut from `dev`, merged into `dev` by PR (squash is fine).
+- `dev → main` and `main → dev` merges always use a **merge commit**, so the branches
+  keep the same history.
+- CI (`ci.yml`) runs on every PR and on pushes to `dev` and `main`; the `check` status is
+  required on both.
 
-1. On a branch from `dev`, set the version and date the changelog:
+## Every PR
 
-   ```bash
-   npm version 1.4.2 --no-git-tag-version          # or e.g. 1.4.2-beta.1
-   ```
+- Add your user-facing changes under `## [Unreleased]` in `CHANGELOG.md`, and update the
+  README's feature docs if behaviour changes.
+- Don't change the version: it's set when a release is cut. That keeps PRs independent,
+  so they can merge in any order.
 
-   In `CHANGELOG.md`, rename `## [Unreleased]` to `## [1.4.2] - YYYY-MM-DD` and add a
-   new empty `## [Unreleased]` above it, and update the version badge at the top of
-   `README.md`. Open a PR into `dev`.
+## Cutting a beta (from `dev`)
 
+1. On a branch from `dev`: `npm version 1.5.0-beta.1 --no-git-tag-version`, rename
+   `## [Unreleased]` to `## [1.5.0-beta.1] - YYYY-MM-DD` (add a new empty
+   `## [Unreleased]` above it), and update the README version badge. Merge the PR into
+   `dev`.
+2. Tag that commit on `dev`: `git switch dev && git pull && git tag v1.5.0-beta.1 && git push origin v1.5.0-beta.1`.
+
+The tag's pre-release part sends it to the npm `beta` tag as a GitHub pre-release;
+`latest` doesn't change. The build bundles the gold Insider icon for pre-releases.
+
+## Cutting a stable release (from `main`)
+
+1. Same as a beta, with the stable version (`npm version 1.5.0 --no-git-tag-version`). For
+   the stable section, summarise the betas above their history (see `[1.4.2]`).
 2. Open the release PR `dev → main` and merge it with a merge commit.
+3. Tag the merge commit on `main`: `git switch main && git pull && git tag v1.5.0 && git push origin v1.5.0`.
 
-3. Tag the merge commit on `main` and push the tag:
+`release.yml` refuses a stable tag whose commit isn't on `main`.
 
-   ```bash
-   git switch main && git pull
-   git tag v1.4.2 && git push origin v1.4.2
-   ```
+## Hotfixes (to the current stable release)
 
-4. `release.yml` checks that the tag matches `package.json`, runs the tests, validation
-   and build, publishes to npm, and creates the GitHub Release. Versions with a
-   pre-release part (`-beta.1`) go to the `beta` npm tag and are marked as pre-releases;
-   everything else goes to `latest`. The build bundles the gold Insider icon for
-   pre-release versions automatically.
+1. Branch `hotfix/1.4.3` from `main`; fix, set the version (`1.4.3`), date its CHANGELOG
+   section, update the badge; PR into `main` (merge commit).
+2. Tag `v1.4.3` on `main` → npm `latest`.
+3. Merge `main` back into `dev` (merge commit) so the fix isn't lost; keep `dev`'s
+   version and `[Unreleased]` entries when resolving.
+
+## What `release.yml` does
+
+Checks the tag matches `package.json` (and that stable tags are on `main`), runs the
+tests, validation and build, publishes to npm with provenance (`-beta.N` → `beta`,
+otherwise `latest`), and creates the GitHub Release (pre-release for betas). Afterwards,
+replace the generated release notes with the CHANGELOG section.
 
 ## One-time setup
 
-- **npm trusted publisher**: on npmjs.com → package → *Settings* → *Trusted publishing*
-  → *GitHub Actions*: user `mohsinonxrm`, repository `pptb-mxrm-fetchxml-studio`,
-  workflow `release.yml`. No npm token is needed.
-- `repository.url` in `package.json` must point at this GitHub repository, or
-  provenance and trusted publishing fail.
-- Branch protection (or a ruleset) on `dev` and `main` requiring the `CI / check` job.
+- **npm trusted publisher**: npmjs.com → package → *Settings* → *Trusted publishing* →
+  *GitHub Actions*: user `mohsinonxrm`, repository `pptb-mxrm-fetchxml-studio`, workflow
+  `release.yml`, no environment, *Allow npm publish*. No npm token is needed.
+- `repository.url` in `package.json` must point at this GitHub repository, or provenance
+  and trusted publishing fail.
+- A ruleset on `dev` and `main` requiring PRs and the `check` status.
