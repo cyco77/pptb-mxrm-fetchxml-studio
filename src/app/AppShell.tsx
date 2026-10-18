@@ -94,7 +94,15 @@ import { columnFilterConditions, type NewCondition } from "../features/fetchxml/
 import { toAttributeTypeInfo } from "../features/fetchxml/model/attributeCapabilities";
 import type { FetchNode, LinkEntityNode } from "../features/fetchxml/model/nodes";
 import { buildViewLayoutXml } from "../features/fetchxml/model/layoutxml";
-import { getViewLoadNotice, isUnmodifiedView } from "../features/fetchxml/model/savedViews";
+import {
+	applyQuickFindValue,
+	countQuickFindPlaceholders,
+	getViewLoadNotice,
+	isUnmodifiedView,
+	toQuickFindSearchValue,
+} from "../features/fetchxml/model/savedViews";
+import type { SavedViewDetails } from "../features/fetchxml/ui/Dialogs/SaveViewDialog";
+import { QuickFindTestValue } from "../features/fetchxml/ui/RightPane/QuickFindTestValue";
 import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid";
 import { SettingsDrawer } from "../features/fetchxml/ui/Settings/SettingsDrawer";
 import { usePersistedSettings } from "../shared/hooks/usePersistedSettings";
@@ -415,6 +423,10 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 
 	// Execution error (e.g. Dataverse API error surfaced to user)
 	const [executeError, setExecuteError] = useState<string | undefined>();
+
+	// Quick find test value (#142): replaces {0} in the executed FetchXML only
+	const [quickFindValue, setQuickFindValue] = useState("");
+	const [quickFindAddPercent, setQuickFindAddPercent] = useState(true);
 
 	// Entity node of the tree the current results were produced for (see the clearing effect below)
 	const resultEntityIdRef = useRef<string | undefined>(undefined);
@@ -819,6 +831,10 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 	// Generate FetchXML from builder state — exactly what the user built, nothing injected (#59).
 	const fetchXml = builder.fetchQuery ? generateFetchXml(builder.fetchQuery) : "";
 
+	// Quick find views keep {0} in their conditions (#142): a test value is needed to execute them
+	const quickFindPlaceholderCount = useMemo(() => countQuickFindPlaceholders(fetchXml), [fetchXml]);
+	const quickFindSearchValue = toQuickFindSearchValue(quickFindValue, quickFindAddPercent);
+
 	// Check if current query is an aggregate query (disables delete/workflow buttons)
 	const isAggregateQuery = builder.fetchQuery?.options?.aggregate === true;
 
@@ -880,10 +896,12 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 		viewId: string,
 		viewType: "system" | "personal",
 		viewName: string,
+		details: SavedViewDetails,
 	) => {
 		// Update the builder's loaded view state so subsequent saves overwrite the same view.
 		if (entityMetadata && builder.fetchQuery) {
-			// Overwriting keeps the view's query type; Save As creates a public view (#93)
+			// Overwriting keeps the view's query type; Save As creates a public view (#93). The
+			// solution and owner stay; description and default are what was saved (#142).
 			const overwritten = builder.loadedView?.id === viewId ? builder.loadedView : null;
 			builder.setLoadedView({
 				id: viewId,
@@ -893,6 +911,12 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 				originalFetchXml: generateFetchXml(builder.fetchQuery),
 				queryType: overwritten ? overwritten.queryType : 0,
 				isCustomizable: overwritten?.isCustomizable,
+				description: details.description,
+				isDefault: details.isDefault,
+				isManaged: overwritten?.isManaged,
+				solutionId: overwritten?.solutionId,
+				ownerId: overwritten?.ownerId,
+				ownerName: overwritten?.ownerName,
 			});
 		}
 		debugLog("app", `✅ View saved: ${viewName} (${viewType}) - ${viewId}`);
@@ -905,8 +929,15 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 	 */
 	const handleExecute = async (synced?: { xml: string; fetchQuery: FetchNode }) => {
 		const query = synced?.fetchQuery ?? builder.fetchQuery;
-		const xmlToExecute = synced?.xml ?? fetchXml;
-		if (!xmlToExecute) return;
+		const builtXml = synced?.xml ?? fetchXml;
+		if (!builtXml) return;
+		// Quick find views (#142): the test value replaces {0} in the FetchXML that runs (and its later
+		// pages); the tree, the editor and saved views keep {0}. Without a value nothing runs: the
+		// test value field asks for one.
+		// https://learn.microsoft.com/power-apps/developer/data-platform/quick-find
+		const hasQuickFindPlaceholders = countQuickFindPlaceholders(builtXml) > 0;
+		if (hasQuickFindPlaceholders && !quickFindSearchValue) return;
+		const xmlToExecute = hasQuickFindPlaceholders ? applyQuickFindValue(builtXml, quickFindSearchValue) : builtXml;
 
 		// A new run: anything still loading for the previous one is dropped (#60)
 		const run = ++resultRunRef.current;
@@ -937,7 +968,9 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 			const loadedView = synced ? null : builder.loadedView;
 			let useViewExecution = false;
 
-			if (loadedView) {
+			// A quick find view runs as FetchXML with the test value: by ID it would run with {0} as
+			// stored, which matches nothing (verified live, #142)
+			if (loadedView && !hasQuickFindPlaceholders) {
 				if (isUnmodifiedView(xmlToExecute, loadedView.originalFetchXml)) {
 					useViewExecution = true;
 					debugLog(
@@ -961,9 +994,11 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 					"app",
 					synced
 						? "✏️ Executing editor FetchXML (loaded into the tree)"
-						: loadedView
-							? `📝 View "${loadedView.name}" was modified - executing its FetchXML`
-							: "📡 Executing FetchXML query",
+						: hasQuickFindPlaceholders
+							? "🔎 Executing quick find FetchXML with the test value"
+							: loadedView
+								? `📝 View "${loadedView.name}" was modified - executing its FetchXML`
+								: "📡 Executing FetchXML query",
 				);
 				result = await executeFetchXml(xmlToExecute);
 			}
@@ -1698,9 +1733,17 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 									name: viewInfo.name,
 									queryType: viewInfo.queryType,
 									isCustomizable: viewInfo.isCustomizable,
+									description: viewInfo.description,
+									isDefault: viewInfo.isDefault,
+									isManaged: viewInfo.isManaged,
+									solutionId: viewInfo.solutionId,
+									ownerId: viewInfo.ownerId,
+									ownerName: viewInfo.ownerName,
 								},
 								viewInfo.layoutxml,
 							);
+							// A test value belongs to the quick find view it was entered for (#142)
+							setQuickFindValue("");
 							// Say when the view couldn't be loaded, or the tree changed its query (#93)
 							const notice = getViewLoadNotice(viewInfo.name, result);
 							if (notice) {
@@ -1810,11 +1853,29 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 					oneToManyRelationships={oneToManyRelationships}
 					isLoadingRelationships={isLoadingRelationships}
 					onLoadRelatedAttributes={loadAttributes}
+					quickFindTestValue={
+						quickFindPlaceholderCount > 0 ? (
+							<QuickFindTestValue
+								value={quickFindValue}
+								onValueChange={setQuickFindValue}
+								addPercent={quickFindAddPercent}
+								onAddPercentChange={setQuickFindAddPercent}
+								searchValue={quickFindSearchValue}
+								disabled={isExecuting}
+							/>
+						) : undefined
+					}
+					executeDisabledReason={
+						quickFindPlaceholderCount > 0 && !quickFindSearchValue
+							? "Enter a quick find value to execute this query."
+							: undefined
+					}
 					saveViewButton={
 						<SaveViewButton
 							fetchXml={fetchXml}
 							layoutXml={layoutXml}
 							entityLogicalName={builder.fetchQuery?.entity?.name || ""}
+							entityDisplayName={entityMetadata?.DisplayName?.UserLocalizedLabel?.Label}
 							objectTypeCode={entityMetadata?.ObjectTypeCode || 0}
 							primaryIdAttribute={entityMetadata?.PrimaryIdAttribute || ""}
 							loadedView={builder.loadedView}

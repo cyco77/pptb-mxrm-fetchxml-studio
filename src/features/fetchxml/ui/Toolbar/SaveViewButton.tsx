@@ -22,6 +22,7 @@ import {
 	SaveViewDialog,
 	type SaveViewDialogLoadedView,
 	type SaveViewDialogMode,
+	type SavedViewDetails,
 } from "../Dialogs/SaveViewDialog";
 import { useEditorSync } from "../RightPane/editorSync";
 
@@ -47,6 +48,8 @@ interface SaveViewButtonProps {
 	layoutXml: string;
 	/** Entity logical name for the view */
 	entityLogicalName: string;
+	/** Entity display name, for the default view hint (#142) */
+	entityDisplayName?: string;
 	/** Entity object type code for LayoutXML */
 	objectTypeCode: number;
 	/** Primary ID attribute for LayoutXML */
@@ -54,7 +57,12 @@ interface SaveViewButtonProps {
 	/** Loaded view info (for Save/overwrite) */
 	loadedView: SaveViewDialogLoadedView | null;
 	/** Callback after successful save */
-	onSaveComplete?: (viewId: string, viewType: "system" | "personal", viewName: string) => void;
+	onSaveComplete?: (
+		viewId: string,
+		viewType: "system" | "personal",
+		viewName: string,
+		details: SavedViewDetails,
+	) => void;
 	/** Disabled state */
 	disabled?: boolean;
 }
@@ -63,6 +71,7 @@ export function SaveViewButton({
 	fetchXml,
 	layoutXml,
 	entityLogicalName,
+	entityDisplayName,
 	objectTypeCode,
 	primaryIdAttribute,
 	loadedView,
@@ -120,9 +129,9 @@ export function SaveViewButton({
 	}, []);
 
 	const handleDialogSaveComplete = useCallback(
-		(viewId: string, viewType: "system" | "personal", viewName: string) => {
+		(viewId: string, viewType: "system" | "personal", viewName: string, details: SavedViewDetails) => {
 			setDialogOpen(false);
-			onSaveComplete?.(viewId, viewType, viewName);
+			onSaveComplete?.(viewId, viewType, viewName, details);
 		},
 		[onSaveComplete]
 	);
@@ -189,6 +198,7 @@ export function SaveViewButton({
 				fetchXml={fetchXml}
 				layoutXml={layoutXml}
 				entityLogicalName={entityLogicalName}
+				entityDisplayName={entityDisplayName}
 				objectTypeCode={objectTypeCode}
 				primaryIdAttribute={primaryIdAttribute}
 				loadedView={loadedView}

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Added
 
+- **Saved views follow-ups (#142):**
+  - **Shared personal views:** Load view shows "Shared by {owner}" (or "Shared with you"). System views show their query type or "Default view" as a second line.
+  - **Write access:** before overwriting a personal view you don't own, Save view checks your access (`RetrievePrincipalAccess`). Without write access, it offers **Save a copy…**; if access can't be determined, Dataverse decides.
+  - **Managed system views:** overwriting one shows a warning naming its solution. It's a warning only, not a block.
+  - **Quick find views:** enter a test value for `{0}`, with an optional trailing `%`, to execute them. The value is used only in the FetchXML that runs; the tree, the editor and saved views keep `{0}`. A loaded quick find view runs as FetchXML, not by ID, because by ID it matches nothing (verified live).
+  - **Set as default view** for public system views.
+  - **Description:** pre-filled when you overwrite a view, and clearing it clears the view's description.
 - **Docs-driven helpers (#98):**
   - **Wildcard helper** for `like` / `not-like` values: Contains (`%x%`), Begins with (`x%`), Ends with (`%x`) or a custom pattern. **Match literally** escapes `%` → `[%]`, `_` → `[_]` and `[` → `[[]`, per "Wildcard characters".
     - begins-with and ends-with warn when a typed character would act as a wildcard.
@@ -271,6 +278,7 @@ The v1.4.2 milestone: the features other users asked for, a results grid that wo
   - Every type of view is listed, each labelled.
   - Saved layoutxml uses the documented `jump`, `object` and row `id`.
   - System views are checked with `ValidateSavedQuery`, and views that aren't customizable can't be overwritten.
+  - **Save and Publish** publishes the view's entity, the documented `PublishXml` form. The `<savedqueries>` node it used to send isn't in the publish request schema. This also publishes any other pending customizations of that entity (#93 h).
   - Load View reports views it can't load or had to change.
 - **Operators per attribute type (#95).** Memo attributes gain Equals, Not Equals, In and Not In, as do choices (multi-select), which use the option picker. All are documented, verified live, or both. No operator was removed.
 - **Tree (#24, #25).**

@@ -16,12 +16,13 @@ import {
 } from "@fluentui/react-components";
 import {
 	getAllViews,
+	whoAmI,
 	type SavedView,
 	type EntityMetadata,
 	type LoadedViewInfo,
 } from "../../api/pptbClient";
 import { debugLog } from "../../../../shared/utils/debug";
-import { getQueryTypeLabel } from "../../model/savedViews";
+import { getViewSecondaryText } from "../../model/savedViews";
 
 const useStyles = makeStyles({
 	container: {
@@ -57,20 +58,34 @@ const useStyles = makeStyles({
 		fontStyle: "italic",
 		color: tokens.colorNeutralForeground3,
 	},
-	defaultBadge: {
-		fontSize: "10px",
-		backgroundColor: tokens.colorBrandBackground,
-		color: tokens.colorNeutralForegroundOnBrand,
-		padding: "1px 4px",
-		borderRadius: "4px",
-		marginLeft: "6px",
+	// Two-line options (#142), like the relationship picker (#25)
+	option: {
+		display: "flex",
+		flexDirection: "column",
+		minWidth: 0,
+	},
+	optionSecondary: {
+		color: tokens.colorNeutralForeground3,
+		fontSize: tokens.fontSizeBase200,
 	},
 });
 
-/** Labels a view that isn't a public view (Quick find, Lookup...), so all of them can be listed (#93) */
-function QueryTypeBadge({ view, className }: { view: SavedView; className: string }) {
-	const label = getQueryTypeLabel(view.queryType);
-	return label ? <span className={className}>{label}</span> : null;
+/**
+ * A view option: its name, then "Shared by {owner}" for a personal view someone else owns, or the
+ * query type / "Default view" for system views (#142, savedViews.ts getViewSecondaryText). Every
+ * query type is listed rather than hidden (#93).
+ */
+function ViewOption({ view, currentUserId }: { view: SavedView; currentUserId: string | undefined }) {
+	const styles = useStyles();
+	const secondary = getViewSecondaryText(view, currentUserId);
+	return (
+		<Option value={view.id} text={view.name}>
+			<span className={styles.option}>
+				<span>{view.name}</span>
+				{secondary && <span className={styles.optionSecondary}>{secondary}</span>}
+			</span>
+		</Option>
+	);
 }
 
 interface LoadViewPickerProps {
@@ -105,6 +120,10 @@ export function LoadViewPicker({
 	const [inputValue, setInputValue] = useState("");
 	const [selectedViewName, setSelectedViewName] = useState<string | null>(null);
 
+	// The connected user, to tell personal views shared with them from their own (#142). WhoAmI is
+	// memoized per connection (sessionCache.ts).
+	const [currentUserId, setCurrentUserId] = useState<string | undefined>(undefined);
+
 	useEffect(() => {
 		onSelectedViewChange?.(selectedViewName);
 	}, [selectedViewName, onSelectedViewChange]);
@@ -129,12 +148,14 @@ export function LoadViewPicker({
 			try {
 				debugLog("viewAPI", `Loading views for ${selectedEntityMetadata.LogicalName}`);
 
-				const { systemViews: sysViews, personalViews: persViews } = await getAllViews(
-					selectedEntityMetadata.LogicalName
-				);
+				const [{ systemViews: sysViews, personalViews: persViews }, user] = await Promise.all([
+					getAllViews(selectedEntityMetadata.LogicalName),
+					whoAmI(),
+				]);
 
 				setSystemViews(sysViews);
 				setPersonalViews(persViews);
+				setCurrentUserId(user?.UserId);
 
 				debugLog(
 					"viewAPI",
@@ -198,6 +219,13 @@ export function LoadViewPicker({
 					layoutxml: view.layoutxml, // Include layoutxml for column configuration
 					queryType: view.queryType,
 					isCustomizable: view.isCustomizable,
+					// Save view: description pre-filled, default view, managed warning, owner (#142)
+					description: view.description,
+					isDefault: view.isDefault,
+					isManaged: view.isManaged,
+					solutionId: view.solutionId,
+					ownerId: view.ownerId,
+					ownerName: view.ownerName,
 				};
 				onViewSelect(viewInfo);
 				debugLog("viewAPI", `Selected view: ${view.name} (${view.type}) - ID: ${view.id}`);
@@ -273,26 +301,16 @@ export function LoadViewPicker({
 				{!loading && !error && filteredSystemViews.length > 0 && (
 					<OptionGroup label="System views">
 						{filteredSystemViews.map((view) => (
-							<Option key={view.id} value={view.id} text={view.name}>
-								<span>
-									{view.name}
-									{view.isDefault && <span className={styles.defaultBadge}>Default</span>}
-									<QueryTypeBadge view={view} className={styles.defaultBadge} />
-								</span>
-							</Option>
+							<ViewOption key={view.id} view={view} currentUserId={currentUserId} />
 						))}
 					</OptionGroup>
 				)}
 
+				{/* One group: views shared with the user say "Shared by {owner}" on a second line (#142) */}
 				{!loading && !error && filteredPersonalViews.length > 0 && (
 					<OptionGroup label="Personal views">
 						{filteredPersonalViews.map((view) => (
-							<Option key={view.id} value={view.id} text={view.name}>
-								<span>
-									{view.name}
-									<QueryTypeBadge view={view} className={styles.defaultBadge} />
-								</span>
-							</Option>
+							<ViewOption key={view.id} view={view} currentUserId={currentUserId} />
 						))}
 					</OptionGroup>
 				)}
