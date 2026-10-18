@@ -99,6 +99,11 @@ interface RecordOperation {
 	retriedSuccess?: (result: BatchResult) => boolean;
 	/** The text for a failed result */
 	formatError?: (result: BatchResult) => string;
+	/**
+	 * Before a stopped batch is redone one record per batch: the records the stopped batch already
+	 * completed, which aren't sent again (close messages aren't repeatable, #149)
+	 */
+	completedInStoppedBatch?: (recordIds: string[]) => Promise<Set<string>>;
 }
 
 /** Sends one batch, retrying while Dataverse throttles it */
@@ -151,11 +156,36 @@ export const buildStatePatchRequest = (entitySetName: string, recordId: string, 
 	body: statePatchBody(target),
 });
 
+/** Why records weren't closed after shouldContinue said stop (#149) */
+export const CLOSE_CONNECTION_CHANGED_MESSAGE = "Not closed: the tool's connection changed while closing";
+
+/**
+ * Close messages (#149): POST the action (WinOpportunity, CloseIncident, ...) once per record in
+ * $batch requests, with the per-record errors, progress and connection guard delete has. Unlike
+ * delete and PATCH, a close isn't repeatable (a second WinOpportunity answers 0x80040515 "The
+ * opportunity is already closed"; verified on a sandbox), so when a batch stops early
+ * `completedInStoppedBatch` names the records it already closed and they aren't sent again.
+ * Verified on a sandbox (2026-10-17): a $batch of actions stops at the first failure and the
+ * earlier ones stay done.
+ */
+export function closeRecordsInBatches(
+	recordIds: string[],
+	toRequest: (recordId: string) => BatchRequest,
+	options: RecordBatchOptions & { completedInStoppedBatch?: (recordIds: string[]) => Promise<Set<string>> },
+): Promise<BatchDeleteResult> {
+	return runRecordBatches(recordIds, options, {
+		toRequest,
+		stoppedMessage: CLOSE_CONNECTION_CHANGED_MESSAGE,
+		formatError: (result) => formatDataverseError(result.body && typeof result.body === "object" ? result.body : new Error(batchResultError(result).message)),
+		completedInStoppedBatch: options.completedInStoppedBatch,
+	});
+}
+
 /** Sends one request per record in $batch requests of `batchSize` (see the file comment) */
 async function runRecordBatches(
 	recordIds: string[],
 	{ executeBatch, onProgress, batchSize = DELETE_BATCH_SIZE, shouldContinue = () => true, wait = sleep }: RecordBatchOptions,
-	{ toRequest, stoppedMessage, retriedSuccess = () => false, formatError = (r) => batchResultError(r).message }: RecordOperation,
+	{ toRequest, stoppedMessage, retriedSuccess = () => false, formatError = (r) => batchResultError(r).message, completedInStoppedBatch }: RecordOperation,
 ): Promise<BatchDeleteResult> {
 	const result: BatchDeleteResult = { succeeded: 0, failed: 0, errors: [] };
 	const size = Math.max(1, Math.min(batchSize, 1000));
@@ -206,10 +236,20 @@ async function runRecordBatches(
 		if (results && results.length === chunk.length) {
 			chunk.forEach((id, i) => record(id, results![i], false));
 		} else if (failedEarly || results) {
-			for (const [i, id] of chunk.entries()) {
+			let completedIds = new Set<string>();
+			if (completedInStoppedBatch) {
+				try {
+					completedIds = await completedInStoppedBatch(chunk);
+				} catch (error) {
+					console.warn(`Batch ${index + 1}: couldn't tell which records it completed, redoing all:`, error);
+				}
+			}
+			result.succeeded += chunk.filter((id) => completedIds.has(id)).length;
+			const redo = chunk.filter((id) => !completedIds.has(id));
+			for (const [i, id] of redo.entries()) {
 				if (!(await shouldContinue())) {
 					stopped = true;
-					stop(chunk.slice(i));
+					stop(redo.slice(i));
 					break;
 				}
 				try {

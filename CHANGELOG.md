@@ -40,6 +40,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Hierarchy picker:** under / not-under / above / eq-or-under / eq-or-above on the primary key pick a record by name (`startswith` search, so no leading wildcard). The record's name is resolved back from its ID, and **Enter an ID instead** gives a GUID field with validation. The hint names the hierarchical relationship and the 100-level limit.
   - **GUID values:** Lookup, Customer, Owner and Uniqueidentifier condition values that aren't GUIDs are flagged. Verified live: Dataverse rejects them with 0x80040203.
   - **Undocumented settings:** "UTC offset (undocumented)" shows only when the query sets it, and the condition aggregate leftover reads "Aggregate (undocumented)".
+- **Close dialogs for opportunity, case, quote, order and invoice (#149, verified live on temporary records):** in the results command bar, **Close** replaces Deactivate for these entities.
+  - **Opportunity:** Close as won / Close as lost (`WinOpportunity` / `LoseOpportunity`), with actual revenue (left empty, each opportunity keeps its own), close date, description and, for lost, a competitor that suggests Out-Sold.
+  - **Case:** Resolve case (`CloseIncident`), with resolution, resolution type, billable time and remarks. **Cancel case** is a plain state change to Cancelled; Merged isn't offered.
+  - **Quote:** Win quote / Close quote (`WinQuote` / `CloseQuote`). Lost is preselected rather than the metadata default Revised.
+  - **Order:** Fulfill order / Cancel order (`FulfillSalesOrder`, bound to the salesorder collection / `CancelSalesOrder`).
+  - **Invoice:** Mark as paid (Complete or Partial) / Cancel invoice, plain state changes; invoices have no close message.
+  - **How it runs:**
+    - Status reasons come from the target state in metadata. Each dialog starts with the environment and scope check.
+    - The same values go to every selected record. Each record gets one request, and its own close activity (`opportunityclose`, `incidentresolution`, `quoteclose`, `orderclose`). Requests are batched with progress, per-record errors, throttle retry and the connection guard, and the query re-runs afterwards.
+    - A batch that stops early doesn't resend the records it already closed.
+    - Items are off without Write on the entity or Create on activities.
+- **Activate reopens** closed opportunities, cases, orders and invoices (back to statecode 0; verified live). It stays off for quotes and contracts.
 
 ### 🔧 Fixed
 
