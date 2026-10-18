@@ -1854,19 +1854,22 @@ export async function addSolutionComponent(
 export const COMPONENT_TYPE_SAVEDQUERY = 26;
 
 /**
- * Publish a specific savedquery
- * @see https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/reference/publishxml
+ * Publish a system view by publishing its entity (#93 h). PublishXml publishes entities, ribbons,
+ * dashboards, option sets, the site map and web resources; a savedquery node isn't documented, and
+ * publishing the entity includes its views (and any other pending customizations of that entity).
+ * @see https://learn.microsoft.com/dotnet/api/microsoft.crm.sdk.messages.publishxmlrequest.parameterxml
+ * @see https://learn.microsoft.com/power-apps/developer/model-driven-apps/publish-request-schema
  */
-export async function publishSavedQuery(savedQueryId: string): Promise<void> {
+export async function publishEntityViews(entityLogicalName: string): Promise<void> {
 	if (!isDataverseAvailable()) {
 		throw new Error("PPTB Dataverse API not available");
 	}
 
-	debugLog("viewAPI", `📡 PublishXml for SavedQuery: ${savedQueryId}`);
+	debugLog("viewAPI", `📡 PublishXml for entity: ${entityLogicalName}`);
 
 	try {
-		// Build ParameterXml to publish a specific savedquery
-		const parameterXml = `<importexportxml><savedqueries><savedquery>{${savedQueryId}}</savedquery></savedqueries></importexportxml>`;
+		const name = entityLogicalName.replace(/[^a-z0-9_]/gi, "");
+		const parameterXml = `<importexportxml><entities><entity>${name}</entity></entities></importexportxml>`;
 
 		await window.dataverseAPI!.execute({
 			operationName: "PublishXml",
@@ -1876,9 +1879,9 @@ export async function publishSavedQuery(savedQueryId: string): Promise<void> {
 			},
 		});
 
-		debugLog("viewAPI", `✅ SavedQuery published: ${savedQueryId}`);
+		debugLog("viewAPI", `✅ Entity published: ${name}`);
 	} catch (error) {
-		console.error("publishSavedQuery: Failed:", error);
+		console.error("publishEntityViews: Failed:", error);
 		throw error;
 	}
 }
