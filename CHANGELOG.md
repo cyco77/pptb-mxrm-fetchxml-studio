@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.6] - 2026-10-17
+
+### 🔧 Fixed
+
+- **Column headers for one-to-many link-entities name the related entity (verified live).**
+  - A 1:N link-entity's column read "Full Name (Account)": the header used the parent's primary key, which is the link's `to` attribute.
+  - It now reads "Full Name (Contact)". The entity's display name comes from the cached entity lists, so it's there before the entity has been opened.
+  - N:1 columns are unchanged and still name the lookup ("Full Name (Primary Contact)").
+
 ## [1.5.0-beta.5] - 2026-10-17
 
 ### 🏗️ Technical

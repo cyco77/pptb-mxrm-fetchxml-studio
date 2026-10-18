@@ -55,7 +55,7 @@ import {
 	Filter20Regular,
 	FilterDismiss20Regular,
 } from "@fluentui/react-icons";
-import type { AttributeMetadata } from "../../api/pptbClient";
+import type { AttributeMetadata, EntityMetadata } from "../../api/pptbClient";
 import { getCellRenderer } from "./getCellRenderer";
 import { buildRowIdentity } from "./rowIdentity";
 import { getFormattedValue } from "./FormattedValueUtils";
@@ -615,18 +615,25 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 				// - For 1:N (one-to-many): Show the related entity display name (e.g., "Contact")
 				let relatedDisplayName = displayInfo.linkEntityAlias;
 
-				if (displayInfo.lookupAttribute) {
-					// N:1 relationship - get the lookup attribute display name from root entity
-					const rootEntityName = fetchQuery?.entity?.name;
-					if (rootEntityName) {
-						const lookupAttr = getAttributeMetadata(rootEntityName, displayInfo.lookupAttribute);
-						if (lookupAttr?.DisplayName?.UserLocalizedLabel?.Label) {
-							relatedDisplayName = lookupAttr.DisplayName.UserLocalizedLabel.Label;
-						}
-					}
+				// N:1: 'to' is a lookup on the parent, so name the lookup ("Primary Contact"). 1:N (and N:N
+				// through an intersect entity): 'to' is the parent's key, which says nothing about the
+				// related side, so name the related entity ("Contact")
+				const rootEntityName = fetchQuery?.entity?.name;
+				const lookupAttr =
+					displayInfo.lookupAttribute && rootEntityName
+						? getAttributeMetadata(rootEntityName, displayInfo.lookupAttribute)
+						: undefined;
+				const toIsLookup = ["Lookup", "Customer", "Owner"].includes(lookupAttr?.AttributeType ?? "");
+				if (toIsLookup && lookupAttr?.DisplayName?.UserLocalizedLabel?.Label) {
+					relatedDisplayName = lookupAttr.DisplayName.UserLocalizedLabel.Label;
 				} else {
-					// 1:N relationship - get the entity display name
-					const entityMetadata = metadataCache.getEntityMetadata(displayInfo.entityName);
+					// Entity details are cached per entity once opened; the entity lists have every entity
+					const byName = (list: EntityMetadata[] | undefined) =>
+						list?.find((e) => e.LogicalName === displayInfo.entityName);
+					const entityMetadata =
+						metadataCache.getEntityMetadata(displayInfo.entityName) ??
+						byName(metadataCache.getAllEntityMetadata()) ??
+						byName(metadataCache.getAllEntities());
 					if (entityMetadata?.DisplayName?.UserLocalizedLabel?.Label) {
 						relatedDisplayName = entityMetadata.DisplayName.UserLocalizedLabel.Label;
 					}
