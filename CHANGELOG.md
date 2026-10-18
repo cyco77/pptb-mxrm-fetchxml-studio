@@ -34,13 +34,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🏗️ Technical
 
 - **`dompurify` 3.4.15 → 3.4.16 for monaco-editor, through an npm override.** This clears the two low advisories (GHSA-6688-9rhm-gjv2, GHSA-p98j-92pf-mc4p) and the failing Dependabot security job: monaco-editor 0.57 pins `dompurify` exactly, so Dependabot couldn't update it. Nothing that ships changes: Monaco bundles its own copy of DOMPurify and never imports the npm package, so the built Monaco chunk is byte-identical. `npm audit --omit=dev` now reports 0 findings.
-- **Release branches (`RELEASING.md`).** A minor release now stabilizes on its own `release/X.Y` branch, cut from `dev` at the feature freeze, so `dev` is never frozen. Betas (`-beta.N`, `-rc.N`) are tagged there and publish to npm `beta`. A stable release merges `release/X.Y` → `main` and is tagged there (npm `latest`). Fixes go to the oldest supported branch that has the bug and merge forward (`main` → `release/*` → `dev`).
-- **Supported versions (`SECURITY.md`):** the current stable release gets fixes. The previous minor gets critical and security fixes for 30 days after the next minor ships, from a `support/X.Y` branch that publishes to npm `support-X.Y`, never `latest`.
-- **`release.yml` chooses the channel from the tag:** `-beta.N` / `-rc.N` → `beta` (pre-release); a stable tag on `main` → `latest`; a stable tag on `support/X.Y` → `support-X.Y` (not marked as the latest GitHub Release). Any other tag fails before publishing. CI also runs on pushes to `release/**` and `support/**`.
 - **CI fails on high or critical runtime vulnerabilities (#72):** `npm audit --omit=dev --audit-level=high` runs before the other checks. The README now has CI and license badges.
 - **Dependabot (#76):** grouped weekly npm and GitHub Actions updates into `dev`, with a 14-day cooldown so only versions published at least two weeks ago are proposed. React majors are reviewed manually.
 - **`CONTRIBUTING.md` and the PR template (#80):** setup, the branch and PR workflow, what every PR includes, the product rules (ground in Microsoft Learn, never refuse supported FetchXML, confirmations name the environment and scope), the UI and wording rules, and the dependency rules. The PR template asks for the target branch, light and dark screenshots for UI changes, and the release-prep checks.
-- **Release process: stabilizing before a stable release (`RELEASING.md`).** Each stable release has a milestone and a "Release X.Y.Z" tracking issue. Before a beta is promoted to npm `latest`, `dev` is in feature freeze (next-release work waits as draft PRs), the milestone is clear, the latest beta is smoke-tested in PPTB, it soaks for 7 days without a new P0/P1 bug, and CI and the runtime audit are clean. The same process applies to Command Bar Studio and Dataverse Request Studio.
+
+## [1.5.0-beta.13] - 2026-10-18
+
+### 🔧 Fixed
+
+- **pac CLI snippet: the shell no longer expands FetchXML values (#166, found by CodeQL).** The XML was wrapped in double quotes with only `"` escaped, so bash and zsh expanded values such as `$100`, `$(…)` or backticks when the snippet was pasted, and PowerShell rejected `\"`. The snippet now single-quotes the XML on a **bash / zsh** line (`'` written as `'''`) and a **PowerShell 7.3+** line (`'` written as `''`), and points to `--xmlFile` for Windows PowerShell 5.1. It uses `pac env fetch`: `pac org` was renamed `pac env` in pac 1.32, and `org` still works.
+
+### 🏗️ Technical
+
+- **Release branches (`RELEASING.md`).** A minor release now stabilizes on its own `release/X.Y` branch, cut from `dev` at the feature freeze, so `dev` is never frozen. Betas (`-beta.N`, `-rc.N`) are tagged there and publish to npm `beta`. A stable release merges `release/X.Y` → `main` and is tagged there (npm `latest`). Fixes go to the oldest supported branch that has the bug and merge forward (`main` → `release/*` → `dev`).
+- **Supported versions (`SECURITY.md`):** the current stable release gets fixes. The previous minor gets critical and security fixes for 30 days after the next minor ships, from a `support/X.Y` branch that publishes to npm `support-X.Y`, never `latest`.
+- **`release.yml` chooses the channel from the tag:** `-beta.N` / `-rc.N` → `beta` (pre-release); a stable tag on `main` → `latest`; a stable tag on `support/X.Y` → `support-X.Y` (not marked as the latest GitHub Release). Any other tag fails before publishing. CI also runs on pushes to `release/**` and `support/**`.
+- **Release process: stabilizing before a stable release (`RELEASING.md`).** Each stable release has a milestone and a "Release X.Y.Z" tracking issue. Before a beta is promoted to npm `latest`, the milestone is clear, the latest beta is smoke-tested in PPTB, it soaks for 7 days without a new P0/P1 bug, and CI and the runtime audit are clean. Stabilizing happens on the release branch, so `dev` isn't frozen. The same process applies to Command Bar Studio and Dataverse Request Studio.
 
 ## [1.5.0-beta.12] - 2026-10-18
 
