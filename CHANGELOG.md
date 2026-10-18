@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.9] - 2026-10-17
+
+### 🏗️ Technical
+
+- **monaco-editor 0.54 → 0.57 (#145)** clears the moderate `dompurify` advisories.
+  - `@monaco-editor/react` stays at 4.7.0, because 4.8 is still a prerelease. An ambient type declaration maps its `editor.api` import to Monaco 0.57's `monaco-editor/editor` entry.
+  - **Smaller bundle:** Monaco loads only the editor core, its features and the languages FXS shows (XML, C#, JavaScript, shell and SQL), using the tree-shakeable entry points added in Monaco 0.56. With the full 0.57 entry, the package would have exceeded its size budget. Now it's 13 files instead of 98, and slightly smaller overall.
+  - **No worker console errors:** the editor worker runs on the main thread from the start, as before (PPTB's CSP blocks `blob:` workers), without the errors Monaco 0.57 would log first.
+  - **Remaining audit findings:** two low `dompurify` advisories (fixed in 3.4.16). Monaco bundles its own copy and doesn't use the affected `IN_PLACE` mode.
+- **`uuid` for exceljs pinned to 11.1.1 with an npm override (#145, GHSA-w5hq-g745-h8pq).** The browser build of exceljs bundles its own uuid and only calls `v4()`, so the advisory never applied to the tool.
+- **A round-trip test for local Excel export:** headers, typed values, formats, dates, labels, the "both" (Raw) columns, the frozen header and auto-filter.
+
 ## [1.5.0-beta.8] - 2026-10-17
 
 ### ✨ Added
