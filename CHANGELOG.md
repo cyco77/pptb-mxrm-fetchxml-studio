@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ✨ Added
+
+- **Saved views follow-ups (#142):**
+  - **Shared personal views:** Load view shows "Shared by {owner}" (or "Shared with you"). System views show their query type or "Default view" as a second line.
+  - **Write access:** before overwriting a personal view you don't own, Save view checks your access (`RetrievePrincipalAccess`). Without write access, it offers **Save a copy…**; if access can't be determined, Dataverse decides.
+  - **Managed system views:** overwriting one shows a warning naming its solution. It's a warning only, not a block.
+  - **Quick find views:** enter a test value for `{0}`, with an optional trailing `%`, to execute them. The value is used only in the FetchXML that runs; the tree, the editor and saved views keep `{0}`. A loaded quick find view runs as FetchXML, not by ID, because by ID it matches nothing (verified live).
+  - **Set as default view** for public system views.
+  - **Description:** pre-filled when you overwrite a view, and clearing it clears the view's description.
+
 ### 🏗️ Technical
 
 - **Release process (`RELEASING.md`):** `main` holds the current stable release (npm `latest`); betas are tagged on `dev` (npm `beta`, GitHub pre-release); hotfixes branch from `main` and merge back into `dev`. PRs add CHANGELOG entries under `[Unreleased]` and don't change the version, which is set when a release is cut. The same process applies to Command Bar Studio and Dataverse Request Studio.
