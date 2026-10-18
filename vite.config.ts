@@ -62,6 +62,7 @@ export default defineConfig(async ({ command, mode }) => ({
 			"monaco-editor/languages/definitions/csharp/register",
 			"monaco-editor/languages/definitions/javascript/register",
 			"monaco-editor/languages/definitions/shell/register",
+			"monaco-editor/languages/definitions/sql/register",
 		],
 	},
 	build: {

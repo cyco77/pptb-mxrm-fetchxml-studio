@@ -14,9 +14,15 @@
  * but rejects when a batch stopped early (fewer results than operations). A one-operation batch
  * always returns its result. So a chunk that rejects is redone one record per batch: records the
  * stopped batch already deleted then answer 404 "Does Not Exist", which counts as deleted.
+ *
+ * The same runner sends Activate / Deactivate PATCHes (#143, updateRecordStatesInBatches). A PATCH
+ * of statecode / statuscode to the state a record already has succeeds (verified on a sandbox,
+ * 2026-10-17), so redoing a stopped chunk one record per batch is safe there too.
  */
 
 import type { BatchDeleteProgress, BatchDeleteResult } from "./pptbClient";
+import { formatDataverseError } from "./dataverseErrors";
+import { statePatchBody, type StateTarget } from "../model/recordState";
 
 type HostExecuteBatch = Window["dataverseAPI"]["executeBatch"];
 export type BatchRequest = Parameters<HostExecuteBatch>[0][number];
@@ -62,7 +68,7 @@ const errorMessage = (error: unknown) => (error instanceof Error ? error.message
 const isThrottled = (error: unknown) => THROTTLE_PATTERN.test(errorMessage(error));
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-export interface BatchDeleteOptions {
+export interface RecordBatchOptions {
 	executeBatch: ExecuteBatch;
 	onProgress?: (progress: BatchDeleteProgress) => void;
 	batchSize?: number;
@@ -75,8 +81,25 @@ export interface BatchDeleteOptions {
 	wait?: (ms: number) => Promise<void>;
 }
 
+export type BatchDeleteOptions = RecordBatchOptions;
+
 /** Why records weren't deleted after shouldContinue said stop */
 export const CONNECTION_CHANGED_MESSAGE = "Not deleted: the tool's connection changed during the delete";
+
+/** Why records weren't changed after shouldContinue said stop (#143) */
+export const STATE_CONNECTION_CHANGED_MESSAGE = "Not changed: the tool's connection changed during the update";
+
+/** What differs between the operations the runner sends */
+interface RecordOperation {
+	/** The request for one record */
+	toRequest: (recordId: string) => BatchRequest;
+	/** Why the remaining records weren't processed after shouldContinue said stop */
+	stoppedMessage: string;
+	/** Whether a failed result of a retried (one-record) batch still counts as done */
+	retriedSuccess?: (result: BatchResult) => boolean;
+	/** The text for a failed result */
+	formatError?: (result: BatchResult) => string;
+}
 
 /** Sends one batch, retrying while Dataverse throttles it */
 async function sendWithRetry(requests: BatchRequest[], execute: ExecuteBatch, wait: (ms: number) => Promise<void>): Promise<BatchResult[]> {
@@ -94,10 +117,45 @@ async function sendWithRetry(requests: BatchRequest[], execute: ExecuteBatch, wa
  * Deletes records in $batch requests of `batchSize`, reporting per-record errors and progress
  * (same shape as the parallel-request path it replaces).
  */
-export async function deleteRecordsInBatches(
+export function deleteRecordsInBatches(entitySetName: string, recordIds: string[], options: BatchDeleteOptions): Promise<BatchDeleteResult> {
+	return runRecordBatches(recordIds, options, {
+		toRequest: (id) => ({ method: "DELETE", url: recordUrl(entitySetName, id) }),
+		stoppedMessage: CONNECTION_CHANGED_MESSAGE,
+		retriedSuccess: isRecordNotFound,
+	});
+}
+
+/**
+ * Activate / Deactivate (#143): PATCH `{ statecode, statuscode }` to each record in $batch requests,
+ * with the same per-record errors, progress and connection guard as delete. Errors are formatted
+ * with formatDataverseError (#96).
+ * https://learn.microsoft.com/power-apps/developer/data-platform/webapi/update-delete-entities-using-web-api#basic-update
+ */
+export function updateRecordStatesInBatches(
 	entitySetName: string,
 	recordIds: string[],
-	{ executeBatch, onProgress, batchSize = DELETE_BATCH_SIZE, shouldContinue = () => true, wait = sleep }: BatchDeleteOptions,
+	target: StateTarget,
+	options: RecordBatchOptions,
+): Promise<BatchDeleteResult> {
+	return runRecordBatches(recordIds, options, {
+		toRequest: (id) => buildStatePatchRequest(entitySetName, id, target),
+		stoppedMessage: STATE_CONNECTION_CHANGED_MESSAGE,
+		formatError: (result) => formatDataverseError(result.body && typeof result.body === "object" ? result.body : new Error(batchResultError(result).message)),
+	});
+}
+
+/** The batch request that sets a record's state (#143): PATCH {EntitySetName}(id) { statecode, statuscode } */
+export const buildStatePatchRequest = (entitySetName: string, recordId: string, target: StateTarget): BatchRequest => ({
+	method: "PATCH",
+	url: recordUrl(entitySetName, recordId),
+	body: statePatchBody(target),
+});
+
+/** Sends one request per record in $batch requests of `batchSize` (see the file comment) */
+async function runRecordBatches(
+	recordIds: string[],
+	{ executeBatch, onProgress, batchSize = DELETE_BATCH_SIZE, shouldContinue = () => true, wait = sleep }: RecordBatchOptions,
+	{ toRequest, stoppedMessage, retriedSuccess = () => false, formatError = (r) => batchResultError(r).message }: RecordOperation,
 ): Promise<BatchDeleteResult> {
 	const result: BatchDeleteResult = { succeeded: 0, failed: 0, errors: [] };
 	const size = Math.max(1, Math.min(batchSize, 1000));
@@ -108,22 +166,22 @@ export async function deleteRecordsInBatches(
 		if (outcome instanceof Error) {
 			result.failed++;
 			result.errors.push(`${recordId}: ${outcome.message}`);
-		} else if (isSuccess(outcome) || (retried && isRecordNotFound(outcome))) {
+		} else if (isSuccess(outcome) || (retried && retriedSuccess(outcome))) {
 			result.succeeded++;
 		} else {
 			result.failed++;
-			result.errors.push(`${recordId}: ${batchResultError(outcome).message}`);
+			result.errors.push(`${recordId}: ${formatError(outcome)}`);
 		}
 	};
 
 	const chunkTimes: number[] = [];
 	let completed = 0;
 	let stopped = false;
-	const stop = (ids: string[]) => ids.forEach((id) => record(id, new Error(CONNECTION_CHANGED_MESSAGE), false));
+	const stop = (ids: string[]) => ids.forEach((id) => record(id, new Error(stoppedMessage), false));
 	for (let index = 0; index < chunks.length; index++) {
 		const chunk = chunks[index];
 		const started = Date.now();
-		const requests = chunk.map((id): BatchRequest => ({ method: "DELETE", url: recordUrl(entitySetName, id) }));
+		const requests = chunk.map(toRequest);
 
 		let results: BatchResult[] | undefined;
 		let failedEarly = false;
@@ -140,7 +198,7 @@ export async function deleteRecordsInBatches(
 					record(chunk[0], new Error(errorMessage(error)), false);
 				} else {
 					failedEarly = true;
-					console.warn(`Delete batch ${index + 1} stopped early, retrying its records one by one:`, error);
+					console.warn(`Batch ${index + 1} stopped early, retrying its records one by one:`, error);
 				}
 			}
 		}
@@ -155,7 +213,7 @@ export async function deleteRecordsInBatches(
 					break;
 				}
 				try {
-					const [single] = await sendWithRetry([{ method: "DELETE", url: recordUrl(entitySetName, id) }], executeBatch, wait);
+					const [single] = await sendWithRetry([toRequest(id)], executeBatch, wait);
 					record(id, single ?? new Error("No response for this record"), true);
 				} catch (error) {
 					record(id, new Error(errorMessage(error)), true);

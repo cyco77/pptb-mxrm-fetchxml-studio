@@ -51,7 +51,17 @@ import {
 	getOnDemandWorkflows,
 	executeWorkflowBatch,
 	checkDeletePrivilege,
+	checkWritePrivilege,
+	getEntityStateModel,
+	setRecordsState,
 } from "../features/fetchxml/api/pptbClient";
+import {
+	closeMessageReason,
+	stateActionUnavailableReason,
+	type StateAction,
+	type StateTarget,
+} from "../features/fetchxml/model/recordState";
+import { SetStateDialog } from "../features/fetchxml/ui/Dialogs/SetStateDialog";
 import { exportToExcelLocal, downloadExcelFile } from "../features/fetchxml/api/excelExport";
 import type {
 	AttributeMetadata,
@@ -446,6 +456,16 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 		preSelectedWorkflow?: WorkflowInfo;
 	}>({ open: false, recordIds: [] });
 
+	// Activate / Deactivate confirmation (#143)
+	const [setStateDialogState, setSetStateDialogState] = useState<{
+		open: boolean;
+		action: StateAction;
+		recordIds: string[];
+	}>({ open: false, action: "activate", recordIds: [] });
+
+	// Why Activate / Deactivate are off for the root entity, per action (#143)
+	const [stateActionReasons, setStateActionReasons] = useState<{ activate?: string; deactivate?: string }>({});
+
 	// Currently selected record IDs (from ResultsGrid)
 	const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
 
@@ -628,6 +648,37 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 		};
 
 		checkRecordPrivileges();
+	}, [entityLogicalName]);
+
+	// Activate / Deactivate availability (#143): entities whose states need dedicated messages, no
+	// statecode, or no Write privilege. Undeterminable answers leave the buttons on; Dataverse decides.
+	useEffect(() => {
+		const closeReason = closeMessageReason(entityLogicalName);
+		if (!entityLogicalName || closeReason || !isDataverseAvailable()) {
+			setStateActionReasons(closeReason ? { activate: closeReason, deactivate: closeReason } : {});
+			return;
+		}
+		let current = true;
+		setStateActionReasons({});
+		(async () => {
+			const [model, canWrite] = await Promise.all([
+				getEntityStateModel(entityLogicalName).catch((error: unknown) => {
+					console.warn("Activate/Deactivate: couldn't read the state model:", error);
+					return undefined;
+				}),
+				checkWritePrivilege(entityLogicalName),
+			]);
+			if (!current) return;
+			const writeReason =
+				canWrite === false ? "You don't have the Write privilege on this entity, so you can't change its records' status." : undefined;
+			setStateActionReasons({
+				activate: (model !== undefined ? stateActionUnavailableReason(model, "activate") : undefined) ?? writeReason,
+				deactivate: (model !== undefined ? stateActionUnavailableReason(model, "deactivate") : undefined) ?? writeReason,
+			});
+		})();
+		return () => {
+			current = false;
+		};
 	}, [entityLogicalName]);
 
 	// Root entity + all link-entity names. The root always comes from the query's <entity>
@@ -1586,6 +1637,38 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 		[entityLogicalName],
 	);
 
+	/** Activate / Deactivate (#143): opens the confirmation, which plans the change from metadata */
+	const openSetStateDialog = useCallback(
+		(action: StateAction, recordIds: string[]) => {
+			if (!entityLogicalName || recordIds.length === 0) return;
+			setSetStateDialogState({ open: true, action, recordIds });
+		},
+		[entityLogicalName],
+	);
+	const handleActivateRecords = useCallback((ids: string[]) => openSetStateDialog("activate", ids), [openSetStateDialog]);
+	const handleDeactivateRecords = useCallback((ids: string[]) => openSetStateDialog("deactivate", ids), [openSetStateDialog]);
+
+	/** Runs the state change (#143): PATCH statecode / statuscode, holding the host's close warning */
+	const handleExecuteStateChange = useCallback(
+		async (target: StateTarget, onProgress: (progress: BatchDeleteProgress) => void): Promise<BatchDeleteResult> => {
+			if (!entityLogicalName) throw new Error("Entity not selected");
+			const result = await whileHoldingClose(() =>
+				setRecordsState(entityLogicalName, setStateDialogState.recordIds, target, onProgress),
+			);
+			if (result.succeeded > 0) {
+				debugLog("app", `✅ State changed on ${result.succeeded} of ${setStateDialogState.recordIds.length} records`);
+				void handleExecuteRef.current();
+			}
+			return result;
+		},
+		[entityLogicalName, setStateDialogState.recordIds],
+	);
+
+	// Rows repeat for 1:N / N:N link-entities; Activate / Deactivate say so like their other reasons (#143)
+	const oneToManyStateReason = hasOneToManyRelationship
+		? "The query has a one-to-many or many-to-many link-entity, so rows repeat. Remove it to activate or deactivate records."
+		: undefined;
+
 	// ============ END RECORD ACTION HANDLERS ============
 
 	return (
@@ -1887,6 +1970,10 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 					onCopyRecordUrl={handleCopyRecordUrl}
 					onDeleteRecords={handleDeleteRecords}
 					onBulkDeleteRecords={handleBulkDeleteRecords}
+					onActivateRecords={handleActivateRecords}
+					onDeactivateRecords={handleDeactivateRecords}
+					activateDisabledReason={stateActionReasons.activate ?? oneToManyStateReason}
+					deactivateDisabledReason={stateActionReasons.deactivate ?? oneToManyStateReason}
 					onRunSpecificWorkflow={handleRunSpecificWorkflow}
 					canDelete={recordActionPrivileges.canDelete}
 					canBulkDelete={recordActionPrivileges.canBulkDelete}
@@ -1908,6 +1995,7 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 				entityDisplayName={
 					entityMetadata?.DisplayName?.UserLocalizedLabel?.Label || entityLogicalName || "record"
 				}
+				entityLogicalName={entityLogicalName}
 				recordCount={deleteDialogState.recordIds.length}
 				onClose={() => {
 					setDeleteDialogState({ open: false, recordIds: [] });
@@ -1923,8 +2011,10 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 				entityDisplayName={
 					entityMetadata?.DisplayName?.UserLocalizedLabel?.Label || entityLogicalName || "records"
 				}
+				entityLogicalName={entityLogicalName}
 				isAllRecords={bulkDeleteDialogState.isAllRecords}
 				totalViewRecords={bulkDeleteDialogState.totalViewRecords}
+				moreRecords={queryResult?.moreRecords}
 				onClose={() => setBulkDeleteDialogState({ open: false, recordIds: [] })}
 				onConfirm={handleConfirmBulkDelete}
 			/>
@@ -1935,12 +2025,24 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 				entityDisplayName={
 					entityMetadata?.DisplayName?.UserLocalizedLabel?.Label || entityLogicalName || "records"
 				}
+				entityLogicalName={entityLogicalName}
 				preSelectedWorkflow={workflowDialogState.preSelectedWorkflow}
 				onClose={() => setWorkflowDialogState({ open: false, recordIds: [] })}
 				onFetchWorkflows={handleFetchWorkflows}
 				onExecute={(workflow, onProgress) =>
 					handleExecuteWorkflow(workflow.workflowid, workflowDialogState.recordIds, onProgress)
 				}
+			/>
+			{/* Activate / Deactivate Dialog (#143) */}
+			<SetStateDialog
+				open={setStateDialogState.open}
+				action={setStateDialogState.action}
+				recordIds={setStateDialogState.recordIds}
+				entityLogicalName={entityLogicalName}
+				entityDisplayName={entityMetadata?.DisplayName?.UserLocalizedLabel?.Label}
+				primaryIdAttribute={entityMetadata?.PrimaryIdAttribute}
+				onClose={() => setSetStateDialogState((prev) => ({ ...prev, open: false }))}
+				onExecute={handleExecuteStateChange}
 			/>
 			{/* Settings Drawer */}
 			<SettingsDrawer

@@ -26,6 +26,7 @@ import {
 import { Play20Regular, CheckmarkCircle20Regular, Warning20Regular } from "@fluentui/react-icons";
 import type { WorkflowInfo, WorkflowBatchProgress } from "../../api/pptbClient";
 import { formatDataverseError } from "../../api/dataverseErrors";
+import { TargetScope } from "../../../../shared/components/TargetScope";
 
 const useStyles = makeStyles({
 	content: {
@@ -105,6 +106,8 @@ export interface WorkflowPickerDialogProps {
 	recordCount: number;
 	/** Entity display name */
 	entityDisplayName?: string;
+	/** Entity logical name (the confirmation names it with the environment, #69) */
+	entityLogicalName?: string;
 	/** Pre-selected workflow (from menu selection) */
 	preSelectedWorkflow?: WorkflowInfo;
 	/** Called when dialog is closed */
@@ -124,6 +127,7 @@ export function WorkflowPickerDialog({
 	open,
 	recordCount,
 	entityDisplayName,
+	entityLogicalName,
 	preSelectedWorkflow,
 	onClose,
 	onFetchWorkflows,
@@ -135,6 +139,8 @@ export function WorkflowPickerDialog({
 	const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [progress, setProgress] = useState<WorkflowBatchProgress | null>(null);
+	// Type-to-confirm for Production or more than 100 records (#69)
+	const [scopeConfirmed, setScopeConfirmed] = useState(false);
 	const [result, setResult] = useState<{
 		succeeded: number;
 		failed: number;
@@ -269,6 +275,14 @@ export function WorkflowPickerDialog({
 
 				return (
 					<>
+						{/* Environment and scope (#69) */}
+						<TargetScope
+							entityLogicalName={entityLogicalName}
+							entityDisplayName={entityDisplayName}
+							scope={{ kind: "records", count: recordCount }}
+							onConfirmationChange={setScopeConfirmed}
+						/>
+
 						<Text>
 							Select a workflow to run on {recordCount} {recordCount === 1 ? "record" : "records"}:
 						</Text>
@@ -400,9 +414,9 @@ export function WorkflowPickerDialog({
 							appearance="primary"
 							icon={<Play20Regular />}
 							onClick={handleExecute}
-							disabled={!selectedWorkflowId || workflows.length === 0}
+							disabled={!selectedWorkflowId || workflows.length === 0 || !scopeConfirmed}
 						>
-							Run Workflow
+							Run workflow
 						</Button>
 					</>
 				);
@@ -427,7 +441,7 @@ export function WorkflowPickerDialog({
 	return (
 		<Dialog open={open} onOpenChange={(_, data) => !data.open && handleClose()}>
 			<DialogSurface>
-				<DialogTitle>Run Workflow</DialogTitle>
+				<DialogTitle>Run workflow</DialogTitle>
 				<DialogBody>
 					<DialogContent className={styles.content}>{renderContent()}</DialogContent>
 				</DialogBody>
