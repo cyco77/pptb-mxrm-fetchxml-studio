@@ -73,9 +73,13 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **LayoutXML preview** — See the column layout configuration
 
 ### 📥 Load & Save Views
-- **Load system/personal views** — Browse and load existing Dataverse views
-- **Optimized view execution** — Uses SavedQuery/UserQuery APIs for better performance
-- **Save to Dataverse** — Save your queries as new personal views or update existing ones
+- **Load system/personal views** — Browse and load existing Dataverse views of every query type. Personal views shared with you show "Shared by {owner}", and system views show their type or "Default view"
+- **Optimized view execution** — An unmodified loaded view runs by its ID (SavedQuery/UserQuery). Quick find views run as FetchXML with the test value you enter for `{0}`; the query keeps `{0}`
+- **Save to Dataverse** — Save your queries as new personal or system views, or update existing ones.
+  - Before overwriting a shared personal view, your write access is checked; without it you get **Save a copy…**.
+  - Overwriting a managed system view warns first.
+  - Public system views can be **set as the default view**.
+  - The description is pre-filled.
 - **Solution-aware** — Add views to solutions during save
 
 ### 📤 Export & Data Operations
