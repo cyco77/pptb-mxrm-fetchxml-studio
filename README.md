@@ -2,7 +2,7 @@
 
 A powerful, modern FetchXML query builder and data explorer for [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app). Inspired by the XrmToolBox FetchXML Builder, reimagined with React 18, Fluent UI v9, and seamless Dataverse integration.
 
-![Version](https://img.shields.io/badge/version-1.5.0--beta.11-blue)
+![Version](https://img.shields.io/badge/version-1.5.0--beta.12-blue)
 [![npm](https://img.shields.io/npm/v/@mohsinonxrm/pptb-fetchxml-studio?label=npm)](https://www.npmjs.com/package/@mohsinonxrm/pptb-fetchxml-studio)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
@@ -190,7 +190,7 @@ Nothing else writes to Dataverse:
 ## 🚀 Getting Started
 
 ### Prerequisites
-- [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app) desktop application
+- [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app) desktop application, **version 1.2.7 or later**. FetchXML Studio 1.5 targets PPTB 1.2.7 (`minAPI` 1.2.7); 1.4.x works with 1.2.2 or later
 - Connection to a Dataverse environment
 
 ### Installation
@@ -228,7 +228,7 @@ npm run preview
 npm run validate
 ```
 
-**Releases.** CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests, PPTB validation, the build and a package-contents check on every pull request. `main` holds the current stable release and `dev` the next one. A `vX.Y.Z` tag on `main` publishes to npm `latest`, and a `vX.Y.Z-beta.N` tag on `dev` publishes to npm `beta` as a GitHub pre-release, both with provenance; see [RELEASING.md](RELEASING.md).
+**Releases.** CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests, PPTB validation, the build and a package-contents check on every pull request. `main` holds the current stable release. A minor release stabilizes on a `release/X.Y` branch, so `dev` is never frozen. A `vX.Y.Z-beta.N` tag there publishes to npm `beta` as a GitHub pre-release, and after a smoke test and a 7-day soak, the `vX.Y.Z` tag on `main` publishes to npm `latest`, both with provenance. Fixes go to the oldest supported branch and merge forward. The previous minor gets critical fixes for 30 days ([SECURITY.md](SECURITY.md)); see [RELEASING.md](RELEASING.md).
 
 **Tool icon.** `package.json` points `icon` at `icons/icon.svg` under `dist/`, where Power Platform ToolBox looks for it. The build bundles `icons/icon-insider.svg` (gold stamp) for prerelease versions such as `1.4.2-beta.7`, and `icons/icon.svg` for releases.
 
