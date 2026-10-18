@@ -399,9 +399,15 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 		return () => observer.disconnect();
 	}, [result]);
 
-	// Clear selection when results change
+	// Clear selection when results change, and tell the command bar: otherwise it keeps the old
+	// count and record IDs, and a record action after a refresh (Delete, Activate, Run workflow)
+	// would run on rows that are no longer selected (#158)
+	const selectionCallbacksRef = useRef({ onSelectedCountChange, onSelectionChange });
+	selectionCallbacksRef.current = { onSelectedCountChange, onSelectionChange };
 	useEffect(() => {
 		setSelectedItems(new Set());
+		selectionCallbacksRef.current.onSelectedCountChange?.(0);
+		selectionCallbacksRef.current.onSelectionChange?.([]);
 	}, [result]);
 
 	// Sort arrows: the result columns the query's orders sort by (queryColumns.ts, #114)

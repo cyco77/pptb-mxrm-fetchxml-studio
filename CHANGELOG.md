@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **GUID values:** Lookup, Customer, Owner and Uniqueidentifier condition values that aren't GUIDs are flagged. Verified live: Dataverse rejects them with 0x80040203.
   - **Undocumented settings:** "UTC offset (undocumented)" shows only when the query sets it, and the condition aggregate leftover reads "Aggregate (undocumented)".
 
+### 🔧 Fixed
+
+- **Record actions use the current selection after the results refresh (#158).** Previously, after a refresh (re-running the query, or the automatic refresh after Delete, Activate or Run workflow), the grid showed nothing selected, but the command bar kept the previous selection. Its actions stayed enabled and ran on the previously selected records. The command bar now clears its selection with the grid's.
+
 ### 🏗️ Technical
 
 - **Release process (`RELEASING.md`):** `main` holds the current stable release (npm `latest`); betas are tagged on `dev` (npm `beta`, GitHub pre-release); hotfixes branch from `main` and merge back into `dev`. PRs add CHANGELOG entries under `[Unreleased]` and don't change the version, which is set when a release is cut. The same process applies to Command Bar Studio and Dataverse Request Studio.
