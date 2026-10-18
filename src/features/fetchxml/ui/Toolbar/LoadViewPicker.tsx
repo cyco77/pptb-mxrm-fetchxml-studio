@@ -82,6 +82,8 @@ interface LoadViewPickerProps {
 	onViewClear?: () => void;
 	/** Optional: disable the picker */
 	disabled?: boolean;
+	/** The name of the view the picker shows, or null (#25: the collapsed scope summary) */
+	onSelectedViewChange?: (viewName: string | null) => void;
 }
 
 export function LoadViewPicker({
@@ -89,6 +91,7 @@ export function LoadViewPicker({
 	onViewSelect,
 	onViewClear,
 	disabled = false,
+	onSelectedViewChange,
 }: LoadViewPickerProps) {
 	const styles = useStyles();
 
@@ -101,6 +104,10 @@ export function LoadViewPicker({
 	// Combobox state - track both input value and selected view name
 	const [inputValue, setInputValue] = useState("");
 	const [selectedViewName, setSelectedViewName] = useState<string | null>(null);
+
+	useEffect(() => {
+		onSelectedViewChange?.(selectedViewName);
+	}, [selectedViewName, onSelectedViewChange]);
 
 	// Fetch views when entity changes
 	useEffect(() => {
@@ -224,11 +231,11 @@ export function LoadViewPicker({
 
 	return (
 		<div className={styles.container}>
-			<label className={styles.label}>Load View</label>
+			<label className={styles.label}>Load view</label>
 			<Combobox
 				className={styles.combobox}
 				input={{ className: styles.comboboxInput }}
-				placeholder={loading ? "Loading views..." : "Select a view to load"}
+				placeholder={loading ? "Loading views…" : "Select a view to load…"}
 				disabled={disabled || loading || !hasViews}
 				value={inputValue}
 				onChange={handleInputChange}
@@ -237,10 +244,10 @@ export function LoadViewPicker({
 				freeform
 			>
 				{loading && (
-					<Option key="loading" value="" text="Loading..." disabled>
+					<Option key="loading" value="" text="Loading…" disabled>
 						<div className={styles.loadingOption}>
 							<Spinner size="tiny" />
-							<span>Loading views...</span>
+							<span>Loading views…</span>
 						</div>
 					</Option>
 				)}
@@ -259,12 +266,12 @@ export function LoadViewPicker({
 
 				{!loading && !error && hasViews && !hasFilteredViews && filterQuery && (
 					<Option key="no-match" value="" text="No matching views" disabled>
-						<span className={styles.noViewsOption}>No matching views</span>
+						<span className={styles.noViewsOption}>No views match "{filterQuery.trim()}"</span>
 					</Option>
 				)}
 
 				{!loading && !error && filteredSystemViews.length > 0 && (
-					<OptionGroup label="System Views">
+					<OptionGroup label="System views">
 						{filteredSystemViews.map((view) => (
 							<Option key={view.id} value={view.id} text={view.name}>
 								<span>
@@ -278,7 +285,7 @@ export function LoadViewPicker({
 				)}
 
 				{!loading && !error && filteredPersonalViews.length > 0 && (
-					<OptionGroup label="Personal Views">
+					<OptionGroup label="Personal views">
 						{filteredPersonalViews.map((view) => (
 							<Option key={view.id} value={view.id} text={view.name}>
 								<span>
