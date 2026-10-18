@@ -208,7 +208,7 @@ export function DeleteConfirmDialog({
 	};
 
 	const isSingle = recordCount === 1;
-	const title = isSingle ? "Delete record" : `Delete ${recordCount} Records`;
+	const title = isSingle ? "Delete record" : `Delete ${recordCount} records`;
 	const message = isSingle
 		? `Are you sure you want to delete this ${entityDisplayName || "record"}?`
 		: `Are you sure you want to delete ${recordCount} ${entityDisplayName || "records"}?`;
