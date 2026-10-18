@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🏗️ Technical
 
+- **CI fails on high or critical runtime vulnerabilities (#72):** `npm audit --omit=dev --audit-level=high` runs before the other checks. The README now has CI and license badges.
+- **Dependabot (#76):** grouped weekly npm and GitHub Actions updates into `dev`, with a 14-day cooldown so only versions published at least two weeks ago are proposed. React majors are reviewed manually.
+- **`CONTRIBUTING.md` and the PR template (#80):** setup, the branch and PR workflow, what every PR includes, the product rules (ground in Microsoft Learn, never refuse supported FetchXML, confirmations name the environment and scope), the UI and wording rules, and the dependency rules. The PR template asks for the target branch, light and dark screenshots for UI changes, and the release-prep checks.
+
+### 🏗️ Technical
+
 - **Release process: stabilizing before a stable release (`RELEASING.md`).** Each stable release has a milestone and a "Release X.Y.Z" tracking issue. Before a beta is promoted to npm `latest`, `dev` is in feature freeze (next-release work waits as draft PRs), the milestone is clear, the latest beta is smoke-tested in PPTB, it soaks for 7 days without a new P0/P1 bug, and CI and the runtime audit are clean. The same process applies to Command Bar Studio and Dataverse Request Studio.
 
 ## [1.5.0-beta.12] - 2026-10-18
