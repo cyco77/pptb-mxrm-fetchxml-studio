@@ -400,8 +400,8 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 	}, [result]);
 
 	// Clear selection when results change, and tell the command bar: otherwise it keeps the old
-	// count and record IDs, and a record action after a refresh (Delete, Activate, Close) would run
-	// on rows that are no longer selected (#149)
+	// count and record IDs, and a record action after a refresh (Delete, Activate, Run workflow)
+	// would run on rows that are no longer selected (#158)
 	const selectionCallbacksRef = useRef({ onSelectedCountChange, onSelectionChange });
 	selectionCallbacksRef.current = { onSelectedCountChange, onSelectionChange };
 	useEffect(() => {
