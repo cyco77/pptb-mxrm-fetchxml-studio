@@ -4,10 +4,12 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 
 ![Version](https://img.shields.io/badge/version-1.5.0--beta.12-blue)
 [![npm](https://img.shields.io/npm/v/@mohsinonxrm/pptb-fetchxml-studio?label=npm)](https://www.npmjs.com/package/@mohsinonxrm/pptb-fetchxml-studio)
+[![CI](https://github.com/mohsinonxrm/pptb-mxrm-fetchxml-studio/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/mohsinonxrm/pptb-mxrm-fetchxml-studio/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
 ![Fluent UI](https://img.shields.io/badge/Fluent%20UI-v9-0078D4?logo=microsoft)
-![PPTB Types](https://img.shields.io/badge/%40pptb%2Ftypes-1.2.3-blue)
+![PPTB Types](https://img.shields.io/badge/%40pptb%2Ftypes-1.2.7-blue)
 
 ## ✨ Features
 
@@ -187,6 +189,8 @@ FetchXML Studio is available as a tool in Power Platform ToolBox. Install it fro
 
 ## 🛠️ Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for prerequisites, the PR workflow and what a PR needs before it can merge.
+
 ### Setup
 
 ```bash
@@ -217,7 +221,7 @@ npm run preview
 npm run validate
 ```
 
-**Releases.** CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests, PPTB validation, the build and a package-contents check on every pull request. `main` holds the current stable release. A minor release stabilizes on a `release/X.Y` branch, so `dev` is never frozen. A `vX.Y.Z-beta.N` tag there publishes to npm `beta` as a GitHub pre-release, and after a smoke test and a 7-day soak, the `vX.Y.Z` tag on `main` publishes to npm `latest`, both with provenance. Fixes go to the oldest supported branch and merge forward. The previous minor gets critical fixes for 30 days ([SECURITY.md](SECURITY.md)); see [RELEASING.md](RELEASING.md).
+**Releases.** CI (`.github/workflows/ci.yml`) runs a runtime `npm audit` (no high or critical findings), typecheck, lint, tests, PPTB validation, the build and a package-contents check on every pull request. Dependabot proposes grouped weekly updates into `dev`, holding back versions until they've been published for 14 days. `main` holds the current stable release. A minor release stabilizes on a `release/X.Y` branch, so `dev` is never frozen. A `vX.Y.Z-beta.N` tag there publishes to npm `beta` as a GitHub pre-release, and after a smoke test and a 7-day soak, the `vX.Y.Z` tag on `main` publishes to npm `latest`, both with provenance. Fixes go to the oldest supported branch and merge forward. The previous minor gets critical fixes for 30 days ([SECURITY.md](SECURITY.md)); see [RELEASING.md](RELEASING.md).
 
 **Tool icon.** `package.json` points `icon` at `icons/icon.svg` under `dist/`, where Power Platform ToolBox looks for it. The build bundles `icons/icon-insider.svg` (gold stamp) for prerelease versions such as `1.4.2-beta.7`, and `icons/icon.svg` for releases.
 
@@ -422,21 +426,14 @@ The launch is one-way (`noReturn: true`) — FetchXML Studio hands the current q
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first. In short:
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+1. Branch from `dev` (`feat/<issue>-<slug>`, `fix/<issue>-<slug>`…).
+2. Run `npm run typecheck`, `npm run lint`, `npm test`, `npm run validate` and `npm run build`.
+3. Add your change under `## [Unreleased]` in `CHANGELOG.md` (don't change the version).
+4. Open a pull request into `dev` that links the issue (`Closes #123`).
 
-### Commit Convention
-This project follows [Conventional Commits](https://www.conventionalcommits.org/):
-- `feat:` New feature
-- `fix:` Bug fix
-- `refactor:` Code refactoring
-- `docs:` Documentation
-- `chore:` Maintenance
+UI changes are agreed in the issue (prototype or screenshots) before they're built. Commits follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
 
 ## 📋 Roadmap
 
