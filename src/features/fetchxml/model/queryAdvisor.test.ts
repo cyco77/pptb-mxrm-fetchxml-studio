@@ -4,8 +4,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { getBlockingWarnings, getExecutionErrors, parseFetchXml } from "./fetchxmlParser";
-import { adviseQuery, hasLeadingWildcard } from "./queryAdvisor";
+import { adviseCondition, adviseQuery, hasLeadingWildcard } from "./queryAdvisor";
 import type { RuleFinding } from "./fetchxmlRules";
+import type { ConditionNode } from "./nodes";
 
 const ACC = (inner: string, fetchAttrs = "") =>
 	`<fetch${fetchAttrs}><entity name="account"><attribute name="name" />${inner}</entity></fetch>`;
@@ -119,6 +120,14 @@ describe("hasLeadingWildcard", () => {
 		["eq", "%a", false],
 		["ends-with", "%a", false], // reported as an operator, not a value
 		["like", "", false],
+		// Bracket escapes are literal characters (#98, wildcard-characters)
+		["like", "[%]a%", false],
+		["like", "[_]a", false],
+		["like", "[[]a]%", false],
+		["begins-with", "[%]", false],
+		["like", "-[%]%", false],
+		["like", "%[%]%", true],
+		["like", "[%a]", true],
 	] as const)("%s '%s' → %s", (operator, value, expected) => {
 		expect(hasLeadingWildcard(operator, value)).toBe(expected);
 	});
@@ -126,6 +135,19 @@ describe("hasLeadingWildcard", () => {
 	it("ignores non-string values", () => {
 		expect(hasLeadingWildcard("like", 5)).toBe(false);
 		expect(hasLeadingWildcard("like", ["%a"])).toBe(false);
+	});
+});
+
+describe("adviseCondition (column filters, #98)", () => {
+	const cond = (operator: string, value?: string, valueof?: string): ConditionNode => ({
+		id: "c1", type: "condition", attribute: "name", operator: operator as ConditionNode["operator"], value, valueof,
+	});
+	it("gives the same advice as the query for one condition", () => {
+		expect(adviseCondition(cond("like", "%abc%"))).toMatchObject([{ attribute: "value", severity: "info", kind: "advice" }]);
+		expect(adviseCondition(cond("ends-with", "abc"))).toMatchObject([{ attribute: "operator" }]);
+		expect(adviseCondition(cond("like", "abc%"))).toEqual([]);
+		expect(adviseCondition(cond("like", "[%]abc%"))).toEqual([]);
+		expect(adviseCondition(cond("ends-with", undefined, "other"))).toEqual([]);
 	});
 });
 

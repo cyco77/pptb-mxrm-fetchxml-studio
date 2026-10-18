@@ -17,6 +17,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
   - **Readable rows** — Rows with nothing inside have no chevron. A link-entity that can return attributes but has none says "(no attributes)". A link-entity without an alias is labelled by its lookup, e.g. "contact via primarycontactid (outer)".
 - **Query scope** — Publishers, Solutions, Entity and Load view sit in a section that collapses to one line (entity · view · solutions), with **New** always visible. Your publisher and solution selection is remembered for each environment. Solutions show their unique name and version, grouped Unmanaged / Managed.
 - **Property panel for every node** — Fetch options, entity, attributes, all-attributes, sorts, filters, conditions and link-entities each have an editor covering the full FetchXML reference. Every field explains itself in an info popover with a link to Microsoft Learn.
+  - **Docs-driven helpers** — Like / begins-with / ends-with values have a wildcard helper: Contains, Begins with, Ends with or a custom pattern, plus "Match literally", which escapes `%`, `_` and `[`. Hierarchy operators (under, above…) pick a record by name, with a Record ID fallback. Undocumented settings (UTC offset, condition aggregate) are labelled as such.
   - **Metadata-driven** — Attribute pickers, operators, value pickers, aggregate functions, date grouping, sortable attributes and compare-to-attribute choices follow each attribute's metadata, so the panel only offers what Dataverse accepts.
   - **Shows problems where they are** — Rule errors appear on the field they're about and as an **Error** badge in the tree; settings Dataverse ignores are listed with a **Remove** button.
   - **Tree badges** — Aggregate, Distinct, Retained and Hints on the query; Group by, date grouping and aggregate functions on attributes; Union and Quick find on filters.
@@ -28,6 +29,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 ### 📊 Results Grid
 - **Virtualized DataGrid** — Handle large result sets with smooth scrolling (powered by react-window)
 - **Copy results** — Right-click a cell to copy its value, its raw value (GUID, number, ISO date or option value), the row, the selected rows or the column. **Ctrl+C** copies the selected rows, or the focused cell. The command bar's **Copy** menu copies the selected or all loaded rows, as shown or as raw values. Rows copy as tab-separated values with a header row, so they paste into Excel as cells
+- **Total record count** — With *Return total record count*, the info bar shows "Rows: 50 of 1,234 total", or "5,000+ total" when Dataverse caps the count. **Count all {entity} records** then gets the entity's unfiltered total (`RetrieveTotalRecordCount`, a snapshot that ignores the query's filters)
 - **Paging and Retrieve All** — Scrolling to the end loads the next page; **Retrieve All** loads every page, with **Stop** to keep what's loaded so far. Pages use the documented paging cookie and the query's own `count` and starting `page`. Queries Dataverse returns no cookie for (sorted by a link-entity attribute, or distinct) page by page number, with a note. Views follow `@odata.nextLink`. A failed page shows how many rows loaded, with **Retry**
 - **Rich cell rendering** — Power Apps-style display for lookups, option sets, dates, currency, and more
 - **Column header menu** — Click a header for **Sort** (A to Z, smallest to largest or oldest to newest, by type), **Filter by…** and **Clear filter**. Shift+click a header still adds it to a multi-column sort.
@@ -73,9 +75,13 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **LayoutXML preview** — See the column layout configuration
 
 ### 📥 Load & Save Views
-- **Load system/personal views** — Browse and load existing Dataverse views
-- **Optimized view execution** — Uses SavedQuery/UserQuery APIs for better performance
-- **Save to Dataverse** — Save your queries as new personal views or update existing ones
+- **Load system/personal views** — Browse and load existing Dataverse views of every query type. Personal views shared with you show "Shared by {owner}", and system views show their type or "Default view"
+- **Optimized view execution** — An unmodified loaded view runs by its ID (SavedQuery/UserQuery). Quick find views run as FetchXML with the test value you enter for `{0}`; the query keeps `{0}`
+- **Save to Dataverse** — Save your queries as new personal or system views, or update existing ones.
+  - Before overwriting a shared personal view, your write access is checked; without it you get **Save a copy…**.
+  - Overwriting a managed system view warns first.
+  - Public system views can be **set as the default view**.
+  - The description is pre-filled.
 - **Solution-aware** — Add views to solutions during save
 
 ### 📤 Export & Data Operations
@@ -217,7 +223,7 @@ npm run preview
 npm run validate
 ```
 
-**Releases.** CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests, PPTB validation, the build and a package-contents check on every pull request. Pushing a `vX.Y.Z` tag on `main` publishes to npm with provenance and creates the GitHub Release; see [RELEASING.md](RELEASING.md).
+**Releases.** CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests, PPTB validation, the build and a package-contents check on every pull request. `main` holds the current stable release and `dev` the next one. A `vX.Y.Z` tag on `main` publishes to npm `latest`, and a `vX.Y.Z-beta.N` tag on `dev` publishes to npm `beta` as a GitHub pre-release, both with provenance; see [RELEASING.md](RELEASING.md).
 
 **Tool icon.** `package.json` points `icon` at `icons/icon.svg` under `dist/`, where Power Platform ToolBox looks for it. The build bundles `icons/icon-insider.svg` (gold stamp) for prerelease versions such as `1.4.2-beta.7`, and `icons/icon.svg` for releases.
 

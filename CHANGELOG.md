@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ✨ Added
+
+- **Saved views follow-ups (#142):**
+  - **Shared personal views:** Load view shows "Shared by {owner}" (or "Shared with you"). System views show their query type or "Default view" as a second line.
+  - **Write access:** before overwriting a personal view you don't own, Save view checks your access (`RetrievePrincipalAccess`). Without write access, it offers **Save a copy…**; if access can't be determined, Dataverse decides.
+  - **Managed system views:** overwriting one shows a warning naming its solution. It's a warning only, not a block.
+  - **Quick find views:** enter a test value for `{0}`, with an optional trailing `%`, to execute them. The value is used only in the FetchXML that runs; the tree, the editor and saved views keep `{0}`. A loaded quick find view runs as FetchXML, not by ID, because by ID it matches nothing (verified live).
+  - **Set as default view** for public system views.
+  - **Description:** pre-filled when you overwrite a view, and clearing it clears the view's description.
+- **Docs-driven helpers (#98):**
+  - **Wildcard helper** for `like` / `not-like` values: Contains (`%x%`), Begins with (`x%`), Ends with (`%x`) or a custom pattern. **Match literally** escapes `%` → `[%]`, `_` → `[_]` and `[` → `[[]`, per "Wildcard characters".
+    - begins-with and ends-with warn when a typed character would act as a wildcard.
+    - Stored values read back into the helper, and switching operators keeps the text.
+    - The Query Advisor's leading-wildcard advice ignores escaped characters, and now also appears in the results-grid column filter.
+  - **Total record count:** with *Return total record count*, the info bar shows "Rows: 50 of 1,234 total", or "5,000+ total" (500+ on elastic entities) when the limit is exceeded. **Count all {entity} records (unfiltered snapshot)** calls `RetrieveTotalRecordCount` and says plainly that it ignores the query's filters.
+  - **Hierarchy picker:** under / not-under / above / eq-or-under / eq-or-above on the primary key pick a record by name (`startswith` search, so no leading wildcard). The record's name is resolved back from its ID, and **Enter an ID instead** gives a GUID field with validation. The hint names the hierarchical relationship and the 100-level limit.
+  - **GUID values:** Lookup, Customer, Owner and Uniqueidentifier condition values that aren't GUIDs are flagged. Verified live: Dataverse rejects them with 0x80040203.
+  - **Undocumented settings:** "UTC offset (undocumented)" shows only when the query sets it, and the condition aggregate leftover reads "Aggregate (undocumented)".
+
+### 🏗️ Technical
+
+- **Release process (`RELEASING.md`):** `main` holds the current stable release (npm `latest`); betas are tagged on `dev` (npm `beta`, GitHub pre-release); hotfixes branch from `main` and merge back into `dev`. PRs add CHANGELOG entries under `[Unreleased]` and don't change the version, which is set when a release is cut. The same process applies to Command Bar Studio and Dataverse Request Studio.
+- **`release.yml` refuses a stable tag whose commit isn't on `main`,** so a stray tag on `dev` can't replace npm `latest`. Beta tags (`-beta.N`) are allowed from `dev`.
+
 ## [1.5.0-beta.11] - 2026-10-17
 
 ### ✨ Added
@@ -254,6 +278,7 @@ The v1.4.2 milestone: the features other users asked for, a results grid that wo
   - Every type of view is listed, each labelled.
   - Saved layoutxml uses the documented `jump`, `object` and row `id`.
   - System views are checked with `ValidateSavedQuery`, and views that aren't customizable can't be overwritten.
+  - **Save and Publish** publishes the view's entity, the documented `PublishXml` form. The `<savedqueries>` node it used to send isn't in the publish request schema. This also publishes any other pending customizations of that entity (#93 h).
   - Load View reports views it can't load or had to change.
 - **Operators per attribute type (#95).** Memo attributes gain Equals, Not Equals, In and Not In, as do choices (multi-select), which use the option picker. All are documented, verified live, or both. No operator was removed.
 - **Tree (#24, #25).**
