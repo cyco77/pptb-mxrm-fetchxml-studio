@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.5] - 2026-10-17
+
+### 🏗️ Technical
+
+- **Browser dev harness against a live org: `npm run dev:harness` (#78), modelled on Command Bar Studio #44.**
+  - **What it runs:** the real UI, in a browser, against the Dataverse org in `DATAVERSE_URL`.
+  - **How requests flow:**
+    - A stub of the PPTB host makes requests the same way PPTB 1.2.7 does: the same entity-set names, `execute()` encoding, Prefer headers and error text, plus optional `CallerObjectId` impersonation.
+    - A localhost-only Vite proxy attaches an Azure CLI token on the server side. The token is kept in memory only and is never logged or sent to the browser.
+    - The proxy only accepts requests from localhost with a harness header, and forwards only to the org's Web API over https.
+  - **Not shipped:** the harness is dev-only. The production build is byte-identical without it, and it isn't in the package. See `dev/README.md`.
+- **Dev tooling updated, clearing every high npm audit finding (#77):**
+  - versions: vite 7.3.6, @vitejs/plugin-react 5.2.0, typescript-eslint 8.71.0, eslint 9.39.5, plus transitive fixes (rollup, postcss and others);
+  - audit: 25 findings (17 high) → 4 moderate, 0 high;
+  - every changed package was published at least two weeks ago;
+  - no runtime dependencies changed.
+  - **Not bumped:** monaco-editor 0.57. Its `exports` map breaks `@monaco-editor/react` 4.7's types, so it needs its own change.
+
 ## [1.5.0-beta.4] - 2026-10-17
 
 ### ⚠️ Requires Power Platform ToolBox 1.2.7

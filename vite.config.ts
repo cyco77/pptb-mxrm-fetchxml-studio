@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { readFileSync } from "node:fs";
-import { defineConfig, type Plugin } from "vite";
+import { fileURLToPath } from "node:url";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
 /**
@@ -22,9 +23,34 @@ function toolIcon(): Plugin {
 	};
 }
 
+/**
+ * Dev harness only (`npm run dev:harness` = `vite --mode harness`): runs the real UI in a browser
+ * against a live org through a stubbed PPTB host and an Azure CLI–authenticated proxy (#78).
+ * Never loaded for `vite build`, `vite` (plain dev) or Vitest. See dev/README.md.
+ */
+async function devHarness(command: string, mode: string): Promise<Plugin[]> {
+	if (command !== "serve" || mode !== "harness") return [];
+	// Not VITE_-prefixed, so these stay server-side and never reach the client bundle.
+	// .env.local next to this file, whichever directory vite was started from
+	const env = loadEnv(mode, fileURLToPath(new URL(".", import.meta.url)), "");
+	if (!env.DATAVERSE_URL) {
+		throw new Error(
+			"[fxs-harness] Set DATAVERSE_URL=https://<org>.crm.dynamics.com (environment variable or " +
+				".env.local) before running `npm run dev:harness`. See dev/README.md.",
+		);
+	}
+	const { dataverseHarness } = await import("./dev/harness/vite-plugin-dataverse-proxy");
+	return [
+		dataverseHarness({
+			orgUrl: env.DATAVERSE_URL,
+			callerObjectId: env.DATAVERSE_CALLER_OBJECT_ID,
+		}),
+	];
+}
+
 // https://vite.dev/config/
-export default defineConfig({
-	plugins: [react(), toolIcon()],
+export default defineConfig(async ({ command, mode }) => ({
+	plugins: [react(), toolIcon(), ...(await devHarness(command, mode))],
 	optimizeDeps: {
 		// Pre-bundle monaco-editor so Vite doesn't try to transform its deep
 		// internal imports at runtime (avoids CJS/ESM interop issues).
@@ -46,6 +72,6 @@ export default defineConfig({
 	test: {
 		// jsdom provides DOMParser, which the FetchXML parser relies on.
 		environment: "jsdom",
-		include: ["src/**/*.test.ts"],
+		include: ["src/**/*.test.ts", "dev/**/*.test.ts"],
 	},
-});
+}));
