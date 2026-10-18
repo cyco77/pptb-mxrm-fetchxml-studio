@@ -1271,7 +1271,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 		);
 
 	if (isLoading) {
-		return withFilterBar(<div className={styles.emptyState}>Loading results...</div>);
+		return withFilterBar(<div className={styles.emptyState}>Loading results…</div>);
 	}
 
 	if (!result) {

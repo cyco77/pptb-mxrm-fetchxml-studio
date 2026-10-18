@@ -158,7 +158,7 @@ export function LayoutXmlViewer({ layoutXml }: LayoutXmlViewerProps) {
 					onMount={handleEditorMount}
 					loading={
 						<div className={styles.loadingContainer}>
-							<Spinner size="medium" label="Loading editor..." />
+							<Spinner size="medium" label="Loading editor…" />
 						</div>
 					}
 				/>

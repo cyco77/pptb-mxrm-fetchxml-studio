@@ -579,7 +579,7 @@ export function PreviewTabs({
 							onClick={handleExecute}
 							disabled={isExecuting || isLoadingMore || (isEditorModeActive ? !editorHasContent : !xml)}
 						>
-							{isExecuting ? "Executing..." : "Execute"}
+							{isExecuting ? "Executing…" : "Execute"}
 						</Button>
 						{isCallee && (
 							<>
@@ -619,7 +619,7 @@ export function PreviewTabs({
 						<MessageBar intent="info">
 							<MessageBarBody>
 								<MessageBarTitle>Exporting</MessageBarTitle>
-								Exporting view to Excel...
+								Exporting view to Excel…
 							</MessageBarBody>
 						</MessageBar>
 					</div>
@@ -628,7 +628,7 @@ export function PreviewTabs({
 					<div className={styles.messageBarContainer}>
 						<MessageBar intent="error">
 							<MessageBarBody>
-								<MessageBarTitle>Export Failed</MessageBarTitle>
+								<MessageBarTitle>Export failed</MessageBarTitle>
 								{exportError}
 							</MessageBarBody>
 							<MessageBarActions
@@ -690,7 +690,7 @@ export function PreviewTabs({
 					<div className={styles.messageBarContainer}>
 						<MessageBar intent="error">
 							<MessageBarBody>
-								<MessageBarTitle>Execution Failed</MessageBarTitle>
+								<MessageBarTitle>Execution failed</MessageBarTitle>
 								{executeError}
 							</MessageBarBody>
 							<MessageBarActions
