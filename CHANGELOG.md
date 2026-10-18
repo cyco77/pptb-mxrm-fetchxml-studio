@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.2] - 2026-10-17
+
+### 📝 Documentation
+
+- **README: "What this tool changes" (#69, Marketplace policy).** Lists every operation that writes to Dataverse: Delete, Bulk Delete, Run workflow, and saving personal and system views. For each it says when it runs, what it does and which privilege it needs. It also lists what doesn't write: both exports and the locally stored settings.
+  - It states plainly that Delete with no rows selected submits a Bulk Delete job for every record the query matches, not just the loaded rows.
+
 ## [1.5.0-beta.1] - 2026-10-17
 
 ### 🔧 Fixed
