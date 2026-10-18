@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	closeMessageReason,
+	hasCloseMenu,
 	isSimpleStateModel,
 	parseTransitionData,
 	planStateChange,
@@ -94,18 +95,29 @@ describe("parseTransitionData", () => {
 	});
 });
 
-describe("closeMessageReason", () => {
-	it("names the documented action for close-message entities", () => {
-		expect(closeMessageReason("opportunity")).toBe(
-			"Opportunities close with Win or Lose (WinOpportunity / LoseOpportunity). Use the model-driven app for now.",
-		);
-		for (const entity of ["incident", "quote", "salesorder", "invoice", "contract"]) expect(closeMessageReason(entity)).toBeTruthy();
+describe("closeMessageReason / hasCloseMenu", () => {
+	it("turns Deactivate off for close-message entities and points to Close where there is one (#149)", () => {
+		expect(closeMessageReason("opportunity")).toBe("Opportunities close with Win or Lose (WinOpportunity / LoseOpportunity). Use Close.");
+		for (const entity of ["incident", "quote", "salesorder", "invoice"]) {
+			expect(closeMessageReason(entity, "deactivate")).toMatch(/Use Close\.$/);
+			expect(hasCloseMenu(entity)).toBe(true);
+		}
+		expect(closeMessageReason("contract", "deactivate")).toMatch(/Use the model-driven app for now\.$/);
+		expect(hasCloseMenu("contract")).toBe(false);
+	});
+
+	it("keeps Activate (reopen, verified by PATCH) except for quote and contract", () => {
+		for (const entity of ["opportunity", "incident", "salesorder", "invoice"]) expect(closeMessageReason(entity, "activate")).toBeUndefined();
+		expect(closeMessageReason("quote", "activate")).toMatch(/Draft to Active/);
+		expect(closeMessageReason("contract", "activate")).toBeTruthy();
 	});
 
 	it("leaves other entities alone", () => {
 		expect(closeMessageReason("account")).toBeUndefined();
-		expect(closeMessageReason("lead")).toBeUndefined();
+		expect(closeMessageReason("lead", "activate")).toBeUndefined();
 		expect(closeMessageReason(undefined)).toBeUndefined();
+		expect(hasCloseMenu("account")).toBe(false);
+		expect(hasCloseMenu(undefined)).toBe(false);
 	});
 });
 

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	CONNECTION_CHANGED_MESSAGE,
+	CLOSE_CONNECTION_CHANGED_MESSAGE,
 	STATE_CONNECTION_CHANGED_MESSAGE,
+	closeRecordsInBatches,
 	batchResultError,
 	buildStatePatchRequest,
 	updateRecordStatesInBatches,
@@ -200,5 +202,67 @@ describe("updateRecordStatesInBatches", () => {
 		});
 		expect(result.succeeded).toBe(2);
 		expect(result.errors).toEqual([`${all[2]}: ${STATE_CONNECTION_CHANGED_MESSAGE}`]);
+	});
+});
+
+describe("closeRecordsInBatches", () => {
+	// #149: close messages are POSTs to the action, one per record, and not repeatable
+	const toRequest = (id: string): BatchRequest => ({ method: "POST", url: "WinOpportunity", body: { OpportunityClose: { id }, Status: 3 } });
+	const alreadyClosed = fail(400, "0x80040515", "The opportunity is already closed.");
+
+	it("sends one POST per record in batches", async () => {
+		const executeBatch = vi.fn(async (requests: BatchRequest[]) => requests.map(ok));
+		const result = await closeRecordsInBatches(ids(3), toRequest, { executeBatch, batchSize: 2, wait: noWait });
+		expect(executeBatch).toHaveBeenCalledTimes(2);
+		expect(executeBatch.mock.calls[0][0][0]).toEqual({ method: "POST", url: "WinOpportunity", body: { OpportunityClose: { id: ids(3)[0] }, Status: 3 } });
+		expect(result).toEqual({ succeeded: 3, failed: 0, errors: [] });
+	});
+
+	it("doesn't resend records a stopped batch already closed", async () => {
+		const [a, b, c] = ids(3);
+		const sent: string[] = [];
+		const executeBatch = vi.fn(async (requests: BatchRequest[]) => {
+			if (requests.length > 1) throw new Error("Batch stopped early");
+			const id = (requests[0].body as { OpportunityClose: { id: string } }).OpportunityClose.id;
+			sent.push(id);
+			return [id === b ? alreadyClosed : ok()];
+		});
+		const completedInStoppedBatch = vi.fn(async () => new Set([a]));
+		const result = await closeRecordsInBatches([a, b, c], toRequest, { executeBatch, wait: noWait, completedInStoppedBatch });
+		expect(completedInStoppedBatch).toHaveBeenCalledWith([a, b, c]);
+		expect(sent).toEqual([b, c]);
+		expect(result.succeeded).toBe(2);
+		expect(result.failed).toBe(1);
+		expect(result.errors[0]).toMatch(new RegExp(`^${b}: .*The opportunity is already closed`));
+	});
+
+	it("redoes the whole stopped batch when it can't tell what was closed", async () => {
+		const executeBatch = vi.fn(async (requests: BatchRequest[]) => {
+			if (requests.length > 1) throw new Error("Batch stopped early");
+			return [ok()];
+		});
+		const result = await closeRecordsInBatches(ids(2), toRequest, {
+			executeBatch,
+			wait: noWait,
+			completedInStoppedBatch: () => Promise.reject(new Error("read failed")),
+		});
+		expect(executeBatch).toHaveBeenCalledTimes(3);
+		expect(result.succeeded).toBe(2);
+	});
+
+	it("stops when the connection changes and reports the rest as not closed (#66)", async () => {
+		const all = ids(2);
+		const executeBatch = vi.fn(async (requests: BatchRequest[]) => requests.map(ok));
+		const result = await closeRecordsInBatches(all, toRequest, {
+			executeBatch,
+			batchSize: 1,
+			shouldContinue: (() => {
+				let n = 0;
+				return () => ++n <= 1;
+			})(),
+			wait: noWait,
+		});
+		expect(result.succeeded).toBe(1);
+		expect(result.errors).toEqual([`${all[1]}: ${CLOSE_CONNECTION_CHANGED_MESSAGE}`]);
 	});
 });

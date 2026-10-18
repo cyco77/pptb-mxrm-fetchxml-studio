@@ -3,7 +3,7 @@
  * Similar to Power Apps Model Driven Apps view command bar
  */
 
-import { useState, useCallback, type ReactElement } from "react";
+import { Fragment, useState, useCallback, type ReactElement } from "react";
 import {
 	Toolbar,
 	ToolbarButton,
@@ -28,6 +28,7 @@ import {
 	Link20Regular,
 	CheckmarkCircle20Regular,
 	DismissCircle20Regular,
+	CircleOff20Regular,
 	Delete20Regular,
 	ColumnTriple20Regular,
 	Play20Regular,
@@ -67,6 +68,15 @@ export interface CommandBarProps {
 	activateDisabledReason?: string;
 	/** Why Deactivate is off for this entity (#143) */
 	deactivateDisabledReason?: string;
+	/**
+	 * The entity's close actions (#149). When set, a Close menu takes Deactivate's place: one item
+	 * per action, with the reason as a tooltip when one is off.
+	 */
+	closeActions?: CloseMenuItem[];
+	/** Why the whole Close menu is off (e.g. a one-to-many query), if it is */
+	closeDisabledReason?: string;
+	/** Runs when a close action is chosen, with its key */
+	onCloseAction?: (key: string) => void;
 	/** Delete selected records (or all if none selected) */
 	onDelete?: () => void;
 	/** Bulk delete (creates async job) */
@@ -144,6 +154,16 @@ export interface CommandBarProps {
 	searchText?: string;
 }
 
+/** One item of the Close menu (#149) */
+export interface CloseMenuItem {
+	key: string;
+	label: string;
+	/** A divider goes above the first destructive item */
+	destructive?: boolean;
+	/** Why this action is off (e.g. a missing privilege), if it is */
+	disabledReason?: string;
+}
+
 /** A toolbar button with a tooltip giving the reason it's off, when there is one */
 function StateButton({
 	label,
@@ -182,6 +202,9 @@ export function ResultsCommandBar({
 	onDeactivate,
 	activateDisabledReason,
 	deactivateDisabledReason,
+	closeActions,
+	closeDisabledReason,
+	onCloseAction,
 	onDelete,
 	onBulkDelete,
 	canDelete = false,
@@ -353,14 +376,62 @@ export function ResultsCommandBar({
 					reason={activateDisabledReason}
 				/>
 
-				<StateButton
-					label="Deactivate"
-					ariaLabel="Deactivate selected records"
-					icon={<DismissCircle20Regular />}
-					onClick={onDeactivate}
-					disabled={stateButtonsDisabled || !onDeactivate || !!deactivateDisabledReason}
-					reason={deactivateDisabledReason}
-				/>
+				{closeActions && closeActions.length > 0 && closeDisabledReason ? (
+					<StateButton label="Close" ariaLabel="Close selected records" icon={<CircleOff20Regular />} disabled reason={closeDisabledReason} />
+				) : closeActions && closeActions.length > 0 ? (
+					// Close (#149): the entity's close messages, in place of Deactivate
+					<Menu positioning="below-start">
+						<MenuTrigger disableButtonEnhancement>
+							<MenuButton
+								appearance="subtle"
+								icon={<CircleOff20Regular />}
+								disabled={stateButtonsDisabled || !onCloseAction}
+								aria-label="Close selected records"
+							>
+								Close
+							</MenuButton>
+						</MenuTrigger>
+						<MenuPopover>
+							<MenuList>
+								<MenuGroup>
+									{entityDisplayName && <MenuGroupHeader>{entityDisplayName}</MenuGroupHeader>}
+									{closeActions.map((item, i) => {
+										const menuItem = (
+											<MenuItem
+												disabled={!!item.disabledReason}
+												disabledFocusable={!!item.disabledReason}
+												onClick={() => onCloseAction?.(item.key)}
+											>
+												{item.label}...
+											</MenuItem>
+										);
+										return (
+											<Fragment key={item.key}>
+												{i > 0 && item.destructive && !closeActions[i - 1].destructive && <MenuDivider />}
+												{item.disabledReason ? (
+													<Tooltip content={item.disabledReason} relationship="description" positioning="after" withArrow>
+														{menuItem}
+													</Tooltip>
+												) : (
+													menuItem
+												)}
+											</Fragment>
+										);
+									})}
+								</MenuGroup>
+							</MenuList>
+						</MenuPopover>
+					</Menu>
+				) : (
+					<StateButton
+						label="Deactivate"
+						ariaLabel="Deactivate selected records"
+						icon={<DismissCircle20Regular />}
+						onClick={onDeactivate}
+						disabled={stateButtonsDisabled || !onDeactivate || !!deactivateDisabledReason}
+						reason={deactivateDisabledReason}
+					/>
+				)}
 
 				<ToolbarDivider />
 

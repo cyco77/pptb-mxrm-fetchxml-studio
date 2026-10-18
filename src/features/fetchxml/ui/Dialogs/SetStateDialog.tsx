@@ -33,6 +33,7 @@ import type { BatchDeleteProgress, BatchDeleteResult } from "../../api/pptbClien
 import { getEntityStateModel, getRecordStatuses } from "../../api/pptbClient";
 import { formatDataverseError } from "../../api/dataverseErrors";
 import { planStateChange, stateNote, type StateAction, type StatePlan, type StateTarget } from "../../model/recordState";
+import { planCloseStateChange, type CloseStateAction } from "../../model/closeActions";
 import { TargetScope } from "../../../../shared/components/TargetScope";
 
 const useStyles = makeStyles({
@@ -60,6 +61,11 @@ const useStyles = makeStyles({
 	errorText: {
 		color: tokens.colorPaletteRedForeground1,
 	},
+	note: {
+		color: tokens.colorNeutralForeground3,
+		fontSize: tokens.fontSizeBase200,
+		lineHeight: tokens.lineHeightBase200,
+	},
 });
 
 export interface SetStateDialogProps {
@@ -70,6 +76,11 @@ export interface SetStateDialogProps {
 	entityDisplayName?: string;
 	/** Primary key, to read the records' current status reasons when transitions are enforced */
 	primaryIdAttribute?: string;
+	/**
+	 * A Close menu action that is a plain state change (Cancel case, Mark as paid, Cancel invoice;
+	 * #149): only its target state's status reasons, with its title, button and note
+	 */
+	closeAction?: CloseStateAction;
 	onClose: () => void;
 	/** Runs the change; resolves with per-record results */
 	onExecute: (target: StateTarget, onProgress: (progress: BatchDeleteProgress) => void) => Promise<BatchDeleteResult>;
@@ -86,6 +97,7 @@ export function SetStateDialog({
 	entityLogicalName,
 	entityDisplayName,
 	primaryIdAttribute,
+	closeAction,
 	onClose,
 	onExecute,
 }: SetStateDialogProps) {
@@ -103,8 +115,9 @@ export function SetStateDialog({
 	const primaryIdRef = useRef(primaryIdAttribute);
 	primaryIdRef.current = primaryIdAttribute;
 
-	const verb = action === "activate" ? "Activate" : "Deactivate";
+	const verb = closeAction?.label ?? (action === "activate" ? "Activate" : "Deactivate");
 	const count = recordIds.length;
+	const title = closeAction ? closeAction.title(count) : `${verb} ${count === 1 ? "1 record" : `${count} records`}`;
 
 	// Plan when the dialog opens: the state model, then (if transitions are enforced) the records'
 	// current status reasons
@@ -123,7 +136,9 @@ export function SetStateDialog({
 			const primaryId = primaryIdRef.current;
 			const statuses =
 				model.enforceTransitions && primaryId ? await getRecordStatuses(entityLogicalName, primaryId, recordIds) : undefined;
-			return planStateChange(model, action, statuses, entityLogicalName);
+			return closeAction
+				? planCloseStateChange(model, closeAction, statuses)
+				: planStateChange(model, action, statuses, entityLogicalName);
 		})()
 			.then((next) => {
 				if (!current) return;
@@ -140,7 +155,7 @@ export function SetStateDialog({
 		return () => {
 			current = false;
 		};
-	}, [open, entityLogicalName, recordIds, action]);
+	}, [open, entityLogicalName, recordIds, action, closeAction]);
 
 	const selectedChoice = useMemo(() => {
 		if (plan?.kind !== "choose" || !target) return undefined;
@@ -209,6 +224,7 @@ export function SetStateDialog({
 							scope={{ kind: "records", count }}
 							onConfirmationChange={setScopeConfirmed}
 						/>
+						{closeAction?.note && <Text className={styles.note}>{closeAction.note}</Text>}
 						{plan?.kind === "none" && (
 							<MessageBar intent="warning" layout="multiline">
 								<MessageBarBody>
@@ -230,7 +246,14 @@ export function SetStateDialog({
 										<MessageBarBody>{plan.note}</MessageBarBody>
 									</MessageBar>
 								)}
-								<Field label="Status reason" hint="Grouped by Status. The default for each Status is marked.">
+								<Field
+									label="Status reason"
+									hint={
+										plan.groups.length === 1
+											? `Status reasons of ${plan.groups[0].label}, from metadata. The default is marked.`
+											: "Grouped by Status. The default for each Status is marked."
+									}
+								>
 									<Dropdown
 										value={selectedChoice ? `${selectedChoice.group.label}: ${selectedChoice.choice.label}` : ""}
 										selectedOptions={target ? [targetKey(target)] : []}
@@ -359,7 +382,7 @@ export function SetStateDialog({
 		<Dialog open={open} onOpenChange={(_, data) => !data.open && handleClose()}>
 			<DialogSurface>
 				<DialogBody>
-					<DialogTitle>{`${verb} ${count === 1 ? "1 record" : `${count} records`}`}</DialogTitle>
+					<DialogTitle>{title}</DialogTitle>
 					<DialogContent className={styles.content}>{renderContent()}</DialogContent>
 					<DialogActions>{renderActions()}</DialogActions>
 				</DialogBody>

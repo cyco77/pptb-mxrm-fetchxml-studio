@@ -52,8 +52,10 @@ import {
 	executeWorkflowBatch,
 	checkDeletePrivilege,
 	checkWritePrivilege,
+	checkEntityPrivilege,
 	getEntityStateModel,
 	setRecordsState,
+	closeRecords,
 } from "../features/fetchxml/api/pptbClient";
 import {
 	closeMessageReason,
@@ -61,7 +63,17 @@ import {
 	type StateAction,
 	type StateTarget,
 } from "../features/fetchxml/model/recordState";
+import {
+	closeActionsFor,
+	findCloseAction,
+	type CloseAction,
+	type CloseMessageAction,
+	type CloseStateAction,
+	type CloseValues,
+} from "../features/fetchxml/model/closeActions";
 import { SetStateDialog } from "../features/fetchxml/ui/Dialogs/SetStateDialog";
+import { CloseRecordsDialog } from "../features/fetchxml/ui/Dialogs/CloseRecordsDialog";
+import type { CloseMenuItem } from "../features/fetchxml/ui/RightPane/ResultsCommandBar";
 import { exportToExcelLocal, downloadExcelFile } from "../features/fetchxml/api/excelExport";
 import type {
 	AttributeMetadata,
@@ -456,15 +468,24 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 		preSelectedWorkflow?: WorkflowInfo;
 	}>({ open: false, recordIds: [] });
 
-	// Activate / Deactivate confirmation (#143)
+	// Activate / Deactivate confirmation (#143); also the Close menu's plain state changes (#149)
 	const [setStateDialogState, setSetStateDialogState] = useState<{
 		open: boolean;
 		action: StateAction;
 		recordIds: string[];
+		closeAction?: CloseStateAction;
 	}>({ open: false, action: "activate", recordIds: [] });
 
 	// Why Activate / Deactivate are off for the root entity, per action (#143)
 	const [stateActionReasons, setStateActionReasons] = useState<{ activate?: string; deactivate?: string }>({});
+
+	// Close menu for close-message entities (#149): its items, and the close message dialog
+	const [closeMenuItems, setCloseMenuItems] = useState<CloseMenuItem[] | undefined>();
+	const [closeDialogState, setCloseDialogState] = useState<{
+		open: boolean;
+		action: CloseMessageAction | null;
+		recordIds: string[];
+	}>({ open: false, action: null, recordIds: [] });
 
 	// Currently selected record IDs (from ResultsGrid)
 	const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
@@ -650,31 +671,50 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 		checkRecordPrivileges();
 	}, [entityLogicalName]);
 
-	// Activate / Deactivate availability (#143): entities whose states need dedicated messages, no
-	// statecode, or no Write privilege. Undeterminable answers leave the buttons on; Dataverse decides.
+	// Activate / Deactivate / Close availability (#143, #149): entities whose states need dedicated
+	// messages (Close replaces Deactivate where it has actions), no statecode, or missing privileges:
+	// Write on the entity, and Create on the close activity a message creates (the documented
+	// privileges, e.g. CloseIncidentRequest: prvWriteIncident, prvCreateActivity). Undeterminable
+	// answers leave the actions on; Dataverse decides.
 	useEffect(() => {
-		const closeReason = closeMessageReason(entityLogicalName);
-		if (!entityLogicalName || closeReason || !isDataverseAvailable()) {
-			setStateActionReasons(closeReason ? { activate: closeReason, deactivate: closeReason } : {});
+		const activateClose = closeMessageReason(entityLogicalName, "activate");
+		const deactivateClose = closeMessageReason(entityLogicalName, "deactivate");
+		const actions = closeActionsFor(entityLogicalName);
+		const toItems = (reasonFor: (action: CloseAction) => string | undefined): CloseMenuItem[] | undefined =>
+			actions?.map((a) => ({ key: a.key, label: a.label, destructive: a.destructive, disabledReason: reasonFor(a) }));
+		setCloseMenuItems(toItems(() => undefined));
+		if (!entityLogicalName || !isDataverseAvailable() || (activateClose && deactivateClose && !actions)) {
+			setStateActionReasons({ activate: activateClose, deactivate: deactivateClose });
 			return;
 		}
 		let current = true;
-		setStateActionReasons({});
+		setStateActionReasons({ activate: activateClose, deactivate: deactivateClose });
 		(async () => {
-			const [model, canWrite] = await Promise.all([
+			const closeEntities = [...new Set((actions ?? []).flatMap((a) => (a.kind === "message" ? [a.closeEntity] : [])))];
+			const [model, canWrite, canCreate] = await Promise.all([
 				getEntityStateModel(entityLogicalName).catch((error: unknown) => {
 					console.warn("Activate/Deactivate: couldn't read the state model:", error);
 					return undefined;
 				}),
 				checkWritePrivilege(entityLogicalName),
+				Promise.all(closeEntities.map(async (e) => [e, await checkEntityPrivilege(e, "Create")] as const)).then((pairs) => new Map(pairs)),
 			]);
 			if (!current) return;
 			const writeReason =
 				canWrite === false ? "You don't have the Write privilege on this entity, so you can't change its records' status." : undefined;
 			setStateActionReasons({
-				activate: (model !== undefined ? stateActionUnavailableReason(model, "activate") : undefined) ?? writeReason,
-				deactivate: (model !== undefined ? stateActionUnavailableReason(model, "deactivate") : undefined) ?? writeReason,
+				activate: activateClose ?? (model !== undefined ? stateActionUnavailableReason(model, "activate") : undefined) ?? writeReason,
+				deactivate: deactivateClose ?? (model !== undefined ? stateActionUnavailableReason(model, "deactivate") : undefined) ?? writeReason,
 			});
+			setCloseMenuItems(
+				toItems(
+					(a) =>
+						writeReason ??
+						(a.kind === "message" && canCreate.get(a.closeEntity) === false
+							? `You don't have the Create privilege on activities, and ${a.message} creates a ${a.closeEntity} activity.`
+							: undefined),
+				),
+			);
 		})();
 		return () => {
 			current = false;
@@ -1664,9 +1704,46 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 		[entityLogicalName, setStateDialogState.recordIds],
 	);
 
+	/**
+	 * Close menu (#149): plain state changes (Cancel case, Mark as paid, Cancel invoice) open the
+	 * Activate / Deactivate confirmation limited to their state; close messages open their dialog
+	 */
+	const handleCloseRecords = useCallback(
+		(actionKey: string, recordIds: string[]) => {
+			const action = findCloseAction(entityLogicalName, actionKey);
+			if (!action || recordIds.length === 0) return;
+			if (action.kind === "state") {
+				setSetStateDialogState({ open: true, action: "deactivate", recordIds, closeAction: action });
+			} else {
+				setCloseDialogState({ open: true, action, recordIds });
+			}
+		},
+		[entityLogicalName],
+	);
+
+	/** Runs the close message on each record (#149), holding the host's close warning */
+	const handleExecuteClose = useCallback(
+		async (values: CloseValues, onProgress: (progress: BatchDeleteProgress) => void): Promise<BatchDeleteResult> => {
+			const action = closeDialogState.action;
+			if (!entityLogicalName || !action) throw new Error("Entity not selected");
+			const result = await whileHoldingClose(() =>
+				closeRecords(entityLogicalName, entityMetadata?.PrimaryIdAttribute, closeDialogState.recordIds, action, values, onProgress),
+			);
+			if (result.succeeded > 0) {
+				debugLog("app", `✅ ${action.message} on ${result.succeeded} of ${closeDialogState.recordIds.length} records`);
+				void handleExecuteRef.current();
+			}
+			return result;
+		},
+		[entityLogicalName, entityMetadata?.PrimaryIdAttribute, closeDialogState.action, closeDialogState.recordIds],
+	);
+
 	// Rows repeat for 1:N / N:N link-entities; Activate / Deactivate say so like their other reasons (#143)
 	const oneToManyStateReason = hasOneToManyRelationship
 		? "The query has a one-to-many or many-to-many link-entity, so rows repeat. Remove it to activate or deactivate records."
+		: undefined;
+	const oneToManyCloseReason = hasOneToManyRelationship
+		? "The query has a one-to-many or many-to-many link-entity, so rows repeat. Remove it to close records."
 		: undefined;
 
 	// ============ END RECORD ACTION HANDLERS ============
@@ -1974,6 +2051,9 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 					onDeactivateRecords={handleDeactivateRecords}
 					activateDisabledReason={stateActionReasons.activate ?? oneToManyStateReason}
 					deactivateDisabledReason={stateActionReasons.deactivate ?? oneToManyStateReason}
+					closeActions={closeMenuItems}
+					closeDisabledReason={oneToManyCloseReason}
+					onCloseRecords={handleCloseRecords}
 					onRunSpecificWorkflow={handleRunSpecificWorkflow}
 					canDelete={recordActionPrivileges.canDelete}
 					canBulkDelete={recordActionPrivileges.canBulkDelete}
@@ -2041,8 +2121,19 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 				entityLogicalName={entityLogicalName}
 				entityDisplayName={entityMetadata?.DisplayName?.UserLocalizedLabel?.Label}
 				primaryIdAttribute={entityMetadata?.PrimaryIdAttribute}
+				closeAction={setStateDialogState.closeAction}
 				onClose={() => setSetStateDialogState((prev) => ({ ...prev, open: false }))}
 				onExecute={handleExecuteStateChange}
+			/>
+			{/* Close message Dialog (#149) */}
+			<CloseRecordsDialog
+				open={closeDialogState.open}
+				action={closeDialogState.action}
+				recordIds={closeDialogState.recordIds}
+				entityLogicalName={entityLogicalName}
+				entityDisplayName={entityMetadata?.DisplayName?.UserLocalizedLabel?.Label}
+				onClose={() => setCloseDialogState((prev) => ({ ...prev, open: false }))}
+				onExecute={handleExecuteClose}
 			/>
 			{/* Settings Drawer */}
 			<SettingsDrawer

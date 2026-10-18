@@ -51,45 +51,70 @@ export interface StateTarget {
 export const ACTIVE_STATE = 0;
 
 /**
- * Entities whose closing states go through dedicated messages, so Activate / Deactivate stay off
- * and name the documented action instead (#143). #149 adds dialogs for these messages.
+ * Entities whose closing states go through dedicated messages (#143, #149). Deactivate gives way to
+ * the Close menu (model/closeActions.ts) where `closeMenu` is set; elsewhere it stays off with the
+ * reason. Activate (back to statecode 0) stays on unless `activateReason` says why it doesn't apply.
  *
  * Verified on a sandbox (2026-10-17): PATCH of opportunity to Won / Lost, and of incident to
  * Resolved, is rejected with 0x80040216 ("This message can not be used to set the state of ... use
- * the ... message instead").
+ * the ... message instead"). PATCH back to statecode 0 returns 200 for won and lost opportunities
+ * (their opportunity close activity becomes Canceled, as the opportunityclose statecode description
+ * says), resolved and cancelled cases, fulfilled and canceled orders, and paid and canceled invoices.
+ * https://learn.microsoft.com/dynamics365/developer/reference/entities/opportunityclose
  */
-export const CLOSE_MESSAGE_ENTITIES: Readonly<Record<string, { reason: string; docUrl: string }>> = {
+export const CLOSE_MESSAGE_ENTITIES: Readonly<
+	Record<string, { reason: string; docUrl: string; closeMenu?: boolean; activateReason?: string }>
+> = {
 	opportunity: {
 		reason: "Opportunities close with Win or Lose (WinOpportunity / LoseOpportunity).",
 		docUrl: "https://learn.microsoft.com/dynamics365/developer/reference/entities/opportunity#messages",
+		closeMenu: true,
 	},
 	incident: {
 		reason: "Cases are resolved with Resolve Case (CloseIncident).",
 		docUrl: "https://learn.microsoft.com/dynamics365/developer/reference/entities/incident#messages",
+		closeMenu: true,
 	},
 	quote: {
 		reason: "Quotes close with Win or Close (WinQuote / CloseQuote).",
 		docUrl: "https://learn.microsoft.com/dynamics365/developer/reference/entities/quote#messages",
+		closeMenu: true,
+		// Quote states: 0 Draft, 1 Active, 2 Won, 3 Closed. Statecode 0 is Draft, not what activating a quote means.
+		activateReason:
+			"Activating a quote moves it from Draft to Active, and closed quotes are revised (ReviseQuote), so Activate doesn't apply. Use the model-driven app for now.",
 	},
 	salesorder: {
 		reason: "Orders close with Fulfill or Cancel (FulfillSalesOrder / CancelSalesOrder).",
 		docUrl: "https://learn.microsoft.com/dynamics365/developer/reference/entities/salesorder#messages",
+		closeMenu: true,
 	},
 	invoice: {
 		reason: "Invoices are closed as paid or canceled from the invoice itself.",
 		docUrl: "https://learn.microsoft.com/dynamics365/developer/reference/entities/invoice#messages",
+		closeMenu: true,
 	},
 	contract: {
 		reason: "Contracts follow their own life cycle (Draft, Invoiced, Active), with CancelContract and RenewContract.",
 		docUrl: "https://learn.microsoft.com/dynamics365/customerengagement/on-premises/developer/contract-entities",
+		activateReason:
+			"Contracts follow their own life cycle (Draft, Invoiced, Active), with CancelContract and RenewContract. Use the model-driven app for now.",
 	},
 };
 
-/** Why Activate / Deactivate are off for an entity whose states need dedicated messages, or undefined */
-export function closeMessageReason(entityLogicalName: string | undefined): string | undefined {
+/**
+ * Why Activate or Deactivate is off for an entity whose states need dedicated messages, or
+ * undefined. Deactivate is off for all of them; the Close menu replaces it where there is one.
+ */
+export function closeMessageReason(entityLogicalName: string | undefined, action: StateAction = "deactivate"): string | undefined {
 	const entry = entityLogicalName ? CLOSE_MESSAGE_ENTITIES[entityLogicalName.toLowerCase()] : undefined;
-	return entry ? `${entry.reason} Use the model-driven app for now.` : undefined;
+	if (!entry) return undefined;
+	if (action === "activate") return entry.activateReason;
+	return `${entry.reason} ${entry.closeMenu ? "Use Close." : "Use the model-driven app for now."}`;
 }
+
+/** Whether the entity gets the Close menu in place of Deactivate (#149) */
+export const hasCloseMenu = (entityLogicalName: string | undefined): boolean =>
+	!!entityLogicalName && !!CLOSE_MESSAGE_ENTITIES[entityLogicalName.toLowerCase()]?.closeMenu;
 
 /**
  * Targets that Dataverse accepts as a plain update but that skip what the app does for them. Shown

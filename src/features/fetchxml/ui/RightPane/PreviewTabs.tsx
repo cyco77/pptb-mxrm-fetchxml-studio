@@ -33,7 +33,7 @@ import { FetchXmlEditor } from "./FetchXmlEditor";
 import { CodePanel } from "./CodePanel";
 import { LayoutXmlViewer } from "./LayoutXmlViewer";
 import { ResultsGrid, type QueryResult, type ResultsGridHandle, type SortChangeData } from "./ResultsGrid";
-import { ResultsCommandBar } from "./ResultsCommandBar";
+import { ResultsCommandBar, type CloseMenuItem } from "./ResultsCommandBar";
 import type { RelatedEntityColumn } from "./AddColumnsPanel";
 import type { PagingNotice } from "../../api/paging";
 import { isAttributeInScope, useAdvancedFindOnly } from "../../state/metadataScope";
@@ -284,6 +284,12 @@ interface PreviewTabsProps {
 	activateDisabledReason?: string;
 	/** Why Deactivate is off for this entity (#143) */
 	deactivateDisabledReason?: string;
+	/** Close menu items for close-message entities (#149); replaces Deactivate */
+	closeActions?: CloseMenuItem[];
+	/** Why the Close menu is off (#149) */
+	closeDisabledReason?: string;
+	/** Callback when user picks a close action, with the selected record IDs (#149) */
+	onCloseRecords?: (actionKey: string, recordIds: string[]) => void;
 	/** Callback when user wants to run a specific workflow directly */
 	onRunSpecificWorkflow?: (workflow: WorkflowInfo, recordIds: string[]) => void;
 	/** Whether user can delete records */
@@ -364,6 +370,9 @@ export function PreviewTabs({
 	onDeactivateRecords,
 	activateDisabledReason,
 	deactivateDisabledReason,
+	closeActions,
+	closeDisabledReason,
+	onCloseRecords,
 	onRunSpecificWorkflow,
 	canDelete,
 	canBulkDelete,
@@ -768,6 +777,12 @@ export function PreviewTabs({
 									})}
 									activateDisabledReason={activateDisabledReason}
 									deactivateDisabledReason={deactivateDisabledReason}
+									closeActions={closeActions}
+									closeDisabledReason={closeDisabledReason}
+									onCloseAction={onCloseRecords && ((key) => {
+										const ids = getSelectedIds();
+										if (ids?.length) onCloseRecords(key, ids);
+									})}
 									onDelete={() => {
 										const ids = getSelectedIds();
 										// For delete, we allow empty selection to trigger "delete all" dialog
