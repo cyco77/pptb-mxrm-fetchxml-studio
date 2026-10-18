@@ -31,6 +31,7 @@ import {
 	Copy20Regular,
 	ErrorCircle20Regular,
 } from "@fluentui/react-icons";
+import { formatDataverseError } from "../../api/dataverseErrors";
 
 const useStyles = makeStyles({
 	content: {
@@ -122,7 +123,7 @@ export function BulkDeleteDialog({
 			setResult(res);
 			setState("success");
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "Failed to submit bulk delete job");
+			setError(formatDataverseError(err, "Failed to submit bulk delete job")); // (#96)
 			setState("error");
 		}
 	}, [onConfirm, jobName]);

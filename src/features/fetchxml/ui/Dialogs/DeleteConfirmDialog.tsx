@@ -28,6 +28,7 @@ import {
 	DismissCircle20Regular,
 } from "@fluentui/react-icons";
 import type { BatchDeleteProgress, BatchDeleteResult } from "../../api/pptbClient";
+import { formatDataverseError } from "../../api/dataverseErrors";
 
 const useStyles = makeStyles({
 	content: {
@@ -142,7 +143,7 @@ export function DeleteConfirmDialog({
 				setState("success");
 			}
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "Failed to delete record(s)");
+			setError(formatDataverseError(err, "Failed to delete record(s)")); // (#96)
 			setState("error");
 		}
 	}, [onConfirm]);

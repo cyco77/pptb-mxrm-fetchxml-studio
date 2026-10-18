@@ -27,6 +27,7 @@ import { useSolutionFilter } from "../../../../shared/hooks/useSolutionFilter";
 import { useLazyMetadata } from "../../../../shared/hooks/useLazyMetadata";
 import { LoadViewPicker } from "./LoadViewPicker";
 import type { EntityMetadata, LoadedViewInfo } from "../../api/pptbClient";
+import { debugLog } from "../../../../shared/utils/debug";
 
 const useStyles = makeStyles({
 	container: {
@@ -260,7 +261,7 @@ export function EntitySelector({
 
 	// Debug logging for publisher filtering
 	useEffect(() => {
-		console.log("[EntitySelector] Publisher Filter State:", {
+		debugLog("entityFilters", "[EntitySelector] Publisher Filter State:", {
 			publisherQuery,
 			totalPublishers: publisherOptions.length,
 			filteredPublishers: filteredPublisherOptions.length,

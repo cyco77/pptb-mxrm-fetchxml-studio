@@ -14,6 +14,7 @@ import {
 	type PublisherWithSolutions,
 } from "../../features/fetchxml/api/pptbClient";
 import { metadataCache } from "../../features/fetchxml/state/cache";
+import { debugLog } from "../utils/debug";
 
 export function usePublisherFilter() {
 	// Publishers with solutions (combined)
@@ -135,11 +136,11 @@ export function usePublisherFilter() {
 				setEntitiesLoading(true);
 				setEntitiesError(null);
 
-				console.log("[usePublisherFilter] Loading entities for solutions:", selectedSolutionIds);
+				debugLog("entityFilters", "[usePublisherFilter] Loading entities for solutions:", selectedSolutionIds);
 
 				// Get solution components (entities only) - cached per solution
 				const components = await getSolutionComponents(selectedSolutionIds);
-				console.log("[usePublisherFilter] Solution components received:", {
+				debugLog("entityFilters", "[usePublisherFilter] Solution components received:", {
 					solutionIds: selectedSolutionIds,
 					componentCount: components.length,
 					components: components.slice(0, 10),
@@ -150,14 +151,14 @@ export function usePublisherFilter() {
 					new Set(components.map((c) => c.msdyn_name).filter(Boolean))
 				);
 
-				console.log("[usePublisherFilter] Unique entity logical names extracted:", {
+				debugLog("entityFilters", "[usePublisherFilter] Unique entity logical names extracted:", {
 					count: logicalNames.length,
 					names: logicalNames,
 				});
 
 				// Filter from global cached metadata (instant, no API call)
 				const data = filterCachedEntitiesByNames(logicalNames);
-				console.log("[usePublisherFilter] Filtered entities from cache:", {
+				debugLog("entityFilters", "[usePublisherFilter] Filtered entities from cache:", {
 					count: data.length,
 					entities: data.map((e) => e.LogicalName),
 				});

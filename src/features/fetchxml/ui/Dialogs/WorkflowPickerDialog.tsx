@@ -25,6 +25,7 @@ import {
 } from "@fluentui/react-components";
 import { Play20Regular, CheckmarkCircle20Regular, Warning20Regular } from "@fluentui/react-icons";
 import type { WorkflowInfo, WorkflowBatchProgress } from "../../api/pptbClient";
+import { formatDataverseError } from "../../api/dataverseErrors";
 
 const useStyles = makeStyles({
 	content: {
@@ -165,7 +166,7 @@ export function WorkflowPickerDialog({
 					}
 				})
 				.catch((err) => {
-					setError(err instanceof Error ? err.message : "Failed to load workflows");
+					setError(formatDataverseError(err, "Failed to load workflows")); // (#96)
 					setState("error");
 				});
 		}
@@ -187,7 +188,7 @@ export function WorkflowPickerDialog({
 			setResult(res);
 			setState("complete");
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "Failed to execute workflow");
+			setError(formatDataverseError(err, "Failed to execute workflow")); // (#96)
 			setState("error");
 		}
 	}, [workflows, selectedWorkflowId, onExecute]);
