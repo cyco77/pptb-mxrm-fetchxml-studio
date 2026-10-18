@@ -5,7 +5,7 @@
 
 import { useRef, useCallback } from "react";
 import Editor from "@monaco-editor/react";
-import type * as MonacoEditor from "monaco-editor";
+import type * as MonacoEditor from "monaco-editor/editor";
 import { makeStyles, Spinner, tokens, Toolbar, ToolbarButton } from "@fluentui/react-components";
 import { Copy24Regular } from "@fluentui/react-icons";
 import { copyText } from "../../api/host";
