@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.10] - 2026-10-17
+
+### ✨ Added
+
+- **Collapsible query scope section (#25).** It collapses to one line, "**Account** · View: Active accounts · Contoso Core", with **New** always visible. The collapsed state is remembered.
+- **The publisher and solution selection is remembered per environment (#25),** keyed by environment URL in the ToolBox settings. It's restored once the lists load; publishers or solutions that no longer exist are dropped.
+- **Right-click a tree row (#24).** Right-click, Shift+F10 or the context-menu key opens the row's Add items, a divider, then **Delete** in red. The root entity has no Delete.
+
+### 🔧 Changed
+
+- **Tree (#24, #25):**
+  - The Add menus are reordered, renamed and given the tree's icons: All attributes, **Select attributes…** (now second), **Blank attribute**, Order by, Filter, Link-entity.
+  - Deleting a node with items inside asks first: "Delete filter (and)? This also deletes the 2 items inside it."
+  - Rows with nothing inside have no chevron.
+  - A link-entity that can return attributes but has none shows "(no attributes)".
+  - A link-entity without an alias is labelled by its lookup, e.g. "contact via primarycontactid (outer)". The lookup is `to` for N:1 and `from` for 1:N.
+- **Relationship picker (#25):** each option has two lines, the related entity, then "via {lookup} ({logical}) · {schema name}". The groups are Many-to-one, One-to-many and Many-to-many, search matches any part, and the list is wide enough that options stay on two lines.
+- **Publishers and solutions (#25)** show two lines: name, then `uniquename · vX` for solutions and `uniquename · prefix` for publishers. The empty states are worded consistently.
+- **Sentence case and "…" across the UI,** matching Dataverse Request Studio and Command Bar Studio. For example: Load view, System views, Entity source, All entities, Advanced Find only, Use logical names, Editor mode, Parse to tree, Send to tool, Save as….
+
+### 🏗️ Technical
+
+- New `model/scopeSelection.ts`, `model/treeLabels.ts` and `model/relationshipOptions.ts`, and the `useRememberedScope` hook, with tests.
+
 ## [1.5.0-beta.9] - 2026-10-17
 
 ### 🏗️ Technical
