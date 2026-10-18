@@ -2,7 +2,7 @@
 
 A powerful, modern FetchXML query builder and data explorer for [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app). Inspired by the XrmToolBox FetchXML Builder, reimagined with React 18, Fluent UI v9, and seamless Dataverse integration.
 
-![Version](https://img.shields.io/badge/version-1.5.0--beta.12-blue)
+![Version](https://img.shields.io/badge/version-1.5.0--beta.13-blue)
 [![npm](https://img.shields.io/npm/v/@mohsinonxrm/pptb-fetchxml-studio?label=npm)](https://www.npmjs.com/package/@mohsinonxrm/pptb-fetchxml-studio)
 [![CI](https://github.com/mohsinonxrm/pptb-mxrm-fetchxml-studio/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/mohsinonxrm/pptb-mxrm-fetchxml-studio/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
@@ -120,7 +120,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **C# QueryExpression** — Full SDK object graph (`QueryExpression`, `ColumnSet`, `FilterExpression`, `ConditionExpression`, `LinkEntity`, `OrderExpression`) via the Dataverse `FetchXmlToQueryExpression` API; supports aggregate queries with `XrmAggregateType` and `XrmDateTimeGrouping`
 - **C# FetchExpression** — Simple `new FetchExpression(@"...")` wrapper using a verbatim string literal
 - **JavaScript** — `Xrm.WebApi.retrieveMultipleRecords` call for model-driven apps and PCF components
-- **pac CLI** — `pac org fetch --xml "..."` command for the Power Platform CLI
+- **pac CLI** — `pac env fetch --xml '...'` for the Power Platform CLI, as a bash / zsh line and a PowerShell line. The XML is single-quoted, so the shell never expands values such as `$100` or `$(...)`
 - **Power Automate** — Field-by-field form mirroring the Dataverse "List rows" connector UI; table name resolved from `EntityDefinitions` metadata (not a heuristic), each field individually copyable; Top Count is taken only from `top` (`count` is a page size)
 - **Web API** — Full OData URL with request headers (including `Prefer: odata.include-annotations="*"` for formatted values and paging cookies), the documented paging-cookie steps, a cURL snippet and a PowerShell `Invoke-RestMethod` example; entity set name resolved from metadata
 - **SQL** — Dataverse-generated T-SQL via `FetchXMLToSQL` (undocumented API, labelled Preview)
