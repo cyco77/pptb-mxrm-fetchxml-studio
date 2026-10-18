@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🏗️ Technical
+
+- **Release process (`RELEASING.md`):** `main` holds the current stable release (npm `latest`); betas are tagged on `dev` (npm `beta`, GitHub pre-release); hotfixes branch from `main` and merge back into `dev`. PRs add CHANGELOG entries under `[Unreleased]` and don't change the version, which is set when a release is cut. The same process applies to Command Bar Studio and Dataverse Request Studio.
+- **`release.yml` refuses a stable tag whose commit isn't on `main`,** so a stray tag on `dev` can't replace npm `latest`. Beta tags (`-beta.N`) are allowed from `dev`.
+
 ## [1.5.0-beta.11] - 2026-10-17
 
 ### ✨ Added
