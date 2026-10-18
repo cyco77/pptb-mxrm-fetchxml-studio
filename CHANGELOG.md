@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Type-to-confirm:** on Production, for more than 100 records, or when the total is unknown, you type the entity's logical name before the action enables.
 
+### 🔧 Fixed
+
+- **Bulk delete no longer shows a stray horizontal scrollbar (#152).** The "Danger zone" warning was 1px wider than the dialog, a grid item's default `min-width`. Its title now reads "Bulk delete all matching {entity}" or "Bulk delete N records".
+
 ### 🔧 Changed
 
 - **Sentence case** in the delete, bulk delete, workflow and save view dialogs and the results command bar, completing the sweep from beta.10: Delete record, Run workflow, Save and publish, Personal view, Bulk delete (job), Delete all, Retrieve all stopped.

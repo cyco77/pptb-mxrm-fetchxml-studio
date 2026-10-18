@@ -36,6 +36,11 @@ import { copyText, openUrl } from "../../api/host";
 import { TargetScope } from "../../../../shared/components/TargetScope";
 
 const useStyles = makeStyles({
+	// A grid item's min-width is auto, so the long warning text pushed the MessageBar body 1px past the
+	// dialog and showed a horizontal scrollbar (#152)
+	messageBarBody: {
+		minWidth: 0,
+	},
 	content: {
 		display: "flex",
 		flexDirection: "column",
@@ -184,7 +189,7 @@ export function BulkDeleteDialog({
 						{isAllRecords ? (
 							<>
 								<MessageBar intent="error">
-									<MessageBarBody>
+									<MessageBarBody className={styles.messageBarBody}>
 										<MessageBarTitle>Danger zone</MessageBarTitle>
 										This will delete ALL records matching your current FetchXML query!
 									</MessageBarBody>
@@ -351,8 +356,8 @@ export function BulkDeleteDialog({
 			<DialogSurface>
 				<DialogTitle>
 					{isAllRecords
-						? `Bulk Delete ALL ${entityDisplayName || "Records"} from View`
-						: `Bulk Delete ${recordCount} Records`}
+						? `Bulk delete all matching ${entityDisplayName || "records"}`
+						: `Bulk delete ${recordCount} records`}
 				</DialogTitle>
 				<DialogBody>
 					<DialogContent className={styles.content}>{renderContent()}</DialogContent>
