@@ -41,6 +41,7 @@ import {
 import { statePatchBody, toEntityStateModel, type EntityStateModel, type StateTarget } from "../model/recordState";
 
 import { odataString } from "./odata";
+import { buildRecordNameQuery, buildRecordSearchQuery, type RecordSearchTarget } from "./recordSearch";
 export interface EntityMetadata {
 	LogicalName: string;
 	SchemaName: string;
@@ -604,6 +605,87 @@ export async function getIsHierarchical(logicalName: string): Promise<boolean> {
 		`EntityDefinitions(LogicalName='${odataString(logicalName)}')/OneToManyRelationships?$select=SchemaName&$filter=IsHierarchical eq true`,
 	);
 	return result.value.length > 0;
+}
+
+/**
+ * The entity's hierarchical relationship: its lookup to the parent record (e.g. account's
+ * parentaccountid), named in the hierarchy value picker's hint (#98). Undefined when there is none.
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/query-hierarchical-data
+ */
+export async function getHierarchicalRelationship(
+	logicalName: string,
+): Promise<{ schemaName: string; referencingAttribute: string } | undefined> {
+	if (!isDataverseAvailable()) {
+		throw new Error("PPTB Dataverse API not available");
+	}
+	const result = await window.dataverseAPI!.queryData(
+		`EntityDefinitions(LogicalName='${odataString(logicalName)}')/OneToManyRelationships?$select=SchemaName,ReferencingAttribute&$filter=IsHierarchical eq true`,
+	);
+	const relationship = result.value[0] as { SchemaName?: string; ReferencingAttribute?: string } | undefined;
+	return relationship?.SchemaName && relationship.ReferencingAttribute
+		? { schemaName: relationship.SchemaName, referencingAttribute: relationship.ReferencingAttribute }
+		: undefined;
+}
+
+/** A record found by the hierarchy value picker (#98) */
+export interface RecordReference {
+	id: string;
+	name: string;
+}
+
+/** Records whose primary name starts with the text (recordSearch.ts, #98). */
+export async function searchRecordsByName(target: RecordSearchTarget, text: string): Promise<RecordReference[]> {
+	if (!isDataverseAvailable()) {
+		throw new Error("PPTB Dataverse API not available");
+	}
+	const result = await window.dataverseAPI!.queryData(buildRecordSearchQuery(target, text));
+	return result.value.map((record) => ({
+		id: String(record[target.idAttribute] ?? ""),
+		name: record[target.nameAttribute] == null ? "" : String(record[target.nameAttribute]),
+	}));
+}
+
+/** One record's primary name, or undefined when the record can't be read (#98). */
+export async function getRecordName(target: RecordSearchTarget, id: string): Promise<string | undefined> {
+	if (!isDataverseAvailable()) {
+		throw new Error("PPTB Dataverse API not available");
+	}
+	try {
+		const record = (await window.dataverseAPI!.queryData(buildRecordNameQuery(target, id))) as unknown as Record<string, unknown>;
+		const name = record[target.nameAttribute];
+		return name == null ? "" : String(name);
+	} catch (error) {
+		debugLog("fetchXmlAPI", `Record ${id} not found for its name:`, error);
+		return undefined;
+	}
+}
+
+/**
+ * The total number of records of an entity, unfiltered, from a snapshot within the last 24 hours
+ * (RetrieveTotalRecordCount function, #98). Offered when a query's total record count reaches its
+ * 5,000 limit. Verified live (2026-10-17): RetrieveTotalRecordCount(EntityNames=@p)?@p=["account"]
+ * returns EntityRecordCountCollection { Keys: ["account"], Values: [158965] }.
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/webapi/reference/retrievetotalrecordcount
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/count-rows?tabs=webapi
+ */
+export async function retrieveTotalRecordCount(logicalName: string): Promise<number | undefined> {
+	if (!isDataverseAvailable()) {
+		throw new Error("PPTB Dataverse API not available");
+	}
+	const result = (await window.dataverseAPI!.queryData(
+		`RetrieveTotalRecordCount(EntityNames=@p)?@p=${encodeURIComponent(JSON.stringify([logicalName]))}`,
+	)) as unknown as { EntityRecordCountCollection?: { Keys?: string[]; Values?: number[] } };
+	return totalFromRecordCountCollection(result.EntityRecordCountCollection, logicalName);
+}
+
+/** The count for one entity from RetrieveTotalRecordCountResponse's EntityRecordCountCollection. */
+export function totalFromRecordCountCollection(
+	collection: { Keys?: string[]; Values?: number[] } | undefined,
+	logicalName: string,
+): number | undefined {
+	const index = collection?.Keys?.findIndex((key) => key.toLowerCase() === logicalName.toLowerCase()) ?? -1;
+	const value = index >= 0 ? collection?.Values?.[index] : undefined;
+	return typeof value === "number" ? value : undefined;
 }
 
 /**
