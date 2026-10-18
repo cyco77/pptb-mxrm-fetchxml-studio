@@ -129,6 +129,8 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 	// Only type pairs verified to work are offered (getValueOfCompatibleTypes)
 	const canCompareToAttribute = operatorComparesAttributes && compatibleTypes.length > 0;
 	const valueofFinding = findingFor(findings, "valueof");
+	// Query Advisor advice on the value (leading wildcards, #97); value-shape findings are shown inline
+	const valueAdvice = findingFor(findings.filter((f) => f.kind === "advice"), "value");
 	const attributeType = selectedAttribute?.AttributeType;
 	// Multi-select choices are AttributeType Virtual; the type name tells them apart (#87)
 	const isMultiSelect = selectedAttribute?.AttributeTypeName?.Value === "MultiSelectPicklistType";
@@ -273,6 +275,7 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 				<InfoField
 					label="Operator"
 					required
+					validation={findingFor(findings, "operator")}
 					info={
 						<Info
 							text={[
@@ -450,6 +453,7 @@ export function ConditionEditor({ node, entityName, fetchQuery, findings, onUpda
 					) : (
 						<InfoField
 							label="Value"
+							validation={valueAdvice}
 							info={<Info text="The value to compare the attribute with." href={DOCS.filterRows} />}
 						>
 							{renderLiteralValue()}

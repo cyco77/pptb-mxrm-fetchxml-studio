@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.8] - 2026-10-17
+
+### ✨ Added
+
+- **Query Advisor (#97).** Before you run a query, FetchXML Studio flags the performance anti-patterns Microsoft Learn documents, as notes in Validate, Parse to Tree and the property panel. **Advice never blocks Execute.** It covers:
+  - leading wildcards in `like` / `begins-with` values, and `ends-with`;
+  - `<all-attributes />` or no attributes selected;
+  - sorting by a link-entity's attributes, which is slower and can lose the paging cookie;
+  - `distinct` without an order;
+  - simple paging past 50,000 records;
+  - aggregate queries with no filter (the 50,000-record aggregate limit);
+  - the legacy `no-lock`.
+- **Query limits, verified live (#97):**
+  - **More than 15 joined link-entities** blocks Execute (0x8004430D). Link-entities inside filters don't count.
+  - **More than 500 conditions** blocks Execute (0x8004430C). Microsoft Learn says conditions and link-entities count together, but live, only conditions count: 500 conditions plus a link-entity run.
+  - **URL-encoded FetchXML over 32,768 characters** gets a warning with "Execute anyway". Live, about 44,500 characters failed with HTTP 414, but the exact limit depends on the URL.
+
+### 🏗️ Technical
+
+- New `model/queryAdvisor.ts`, called from `validateQueryRules`, with 91 table-driven tests. Every advice case is also checked to block nothing.
+- The condition Operator and Value fields, the aggregate and distinct options and the order Attribute field now show their advice notes, through the existing `findingFor`.
+
 ## [1.5.0-beta.7] - 2026-10-17
 
 ### 🔧 Fixed
