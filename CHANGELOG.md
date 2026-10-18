@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.11] - 2026-10-17
+
+### ✨ Added
+
+- **Activate and Deactivate work, driven by metadata (#143, verified live on temporary records).**
+  - **Simple entities** (Account, Contact…): the state's default status reason is applied.
+  - **Multi-state entities** (Lead, activities, custom state models): you pick the status reason, grouped by state. When the entity enforces status-reason transitions, only targets allowed from every selected record's current status are offered.
+  - **Lead:** Deactivate defaults to Disqualified. Choosing Qualified warns that this doesn't run QualifyLead; Dataverse accepts the plain update.
+  - **Opportunity, Case, Quote, Order, Invoice and Contract** close through their own messages (WinOpportunity / LoseOpportunity, CloseIncident, WinQuote, FulfillSalesOrder…). For these the buttons are disabled, with a tooltip naming the documented action. Proper dialogs are tracked in #149.
+  - **Also disabled, with a reason:** entities with no state, results with one-to-many joins, and missing Write privilege. The Write privilege name comes from metadata, e.g. `prvWriteActivity` for activities.
+  - **How it runs:** a PATCH of `statecode` + `statuscode`, sent through `$batch` in chunks of 25, with per-record errors, throttle retry, progress and the close warning. The query runs again afterwards.
+- **Confirmations name the environment and the scope (#69, Marketplace policy).** Delete, Bulk delete, Run workflow, Save view and Activate/Deactivate show:
+  - the environment name, type and URL, with a warning for **Production**;
+  - the entity's display and logical name;
+  - the exact scope. A Bulk delete with no selection says "Every record the query matches" and never claims a total it doesn't know.
+
+  **Type-to-confirm:** on Production, for more than 100 records, or when the total is unknown, you type the entity's logical name before the action enables.
+
+### 🔧 Changed
+
+- **Sentence case** in the delete, bulk delete, workflow and save view dialogs and the results command bar, completing the sweep from beta.10: Delete record, Run workflow, Save and publish, Personal view, Bulk delete (job), Delete all, Retrieve all stopped.
+
+### 🏗️ Technical
+
+- New `model/recordState.ts` (state planning from metadata, transition intersection, close-message entities) and `shared/components/TargetScope.tsx` with `targetScopeRules.ts`, all with tests.
+- The `$batch` runner in `batchDelete.ts` is shared by delete and the state update.
+
 ## [1.5.0-beta.10] - 2026-10-17
 
 ### ✨ Added
