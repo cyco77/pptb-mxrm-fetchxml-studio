@@ -40,7 +40,7 @@ const QUERY_TYPE_LABELS: ReadonlyArray<readonly [number, string]> = [
 	[256, "Outlook filter"],
 	[512, "Address book filter"],
 	[1024, "Without subject"],
-	[2048, "Template"],
+	[2048, "Other"], // SavedQueryTypeOther (#144)
 	[4096, "Dialog"],
 	[8192, "Offline template"],
 	[16384, "Custom"],

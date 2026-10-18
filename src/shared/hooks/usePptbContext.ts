@@ -6,6 +6,7 @@
 import { useState, useEffect } from "react";
 import { getPrimaryConnection } from "../../features/fetchxml/api/host";
 import { connectionKey } from "./connectionIdentity";
+import { debugLog } from "../utils/debug";
 
 export interface PptbContext {
 	theme: "light" | "dark";
@@ -106,7 +107,8 @@ export function usePptbContext(): PptbContext {
 		// ============ EVENT HANDLER ============
 		// PPTB calls this with (event, payload) where payload has { event, data, timestamp }
 		const handlePptbEvent = (_event: unknown, payload: ToolBoxEventPayload) => {
-			console.log("🔔 PPTB Event received:", payload.event, payload.data);
+			// The event name only: connection payloads carry environment details (#71)
+			debugLog("app", `🔔 PPTB event: ${payload.event}`);
 
 			switch (payload.event) {
 				case "settings:updated":
@@ -124,8 +126,7 @@ export function usePptbContext(): PptbContext {
 					break;
 
 				default:
-					// Log other events for debugging
-					console.log("📢 Unhandled PPTB event:", payload.event);
+					debugLog("app", `📢 Unhandled PPTB event: ${payload.event}`);
 			}
 		};
 
@@ -136,7 +137,7 @@ export function usePptbContext(): PptbContext {
 
 		// Subscribe to events
 		if (toolboxAPI.events?.on) {
-			console.log("✅ Subscribing to PPTB events...");
+			debugLog("app", "✅ Subscribing to PPTB events");
 			toolboxAPI.events.on(handlePptbEvent);
 		} else {
 			console.warn("⚠️ toolboxAPI.events.on not available");
@@ -146,7 +147,7 @@ export function usePptbContext(): PptbContext {
 		return () => {
 			colorScheme?.removeEventListener("change", onSchemeChange);
 			if (toolboxAPI.events?.off) {
-				console.log("🧹 Unsubscribing from PPTB events...");
+				debugLog("app", "🧹 Unsubscribing from PPTB events");
 				toolboxAPI.events.off(handlePptbEvent);
 			}
 		};
