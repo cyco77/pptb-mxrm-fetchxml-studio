@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🏗️ Technical
+
+- **Release process: stabilizing before a stable release (`RELEASING.md`).** Each stable release has a milestone and a "Release X.Y.Z" tracking issue. Before a beta is promoted to npm `latest`, `dev` is in feature freeze (next-release work waits as draft PRs), the milestone is clear, the latest beta is smoke-tested in PPTB, it soaks for 7 days without a new P0/P1 bug, and CI and the runtime audit are clean. The same process applies to Command Bar Studio and Dataverse Request Studio.
+
 ## [1.5.0-beta.12] - 2026-10-18
 
 ### ✨ Added

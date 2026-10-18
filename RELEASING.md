@@ -35,6 +35,31 @@ locally. The same process is used by Command Bar Studio and Dataverse Request St
 The tag's pre-release part sends it to the npm `beta` tag as a GitHub pre-release;
 `latest` doesn't change. The build bundles the gold Insider icon for pre-releases.
 
+## Milestones and tracking
+
+- Each stable release has a milestone (`v1.5.0`). Its closed issues are the list of what
+  the release contains, so close issues as they're done; that doesn't lose track of them.
+- What each beta contains is its `[X.Y.Z-beta.N]` CHANGELOG section and its GitHub
+  pre-release notes.
+- A **"Release X.Y.Z" tracking issue** in the milestone holds the promotion checklist
+  below. The milestone closes when the stable release ships.
+
+## Stabilizing (beta → stable)
+
+Once the release's scope is in `dev`, stabilize before promoting a beta to `latest`:
+
+1. **Feature freeze on `dev`:** only fixes merge until the stable release ships. Work for
+   the next release waits as **draft PRs**, because anything merged into `dev` ships with
+   this release.
+2. **Milestone clear:** every issue in the milestone is closed or moved.
+3. **Smoke test** the latest beta, installed from npm, in the PPTB version the tool
+   targets (`minAPI`). Run the manual checks the tracking issue lists.
+4. **Soak:** 7 days with no new P0/P1 bug against the latest beta. Each fix ships as a
+   new `beta.N`, and the clock restarts.
+5. **Health:** CI green on `dev`; `npm audit --omit=dev --audit-level=high` reports 0.
+
+Then cut the stable release below, and mark the next release's draft PRs as ready.
+
 ## Cutting a stable release (from `main`)
 
 1. Same as a beta, with the stable version (`npm version 1.5.0 --no-git-tag-version`). For

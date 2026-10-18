@@ -217,7 +217,7 @@ npm run preview
 npm run validate
 ```
 
-**Releases.** CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests, PPTB validation, the build and a package-contents check on every pull request. `main` holds the current stable release and `dev` the next one. A `vX.Y.Z` tag on `main` publishes to npm `latest`, and a `vX.Y.Z-beta.N` tag on `dev` publishes to npm `beta` as a GitHub pre-release, both with provenance; see [RELEASING.md](RELEASING.md).
+**Releases.** CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests, PPTB validation, the build and a package-contents check on every pull request. `main` holds the current stable release and `dev` the next one. A `vX.Y.Z` tag on `main` publishes to npm `latest`, and a `vX.Y.Z-beta.N` tag on `dev` publishes to npm `beta` as a GitHub pre-release, both with provenance. Before a beta is promoted to `latest`, `dev` is in feature freeze and the beta is smoke-tested and soaked; see [RELEASING.md](RELEASING.md).
 
 **Tool icon.** `package.json` points `icon` at `icons/icon.svg` under `dist/`, where Power Platform ToolBox looks for it. The build bundles `icons/icon-insider.svg` (gold stamp) for prerelease versions such as `1.4.2-beta.7`, and `icons/icon.svg` for releases.
 
