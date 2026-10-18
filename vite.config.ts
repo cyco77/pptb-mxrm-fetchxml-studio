@@ -54,7 +54,15 @@ export default defineConfig(async ({ command, mode }) => ({
 	optimizeDeps: {
 		// Pre-bundle monaco-editor so Vite doesn't try to transform its deep
 		// internal imports at runtime (avoids CJS/ESM interop issues).
-		include: ["monaco-editor"],
+		// These are the entry points main.tsx imports (#145).
+		include: [
+			"monaco-editor/editor",
+			"monaco-editor/features/register.all",
+			"monaco-editor/languages/definitions/xml/register",
+			"monaco-editor/languages/definitions/csharp/register",
+			"monaco-editor/languages/definitions/javascript/register",
+			"monaco-editor/languages/definitions/shell/register",
+		],
 	},
 	build: {
 		// Disable source maps in production — Monaco worker maps alone add ~17 MB.
@@ -62,9 +70,13 @@ export default defineConfig(async ({ command, mode }) => ({
 		rollupOptions: {
 			output: {
 				// Keep Monaco's large language packs in a separate chunk so the
-				// main bundle doesn't balloon unnecessarily.
-				manualChunks: {
-					"monaco-editor": ["monaco-editor"],
+				// main bundle doesn't balloon unnecessarily. Match by path: the object form
+				// (`{ "monaco-editor": ["monaco-editor"] }`) adds the package's root entry to the
+				// build, which pulls in every language and worker that main.tsx leaves out (#145).
+				manualChunks(id: string) {
+					if (id.replace(/\\/g, "/").includes("/node_modules/monaco-editor/")) {
+						return "monaco-editor";
+					}
 				},
 			},
 		},
