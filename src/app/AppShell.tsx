@@ -89,6 +89,10 @@ import type { QueryResult } from "../features/fetchxml/ui/RightPane/ResultsGrid"
 import { SettingsDrawer } from "../features/fetchxml/ui/Settings/SettingsDrawer";
 import { usePersistedSettings } from "../shared/hooks/usePersistedSettings";
 import { useAccessMode } from "../shared/hooks/useAccessMode";
+import { copyText, holdClose, openUrl, whileHoldingClose } from "../features/fetchxml/api/host";
+import { metadataCache } from "../features/fetchxml/state/cache";
+import { resetDataverseSessionCache } from "../features/fetchxml/api/sessionCache";
+import { nextConnectionScope, type ConnectionScope } from "../shared/hooks/connectionIdentity";
 
 const SIMPLE_PAGING_MESSAGE =
 	"Dataverse didn't return a paging cookie for this query (for example, it's sorted by a link-entity attribute or uses distinct), so pages are fetched with page numbers only. Microsoft recommends paging cookies; this works, but is slower for large result sets.";
@@ -216,8 +220,21 @@ const useStyles = makeStyles({
 	},
 });
 
+/**
+ * What outlives a connection change (#66): AppContent is remounted for the new connection, so
+ * this lives in AppShell.
+ */
+interface ConnectionCarryOver {
+	/** The launch prefill (T2T) was applied: never apply it again */
+	prefillConsumed: boolean;
+	/** Reads the current query's FetchXML (set by AppContent) */
+	readFetchXml?: () => string | undefined;
+	/** The query to load into the remounted AppContent */
+	fetchXml?: string;
+}
+
 export function AppShell() {
-	const { theme } = usePptbContext();
+	const { theme, connectionKey, connectionName } = usePptbContext();
 	// The PPTB host's theme (light / dark), resolved by the host (#67)
 	const isDark = theme === "dark";
 
@@ -226,19 +243,51 @@ export function AppShell() {
 		document.documentElement.style.colorScheme = isDark ? "dark" : "light";
 	}, [isDark]);
 
+	// Connection changed in place (PPTB ≥ 1.2.7, #66): everything loaded from the previous
+	// environment is stale (metadata cache, entity lists, publishers and solutions, privileges,
+	// results, the loaded view). Clear the cache and remount the builder and the app content as a
+	// new session; only the query itself is kept. Derived while rendering, so the cache is clear
+	// before the new tree's effects load metadata.
+	const carryOver = useRef<ConnectionCarryOver>({ prefillConsumed: false });
+	const [connectionScope, setConnectionScope] = useState<ConnectionScope>({ key: undefined, session: 0 });
+	const nextScope = nextConnectionScope(connectionScope, connectionKey);
+	if (nextScope.scope !== connectionScope) {
+		if (nextScope.changed) {
+			metadataCache.clear();
+			// WhoAmI and privilege answers belong to the previous user and environment (#71)
+			resetDataverseSessionCache();
+			carryOver.current.fetchXml = carryOver.current.readFetchXml?.();
+		}
+		setConnectionScope(nextScope.scope);
+	}
+
+	// Tell the user why the tool reset (a host notification; no new UI)
+	const session = connectionScope.session;
+	useEffect(() => {
+		if (session === 0) return;
+		void window.toolboxAPI?.utils?.showNotification?.({
+			title: "Connection changed",
+			body: connectionName
+				? `FetchXML Studio reloaded its metadata for ${connectionName}. Results and the loaded view were cleared.`
+				: "FetchXML Studio has no connection now. Results and the loaded view were cleared.",
+			type: "info",
+		});
+		// Only when the session changes; the name is read for that session
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [session]);
+
 	return (
 		<FluentProvider theme={isDark ? webDarkTheme : webLightTheme}>
 			<ThemeProvider isDark={isDark}>
-				<BuilderProvider>
-					<AppContent />
+				<BuilderProvider key={session}>
+					<AppContent carryOver={carryOver.current} />
 				</BuilderProvider>
 			</ThemeProvider>
 		</FluentProvider>
 	);
 }
 
-
-function AppContent() {
+function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 	const styles = useStyles();
 	const builder = useBuilder();
 	const { loadAttributes, loadEntityMetadata, loadRelationships } = useLazyMetadata();
@@ -249,14 +298,30 @@ function AppContent() {
 
 	// Tools we can send the current query to, discovered via the "fetchxml" capability.
 	const { tools: sendToTools } = useSendToTools();
-	const prefillConsumedRef = useRef(false);
 
-	// Consume the inbound prefill exactly once. When a FetchXML query is supplied,
-	// load it (the root entity is derived from the FetchXML). When only an entity is
-	// supplied, start a fresh query rooted at that entity (metadata-driven).
+	// After a connection change (#66): load the query the previous session had, once
 	useEffect(() => {
-		if (launch.loading || prefillConsumedRef.current) return;
-		prefillConsumedRef.current = true;
+		const fetchXml = carryOver.fetchXml;
+		if (!fetchXml) return;
+		carryOver.fetchXml = undefined;
+		const result = builder.loadFetchXml(fetchXml);
+		if (!result.success) console.error("Connection change: couldn't reload the query:", result.errors);
+		// builder is intentionally omitted — runs once per session (mount)
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	// Lets AppShell read the current query when the connection changes (#66)
+	const currentFetchQuery = builder.fetchQuery;
+	useEffect(() => {
+		carryOver.readFetchXml = () => (currentFetchQuery ? generateFetchXml(currentFetchQuery) : undefined);
+	}, [carryOver, currentFetchQuery]);
+
+	// Consume the inbound prefill exactly once (per tool instance, not per connection, #66). When a
+	// FetchXML query is supplied, load it (the root entity is derived from the FetchXML). When only
+	// an entity is supplied, start a fresh query rooted at that entity (metadata-driven).
+	useEffect(() => {
+		if (launch.loading || carryOver.prefillConsumed) return;
+		carryOver.prefillConsumed = true;
 
 		if (!launch.context) return;
 
@@ -317,6 +382,14 @@ function AppContent() {
 	// New); pageRun also changes on Stop, which keeps the loaded rows.
 	const resultRunRef = useRef(0);
 	const pageRunRef = useRef(0);
+	// Unmounting (e.g. the connection changed, #66) stops page loops still running for these results
+	useEffect(
+		() => () => {
+			resultRunRef.current++;
+			pageRunRef.current++;
+		},
+		[],
+	);
 
 	// Export to Excel state
 	const [exportStatus, setExportStatus] = useState<{
@@ -966,6 +1039,8 @@ function AppContent() {
 		state = { ...state, isRetrieveAllInProgress: true, retrieveAll: true };
 		setIsLoadingMore(true);
 		setPaging(state);
+		// The host warns before the tab closes while Retrieve All runs (#70)
+		const releaseClose = holdClose();
 		try {
 			while (state?.moreRecords) {
 				const { result, next } = await fetchNextPage(state);
@@ -984,6 +1059,7 @@ function AppContent() {
 				message: formatDataverseError(error), // (#96)
 			});
 		} finally {
+			releaseClose();
 			if (isCurrent()) {
 				setIsLoadingMore(false);
 				if (pagingRef.current) setPaging({ ...pagingRef.current, isRetrieveAllInProgress: false });
@@ -1253,10 +1329,11 @@ function AppContent() {
 				return;
 			}
 
-			// Open each selected record in a new tab
+			// Open each selected record in the connection's browser profile, already signed in to
+			// the right tenant (#70)
 			for (const recordId of recordIds) {
 				const url = buildRecordUrl(entityLogicalName, recordId, envUrl);
-				window.open(url, "_blank");
+				await openUrl(url);
 			}
 		},
 		[entityLogicalName],
@@ -1278,11 +1355,10 @@ function AppContent() {
 			const urls = recordIds.map((id) => buildRecordUrl(entityLogicalName, id, envUrl));
 			const textToCopy = urls.join("\n");
 
-			try {
-				await navigator.clipboard.writeText(textToCopy);
+			if (await copyText(textToCopy)) {
 				debugLog("app", `📋 Copied ${urls.length} record URL(s) to clipboard`);
-			} catch (error) {
-				console.error("Failed to copy to clipboard:", error);
+			} else {
+				console.error("Failed to copy to clipboard");
 			}
 		},
 		[entityLogicalName],
@@ -1370,48 +1446,54 @@ function AppContent() {
 
 		const recordIds = deleteDialogState.recordIds;
 		setDeleteProgress(null);
+		// The host warns before the tab closes while records are being deleted (#70)
+		const releaseClose = holdClose();
+		try {
+			// For batch delete (4+ records): $batch requests with the metadata EntitySetName on
+			// PPTB ≥ 1.2.7 (#61)
+			if (deleteDialogState.isBatchDelete) {
+				const result = await deleteRecordsBatch(
+					entityLogicalName,
+					recordIds,
+					(progress) => setDeleteProgress(progress),
+				);
 
-		// For batch delete (4+ records), use $batch endpoint
-		if (deleteDialogState.isBatchDelete) {
-			const result = await deleteRecordsBatch(
-				entityLogicalName, // Use logical name, API will pluralize
-				recordIds,
-				(progress) => setDeleteProgress(progress),
-			);
+				if (result.succeeded > 0) {
+					debugLog("app", `✅ Batch deleted ${result.succeeded} of ${recordIds.length} records`);
+					// Re-execute query to refresh results
+					void handleExecuteRef.current();
+				}
 
-			if (result.succeeded > 0) {
-				debugLog("app", `✅ Batch deleted ${result.succeeded} of ${recordIds.length} records`);
+				return result;
+			}
+
+			// Sequential delete for 1-3 records
+			let successCount = 0;
+			const errors: string[] = [];
+
+			for (const recordId of recordIds) {
+				try {
+					await deleteRecord(entityLogicalName, recordId);
+					successCount++;
+				} catch (error) {
+					errors.push(
+						`Failed to delete ${recordId}: ${formatDataverseError(error)}`, // (#96)
+					);
+				}
+			}
+
+			if (successCount > 0) {
+				debugLog("app", `✅ Deleted ${successCount} of ${recordIds.length} records`);
 				// Re-execute query to refresh results
 				void handleExecuteRef.current();
 			}
 
-			return result;
-		}
-
-		// Sequential delete for 1-3 records
-		let successCount = 0;
-		const errors: string[] = [];
-
-		for (const recordId of recordIds) {
-			try {
-				await deleteRecord(entityLogicalName, recordId);
-				successCount++;
-			} catch (error) {
-				errors.push(
-					`Failed to delete ${recordId}: ${formatDataverseError(error)}`, // (#96)
-				);
+			if (errors.length > 0) {
+				console.error("Delete errors:", errors);
+				return { succeeded: successCount, failed: errors.length, errors };
 			}
-		}
-
-		if (successCount > 0) {
-			debugLog("app", `✅ Deleted ${successCount} of ${recordIds.length} records`);
-			// Re-execute query to refresh results
-			void handleExecuteRef.current();
-		}
-
-		if (errors.length > 0) {
-			console.error("Delete errors:", errors);
-			return { succeeded: successCount, failed: errors.length, errors };
+		} finally {
+			releaseClose();
 		}
 	}, [
 		entityLogicalName,
@@ -1498,7 +1580,8 @@ function AppContent() {
 			if (!entityLogicalName) {
 				return { succeeded: 0, failed: recordIds.length, errors: ["Entity not selected"] };
 			}
-			return executeWorkflowBatch(workflowId, recordIds, entityLogicalName, onProgress);
+			// The host warns before the tab closes while workflows are being started (#70)
+			return whileHoldingClose(() => executeWorkflowBatch(workflowId, recordIds, entityLogicalName, onProgress));
 		},
 		[entityLogicalName],
 	);

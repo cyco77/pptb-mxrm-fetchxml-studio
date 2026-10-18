@@ -42,6 +42,7 @@ import {
 } from "../../model/fetchxmlParser";
 import type { ParseResult, ParseWarning } from "../../model/fetchxmlParser";
 import { generateFetchXml } from "../../model/fetchxml";
+import { copyText } from "../../api/host";
 import { ParseIssueList, type ParseIssueItem } from "./ParseIssueList";
 import { ParseChangesDialog } from "./ParseChangesDialog";
 import {
@@ -257,11 +258,9 @@ export function FetchXmlEditor({
 
 	// Copy to clipboard
 	const handleCopy = useCallback(async () => {
-		try {
-			await navigator.clipboard.writeText(currentXml);
+		if (await copyText(currentXml)) {
 			addMessage("success", "Copied", "FetchXML copied to clipboard");
-		} catch (err) {
-			console.error("Failed to copy:", err);
+		} else {
 			addMessage("error", "Copy failed", "Could not copy to clipboard");
 		}
 	}, [currentXml, addMessage]);

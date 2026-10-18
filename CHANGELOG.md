@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.4] - 2026-10-17
+
+### ⚠️ Requires Power Platform ToolBox 1.2.7
+
+- **PPTB 1.2.7 is now required (#82).**
+  - `@pptb/types` is 1.2.7.
+  - `features.connections: 1`, and `minAPI` is 1.2.7 (it was 1.2.2).
+  - Older hosts and `1.2.7-dev` Insider builds show the tool as unsupported.
+
+### ✨ Added
+
+- **Changing the tool's connection in place resets everything that came from the old environment (#66).**
+  - The metadata cache, entity lists, publishers and solutions, privileges, WhoAmI, results and the loaded view are all cleared, and the UI reloads for the new connection. The query is kept.
+  - A notification says what happened.
+  - Token refreshes and edits to other connections reset nothing. Deleting another connection no longer marks the tool as disconnected.
+  - Workflow runs and multi-record deletes stop if the connection changes partway through.
+- **The ToolBox warns before closing while work is running (#70):** Retrieve All, deletes, workflow runs and Save view (`preventClose`).
+- **Record links open in the connection's browser profile (#70).** This covers Open record and the bulk delete job link (`openInConnectionBrowser`).
+
+### 🔧 Fixed
+
+- **Deleting records uses the entity's metadata entity set name (#61).** This fixes entities whose entity set name the host guesses wrongly.
+  - Multi-record deletes are sent as real OData `$batch` requests of 25 (`executeBatch`).
+  - Errors are reported per record: a batch Dataverse rejects is retried one record at a time, so one failure doesn't fail the rest.
+- **Clipboard writes try the ToolBox first (#70),** then the browser clipboard. That applies to copying results, record URLs, FetchXML and code.
+
+### 🏗️ Technical
+
+- New `api/host.ts` adapter. Every host API is feature-detected, with a fallback.
+- New `api/batchDelete.ts` and `shared/hooks/connectionIdentity.ts`.
+- `metadataCache.clear()` now clears every cache, with a generation guard so requests still running for the old connection can't refill it.
+
 ## [1.5.0-beta.3] - 2026-10-17
 
 ### ✨ Added

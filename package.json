@@ -1,6 +1,6 @@
 {
 	"name": "@mohsinonxrm/pptb-fetchxml-studio",
-	"version": "1.5.0-beta.3",
+	"version": "1.5.0-beta.4",
 	"type": "module",
 	"displayName": "FetchXML Studio",
 	"description": "A powerful, modern FetchXML query builder and data explorer for Microsoft Dataverse and Dynamics 365.",
@@ -34,8 +34,8 @@
 		"microsoft"
 	],
 	"features": {
-		"multiConnection": "none",
-		"minAPI": "1.2.2"
+		"connections": 1,
+		"minAPI": "1.2.7"
 	},
 	"bugs": {
 		"url": "https://github.com/mohsinonxrm/pptb-mxrm-fetchxml-studio/issues"
@@ -84,7 +84,7 @@
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.36.0",
-		"@pptb/types": "^1.2.3",
+		"@pptb/types": "1.2.7",
 		"@types/node": "^24.10.4",
 		"@types/react": "^18.3.27",
 		"@types/react-dom": "^18.3.7",
