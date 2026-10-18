@@ -2,7 +2,7 @@
 
 A powerful, modern FetchXML query builder and data explorer for [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app). Inspired by the XrmToolBox FetchXML Builder, reimagined with React 18, Fluent UI v9, and seamless Dataverse integration.
 
-![Version](https://img.shields.io/badge/version-1.5.0--beta.11-blue)
+![Version](https://img.shields.io/badge/version-1.5.0--beta.12-blue)
 [![npm](https://img.shields.io/npm/v/@mohsinonxrm/pptb-fetchxml-studio?label=npm)](https://www.npmjs.com/package/@mohsinonxrm/pptb-fetchxml-studio)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
@@ -179,7 +179,7 @@ Nothing else writes to Dataverse:
 ## 🚀 Getting Started
 
 ### Prerequisites
-- [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app) desktop application
+- [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app) desktop application, **version 1.2.7 or later**. FetchXML Studio 1.5 targets PPTB 1.2.7 (`minAPI` 1.2.7); 1.4.x works with 1.2.2 or later
 - Connection to a Dataverse environment
 
 ### Installation
