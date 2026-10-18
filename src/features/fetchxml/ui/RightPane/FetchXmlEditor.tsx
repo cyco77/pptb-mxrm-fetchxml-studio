@@ -58,6 +58,12 @@ function canonicalFetchXml(xmlText: string): string | null {
 
 const TREE_CHANGED_TITLE = "The tree changed while you were editing";
 
+/**
+ * Whether the Advisories tab lists this finding (advisories.ts collectAdvisories): a query-rule
+ * finding (they carry a nodeId) that's an error, a warning or advice, not a setting Dataverse ignores.
+ */
+const listedInAdvisories = (w: ParseWarning) => w.nodeId !== undefined && (w.severity !== "info" || w.kind === "advice");
+
 const useStyles = makeStyles({
 	container: {
 		display: "flex",
@@ -343,10 +349,10 @@ export function FetchXmlEditor({
 		const notes = parseResult.warnings.filter((w) => w.severity === "info");
 		const blocking = getBlockingWarnings(parseResult);
 		const executionErrors = getExecutionErrors(parseResult);
-		// The findings bars offer "View all in Advisories" (#97)
-		if (notes.length > 0) addMessage("info", "Notes", notes, true);
-		if (blocking.length > 0) addMessage("warning", MIGHT_REJECT_TITLE, blocking, true);
-		if (executionErrors.length > 0) addMessage("error", INVALID_TITLE, executionErrors, true);
+		// A bar offers "View all in Advisories" when the tab lists one of its findings (#97)
+		if (notes.length > 0) addMessage("info", "Notes", notes, notes.some(listedInAdvisories));
+		if (blocking.length > 0) addMessage("warning", MIGHT_REJECT_TITLE, blocking, blocking.some(listedInAdvisories));
+		if (executionErrors.length > 0) addMessage("error", INVALID_TITLE, executionErrors, executionErrors.some(listedInAdvisories));
 		if (blocking.length === 0 && executionErrors.length === 0) {
 			addMessage("success", "Valid", "Dataverse should accept this FetchXML.");
 		}

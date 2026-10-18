@@ -514,7 +514,10 @@ export function PreviewTabs({
 	/** Check the FetchXML the user is looking at: the editor's text in editor mode, otherwise the tree's */
 	const handleCheckWithDataverse = () => {
 		if (isEditorModeActive) {
+			// Flush the debounce, so the list and the stale check use the text that's checked
 			const text = editorXmlRef.current;
+			clearTimeout(editorTextTimer.current);
+			setEditorText(text);
 			void dataverseCheck.run(text, parseForAdvisories(text)?.canonical ?? text);
 		} else {
 			void dataverseCheck.run(xml, xml);

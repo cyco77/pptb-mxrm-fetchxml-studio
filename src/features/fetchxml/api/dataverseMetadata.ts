@@ -72,26 +72,25 @@ export async function loadAllEntityAttributes(logicalName: string): Promise<Attr
  * attribute advice (#97).
  */
 export async function loadStringMaxLengths(logicalName: string): Promise<Map<string, number>> {
-	const cacheKey = `${logicalName}__stringlengths`;
-	const toMap = (attributes: AttributeMetadata[]) =>
-		new Map(attributes.flatMap((a) => (typeof a.MaxLength === "number" ? [[a.LogicalName, a.MaxLength] as const] : [])));
-	const cached = metadataCache.getEntityAttributes(cacheKey);
-	if (cached) return toMap(cached);
-	const inFlight = metadataCache.getAttributesPromise(cacheKey);
-	if (inFlight) return toMap(await inFlight);
+	const cached = metadataCache.getStringMaxLengths(logicalName);
+	if (cached) return cached;
+	const inFlight = metadataCache.getStringMaxLengthsPromise(logicalName);
+	if (inFlight) return inFlight;
 
 	const isCurrent = metadataCache.generationGuard();
-	const promise = pptbClient.getStringAttributeMaxLengths(logicalName);
-	metadataCache.setAttributesPromise(cacheKey, promise);
+	const promise = pptbClient
+		.getStringAttributeMaxLengths(logicalName)
+		.then((attributes) => new Map(attributes.flatMap((a) => (typeof a.MaxLength === "number" ? [[a.LogicalName, a.MaxLength] as const] : []))));
+	metadataCache.setStringMaxLengthsPromise(logicalName, promise);
 	try {
-		const attributes = await promise;
+		const maxLengths = await promise;
 		if (isCurrent()) {
-			metadataCache.setEntityAttributes(cacheKey, attributes);
-			metadataCache.clearAttributesPromise(cacheKey);
+			metadataCache.setStringMaxLengths(logicalName, maxLengths);
+			metadataCache.clearStringMaxLengthsPromise(logicalName);
 		}
-		return toMap(attributes);
+		return maxLengths;
 	} catch (error) {
-		if (isCurrent()) metadataCache.clearAttributesPromise(cacheKey);
+		if (isCurrent()) metadataCache.clearStringMaxLengthsPromise(logicalName);
 		throw error;
 	}
 }

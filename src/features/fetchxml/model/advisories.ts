@@ -33,6 +33,15 @@ export interface Advisory {
 	rule?: AdvisorRuleId;
 	/** The attribute it's about, matched with Dataverse's messages */
 	target?: string;
+	/** The entity `target` belongs to, matched with Dataverse's messages (nodeEntities) */
+	entity?: AdvisoryEntity;
+}
+
+/** The entity an attribute belongs to: the root, or a link-entity (by name and alias) */
+export interface AdvisoryEntity {
+	name: string;
+	alias?: string;
+	isRoot: boolean;
 }
 
 const LEARN = "https://learn.microsoft.com/power-apps/developer/data-platform";
@@ -116,6 +125,55 @@ export function nodeLocations(fetch: FetchNode): Map<NodeId, string> {
 	return map;
 }
 
+/**
+ * The entity each node's attribute belongs to: its entity / link-entity, or for a condition or a
+ * root order with entityname, the link-entity that names (by alias, else by a unique name).
+ */
+export function nodeEntities(fetch: FetchNode): Map<NodeId, AdvisoryEntity> {
+	const map = new Map<NodeId, AdvisoryEntity>();
+	const links: LinkEntityNode[] = [];
+	const collect = (c: Container) => {
+		const visitFilter = (f: FilterNode) => {
+			f.subfilters.forEach(visitFilter);
+			f.links?.forEach((l) => {
+				links.push(l);
+				collect(l);
+			});
+		};
+		c.filters.forEach(visitFilter);
+		c.links.forEach((l) => {
+			links.push(l);
+			collect(l);
+		});
+	};
+	collect(fetch.entity);
+	const entityOf = (c: Container, isRoot: boolean): AdvisoryEntity => ({ name: c.name, alias: c.type === "link-entity" ? c.alias : undefined, isRoot });
+	const root = entityOf(fetch.entity, true);
+	const byEntityname = (key: string | undefined, fallback: AdvisoryEntity): AdvisoryEntity => {
+		if (!key || key === fetch.entity.name) return fallback;
+		const named = links.find((l) => l.alias === key) ?? (links.filter((l) => l.name === key).length === 1 ? links.find((l) => l.name === key) : undefined);
+		return named ? entityOf(named, false) : fallback;
+	};
+	map.set(fetch.id, root);
+	const visit = (c: Container, isRoot: boolean) => {
+		const own = entityOf(c, isRoot);
+		map.set(c.id, own);
+		if (c.allAttributes) map.set(c.allAttributes.id, own);
+		c.attributes.forEach((a) => map.set(a.id, own));
+		c.orders.forEach((o) => map.set(o.id, isRoot ? byEntityname(o.entityname, own) : own));
+		const visitFilter = (f: FilterNode) => {
+			map.set(f.id, own);
+			f.conditions.forEach((cond) => map.set(cond.id, byEntityname(cond.entityname, own)));
+			f.subfilters.forEach(visitFilter);
+			f.links?.forEach((l) => visit(l, false));
+		};
+		c.filters.forEach(visitFilter);
+		c.links.forEach((l) => visit(l, false));
+	};
+	visit(fetch.entity, true);
+	return map;
+}
+
 // ---- FetchXML Studio's findings
 
 /**
@@ -125,6 +183,7 @@ export function nodeLocations(fetch: FetchNode): Map<NodeId, string> {
 export function collectAdvisories(fetch: FetchNode, metadata?: AdvisorMetadata): Advisory[] {
 	const findings = [...validateQueryRules(fetch), ...(metadata ? adviseQueryMetadata(fetch, metadata) : [])];
 	const locations = nodeLocations(fetch);
+	const entities = nodeEntities(fetch);
 	const list: Advisory[] = [];
 	findings.forEach((f, index) => {
 		const level = levelOf(f);
@@ -142,6 +201,7 @@ export function collectAdvisories(fetch: FetchNode, metadata?: AdvisorMetadata):
 			fix: f.fix,
 			rule: f.rule,
 			target: f.target,
+			entity: entities.get(f.nodeId),
 		});
 	});
 	return list.sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
@@ -197,6 +257,50 @@ export function issueAttribute(issue: DataverseIssue): string | undefined {
 	return match?.[1];
 }
 
+/** Bag keys that might name the entity. None were returned live (see issueEntity). */
+const ENTITY_KEYS = ["Entity", "EntityName", "EntityAlias", "Alias", "Table"];
+
+/**
+ * The entity or alias a Dataverse message is about, if it says. Verified live (2026-10-18): it
+ * doesn't. Every TypeCode returned only Attribute (plus ConditionOperator, Reason, AttributeCount /
+ * AttributeLimit), and the text names only the attribute. So matching usually falls back to the
+ * attribute, preferring the root entity's finding (mergeDataverseCheck). The keys are read in case a
+ * later version adds them.
+ */
+export function issueEntity(issue: DataverseIssue): string | undefined {
+	const bag = issue.OptionalPropertyBag as { Keys?: unknown; Values?: unknown } & Record<string, unknown> | undefined;
+	if (!bag) return undefined;
+	for (const key of ENTITY_KEYS) {
+		if (Array.isArray(bag.Keys) && Array.isArray(bag.Values)) {
+			const i = bag.Keys.indexOf(key);
+			if (i >= 0 && typeof bag.Values[i] === "string" && bag.Values[i]) return bag.Values[i] as string;
+		}
+		if (typeof bag[key] === "string" && bag[key]) return bag[key] as string;
+	}
+	return undefined;
+}
+
+/**
+ * The finding a Dataverse message agrees with: same rule and attribute (any, for query-level codes),
+ * not matched yet. When the message names an entity, only findings on that entity (name or alias);
+ * otherwise the root entity's finding first. Live, Dataverse only checks the root entity's
+ * conditions (a leading wildcard inside a link-entity's filter isn't reported, one with entityname
+ * in the root's filter is), and its messages don't say which entity, so "Attribute name" most
+ * likely means the root's. Ties go to the first in tree order.
+ */
+function findAgreeing(list: Advisory[], rules: readonly AdvisorRuleId[], attribute: string | undefined, entity: string | undefined, queryLevel: boolean): Advisory | undefined {
+	const want = attribute?.toLowerCase();
+	const candidates = list.filter(
+		(a) => a.source === "fxs" && a.rule !== undefined && rules.includes(a.rule) && (queryLevel || a.target?.toLowerCase() === want),
+	);
+	if (queryLevel) return candidates[0];
+	if (entity) {
+		const key = entity.toLowerCase();
+		return candidates.find((a) => a.entity?.alias?.toLowerCase() === key || a.entity?.name.toLowerCase() === key);
+	}
+	return candidates.find((a) => a.entity?.isRoot) ?? candidates[0];
+}
+
 /** The node a Dataverse-only finding points at: the first condition / order on the attribute, else the root. */
 function locateIssue(fetch: FetchNode, rule: AdvisorRuleId | undefined, attribute: string | undefined): NodeId {
 	if (!attribute || !rule) return fetch.entity.id;
@@ -247,13 +351,7 @@ export function mergeDataverseCheck(
 		const attribute = issueAttribute(issue);
 		const queryLevel = QUERY_LEVEL_TYPES.has(issue.TypeCode);
 		if (rules && (attribute || queryLevel)) {
-			const match = merged.find(
-				(a) =>
-					a.source === "fxs" &&
-					a.rule !== undefined &&
-					rules.includes(a.rule) &&
-					(queryLevel || a.target?.toLowerCase() === attribute!.toLowerCase()),
-			);
+			const match = findAgreeing(merged, rules, attribute, issueEntity(issue), queryLevel);
 			if (match) {
 				match.source = "both";
 				match.dataverseText = text;

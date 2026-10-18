@@ -9,6 +9,7 @@ import {
 	collectAdvisories,
 	countByLevel,
 	issueAttribute,
+	issueEntity,
 	mergeDataverseCheck,
 	nodeLocations,
 	type DataverseIssue,
@@ -164,6 +165,47 @@ describe("mergeDataverseCheck", () => {
 		expect(advisories.every((a) => a.source === "dataverse" && a.title === "Reported by Dataverse" && a.doc.href === HELP)).toBe(true);
 		expect(advisories.map((a) => a.dataverseText)).toEqual(["Something new.", "Ordering on Enum variables can lead to slow performance."]);
 		expect(advisories[0].nodeId).toBe(fetch.entity.id);
+	});
+
+	describe("which entity the attribute belongs to", () => {
+		// The root's name and a link-entity's name, both with leading wildcards
+		const XML = `<fetch><entity name="account"><attribute name="name" /><link-entity name="account" from="accountid" to="parentaccountid" alias="p"><filter><condition attribute="name" operator="like" value="%p%" /></filter></link-entity><filter><condition attribute="name" operator="like" value="%a%" /></filter></entity></fetch>`;
+		const NAME_WILDCARD: DataverseIssue = { Severity: 1, TypeCode: 2, LocalizedMessageText: "Leading wild card on like/notlike conditions can lead to slow performance. Attribute name", OptionalPropertyBag: bag({ Attribute: "name", ConditionOperator: "Like" }) };
+
+		it("records the entity of each finding (root, link-entity, entityname)", () => {
+			const fetch = parse(`<fetch><entity name="contact"><attribute name="fullname" /><link-entity name="account" from="accountid" to="parentcustomerid" alias="a" /><filter><condition entityname="a" attribute="name" operator="like" value="%x" /><condition attribute="fullname" operator="like" value="%y" /></filter></entity></fetch>`);
+			const list = collectAdvisories(fetch);
+			expect(list.find((a) => a.target === "name")!.entity).toEqual({ name: "account", alias: "a", isRoot: false });
+			expect(list.find((a) => a.target === "fullname")!.entity).toEqual({ name: "contact", alias: undefined, isRoot: true });
+		});
+
+		it("without an entity in the message, it agrees with the root entity's finding, even when the link-entity's comes first", () => {
+			const fetch = parse(XML);
+			// The link-entity's finding first in the list, so list order alone would pick it
+			const own = collectAdvisories(fetch).sort((a, b) => Number(!!a.entity?.isRoot) - Number(!!b.entity?.isRoot));
+			expect(own.map((a) => a.entity?.isRoot)).toEqual([false, true]);
+			const { advisories, added } = mergeDataverseCheck(fetch, own, { issues: [NAME_WILDCARD] });
+			expect(added).toBe(0);
+			const agreed = advisories.filter((a) => a.source === "both");
+			expect(agreed).toHaveLength(1);
+			expect(agreed[0].entity).toMatchObject({ isRoot: true });
+			expect(agreed[0].nodeId).toBe(fetch.entity.filters[0].conditions[0].id);
+		});
+
+		it("with an entity or alias in the message, it agrees only with that entity's finding", () => {
+			const fetch = parse(XML);
+			const withAlias: DataverseIssue = { ...NAME_WILDCARD, OptionalPropertyBag: bag({ Attribute: "name", EntityAlias: "p" }) };
+			const { advisories } = mergeDataverseCheck(fetch, collectAdvisories(fetch), { issues: [withAlias] });
+			expect(advisories.filter((a) => a.source === "both").map((a) => a.entity?.alias)).toEqual(["p"]);
+			expect(issueEntity(withAlias)).toBe("p");
+			expect(issueEntity(NAME_WILDCARD)).toBeUndefined();
+		});
+
+		it("several plausible candidates: the first in tree order", () => {
+			const fetch = parse(`<fetch><entity name="contact"><attribute name="fullname" /><link-entity name="account" from="accountid" to="parentcustomerid" alias="a"><filter><condition attribute="name" operator="like" value="%a" /></filter></link-entity><link-entity name="account" from="accountid" to="parentcustomerid" alias="b"><filter><condition attribute="name" operator="like" value="%b" /></filter></link-entity></entity></fetch>`);
+			const { advisories } = mergeDataverseCheck(fetch, collectAdvisories(fetch), { issues: [NAME_WILDCARD] });
+			expect(advisories.filter((a) => a.source === "both").map((a) => a.entity?.alias)).toEqual(["a"]);
+		});
 	});
 
 	it("one Dataverse message agrees with one finding: two conditions on the same attribute", () => {
