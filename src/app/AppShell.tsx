@@ -1908,6 +1908,7 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 				entityDisplayName={
 					entityMetadata?.DisplayName?.UserLocalizedLabel?.Label || entityLogicalName || "record"
 				}
+				entityLogicalName={entityLogicalName}
 				recordCount={deleteDialogState.recordIds.length}
 				onClose={() => {
 					setDeleteDialogState({ open: false, recordIds: [] });
@@ -1923,8 +1924,10 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 				entityDisplayName={
 					entityMetadata?.DisplayName?.UserLocalizedLabel?.Label || entityLogicalName || "records"
 				}
+				entityLogicalName={entityLogicalName}
 				isAllRecords={bulkDeleteDialogState.isAllRecords}
 				totalViewRecords={bulkDeleteDialogState.totalViewRecords}
+				moreRecords={queryResult?.moreRecords}
 				onClose={() => setBulkDeleteDialogState({ open: false, recordIds: [] })}
 				onConfirm={handleConfirmBulkDelete}
 			/>
@@ -1935,6 +1938,7 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 				entityDisplayName={
 					entityMetadata?.DisplayName?.UserLocalizedLabel?.Label || entityLogicalName || "records"
 				}
+				entityLogicalName={entityLogicalName}
 				preSelectedWorkflow={workflowDialogState.preSelectedWorkflow}
 				onClose={() => setWorkflowDialogState({ open: false, recordIds: [] })}
 				onFetchWorkflows={handleFetchWorkflows}

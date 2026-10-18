@@ -29,6 +29,7 @@ import {
 } from "@fluentui/react-icons";
 import type { BatchDeleteProgress, BatchDeleteResult } from "../../api/pptbClient";
 import { formatDataverseError } from "../../api/dataverseErrors";
+import { TargetScope } from "../../../../shared/components/TargetScope";
 
 const useStyles = makeStyles({
 	content: {
@@ -86,6 +87,8 @@ export interface DeleteConfirmDialogProps {
 	recordName?: string;
 	/** Entity display name */
 	entityDisplayName?: string;
+	/** Entity logical name (the confirmation names it with the environment, #69) */
+	entityLogicalName?: string;
 	/** Number of records to delete (for multi-select) */
 	recordCount: number;
 	/** Called when dialog is closed */
@@ -102,6 +105,7 @@ export function DeleteConfirmDialog({
 	open,
 	recordName,
 	entityDisplayName,
+	entityLogicalName,
 	recordCount,
 	onClose,
 	onConfirm,
@@ -112,6 +116,8 @@ export function DeleteConfirmDialog({
 	const [error, setError] = useState<string | null>(null);
 	const [result, setResult] = useState<BatchDeleteResult | null>(null);
 	const [progress, setProgress] = useState<BatchDeleteProgress | null>(null);
+	// Type-to-confirm for Production or many records (#69)
+	const [scopeConfirmed, setScopeConfirmed] = useState(false);
 
 	// Update progress from prop
 	useEffect(() => {
@@ -212,6 +218,14 @@ export function DeleteConfirmDialog({
 			case "confirm":
 				return (
 					<>
+						{/* Environment and scope (#69) */}
+						<TargetScope
+							entityLogicalName={entityLogicalName}
+							entityDisplayName={entityDisplayName}
+							scope={{ kind: "records", count: recordCount }}
+							onConfirmationChange={setScopeConfirmed}
+						/>
+
 						<div className={styles.warningRow}>
 							<Warning20Regular />
 							<Text weight="semibold">This action cannot be undone.</Text>
@@ -359,7 +373,7 @@ export function DeleteConfirmDialog({
 						<Button appearance="secondary" onClick={handleClose}>
 							Cancel
 						</Button>
-						<Button appearance="primary" onClick={handleConfirm}>
+						<Button appearance="primary" onClick={handleConfirm} disabled={!scopeConfirmed}>
 							Delete
 						</Button>
 					</>

@@ -128,7 +128,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 
 ## ✏️ What this tool changes
 
-FetchXML Studio only reads from Dataverse until you start one of the operations below. Each one asks for confirmation first. They all run as the connected user, or as the user PPTB is impersonating, so Dataverse applies that user's security roles.
+FetchXML Studio only reads from Dataverse until you start one of the operations below. Each one asks for confirmation first, and the confirmation names the target: the environment (connection name, URL and type, with Production highlighted), the entity, and how many records (or which view). For the record operations, on a Production connection, for more than 100 records, or when the total isn't known (Bulk Delete with no rows selected), you type the entity logical name before the button enables. They all run as the connected user, or as the user PPTB is impersonating, so Dataverse applies that user's security roles.
 
 | Operation | When | What it does in Dataverse |
 |---|---|---|

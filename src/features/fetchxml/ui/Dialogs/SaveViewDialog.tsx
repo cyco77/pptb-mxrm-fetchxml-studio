@@ -53,6 +53,7 @@ import { formatDataverseError } from "../../api/dataverseErrors";
 import { holdClose } from "../../api/host";
 import { SolutionPicker } from "./SolutionPicker";
 import { canOverwriteView, getValidationStatus } from "../../model/savedViews";
+import { TargetScope } from "../../../../shared/components/TargetScope";
 
 const useStyles = makeStyles({
 	surface: {
@@ -452,6 +453,13 @@ export function SaveViewDialog({
 		return "Save As New View";
 	}, [isOverwriteMode, shouldPublish]);
 
+	// What the save writes, for the environment and scope block (#69)
+	const scopeText = useMemo(() => {
+		const publish = shouldPublish && viewType === "system" ? ", then published" : "";
+		if (isOverwriteMode && loadedView) return `The ${loadedView.type} view "${loadedView.name}" (overwritten${publish})`;
+		return `A new ${viewType} view${publish}`;
+	}, [isOverwriteMode, loadedView, shouldPublish, viewType]);
+
 	return (
 		<Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
 			<DialogSurface className={styles.surface}>
@@ -469,6 +477,9 @@ export function SaveViewDialog({
 						{dialogTitle}
 					</DialogTitle>
 					<DialogContent className={styles.content}>
+						{/* Environment and scope (#69) */}
+						<TargetScope entityLogicalName={entityLogicalName} scope={{ kind: "text", text: scopeText }} />
+
 						{/* Validation Section */}
 						<div className={styles.validationSection}>
 							<div className={styles.validationHeader}>
