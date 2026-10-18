@@ -68,6 +68,35 @@ export async function loadAllEntityAttributes(logicalName: string): Promise<Attr
 }
 
 /**
+ * MaxLength per String attribute of an entity (cached and de-duplicated), for the large text
+ * attribute advice (#97).
+ */
+export async function loadStringMaxLengths(logicalName: string): Promise<Map<string, number>> {
+	const cacheKey = `${logicalName}__stringlengths`;
+	const toMap = (attributes: AttributeMetadata[]) =>
+		new Map(attributes.flatMap((a) => (typeof a.MaxLength === "number" ? [[a.LogicalName, a.MaxLength] as const] : [])));
+	const cached = metadataCache.getEntityAttributes(cacheKey);
+	if (cached) return toMap(cached);
+	const inFlight = metadataCache.getAttributesPromise(cacheKey);
+	if (inFlight) return toMap(await inFlight);
+
+	const isCurrent = metadataCache.generationGuard();
+	const promise = pptbClient.getStringAttributeMaxLengths(logicalName);
+	metadataCache.setAttributesPromise(cacheKey, promise);
+	try {
+		const attributes = await promise;
+		if (isCurrent()) {
+			metadataCache.setEntityAttributes(cacheKey, attributes);
+			metadataCache.clearAttributesPromise(cacheKey);
+		}
+		return toMap(attributes);
+	} catch (error) {
+		if (isCurrent()) metadataCache.clearAttributesPromise(cacheKey);
+		throw error;
+	}
+}
+
+/**
  * The attributes the pickers offer (#57): readable ones, and only those Advanced Find shows while
  * "Advanced Find only" is on.
  * @param advancedFindOnly - Defaults to the current setting

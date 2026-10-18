@@ -2,10 +2,11 @@
  * Tabbed preview panel with FetchXML editor and Results grid
  */
 
-import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
 	TabList,
 	Tab,
+	CounterBadge,
 	type SelectTabData,
 	type SelectTabEvent,
 	Button,
@@ -59,8 +60,20 @@ import {
 } from "./editorSync";
 import { ParseIssueList, type ParseIssueItem } from "./ParseIssueList";
 import type { LayoutXmlConfig } from "../../model/layoutxml";
-import type { WorkflowInfo } from "../../api/pptbClient";
+import { isDataverseAvailable, type WorkflowInfo } from "../../api/pptbClient";
 import type { DisplaySettings } from "../../model/displaySettings";
+import type { NodeId } from "../../model/nodes";
+import { collectAdvisories, mergeDataverseCheck, type Advisory } from "../../model/advisories";
+import { AdvisoriesPanel } from "./AdvisoriesPanel";
+import { useAdvisorMetadata, useDataverseCheck } from "./useAdvisories";
+
+type PreviewTab = "xml" | "layout" | "results" | "advisories" | "code";
+
+/** FetchXML as the tree writes it, to compare meaning rather than formatting; null if it doesn't parse */
+function parseForAdvisories(xmlText: string): { fetchNode: FetchNode; canonical: string } | null {
+	const result = parseFetchXml(xmlText);
+	return result.success && result.fetchNode ? { fetchNode: result.fetchNode, canonical: generateFetchXml(result.fetchNode) } : null;
+}
 
 const useStyles = makeStyles({
 	container: {
@@ -320,6 +333,14 @@ interface PreviewTabsProps {
 	displaySettings?: DisplaySettings;
 	/** Primary key attribute from Dataverse entity metadata (e.g. "activityid" for activity entities) */
 	primaryIdAttribute?: string;
+	/** Identity of the tool's connection: "" with none (usePptbContext); Check with Dataverse needs one (#97) */
+	connectionKey?: string;
+	/** The tree's selected node, highlighted in the Advisories tab (#97) */
+	selectedNodeId?: NodeId | null;
+	/** Select a node in the tree: an advisory's location (#97) */
+	onSelectNode?: (nodeId: NodeId) => void;
+	/** Add an order on an attribute: the Advisories tab's quick fix (#97) */
+	onAddOrder?: (parentId: NodeId, attribute: string) => void;
 }
 
 export function PreviewTabs({
@@ -392,10 +413,14 @@ export function PreviewTabs({
 	onOpenSettings,
 	displaySettings,
 	primaryIdAttribute,
+	connectionKey,
+	selectedNodeId,
+	onSelectNode,
+	onAddOrder,
 }: PreviewTabsProps) {
 	const styles = useStyles();
 	const advancedFindOnly = useAdvancedFindOnly();
-	const [selectedTab, setSelectedTab] = useState<"xml" | "layout" | "results" | "code">("xml");
+	const [selectedTab, setSelectedTab] = useState<PreviewTab>("xml");
 	const [toolbarSelectedCount, setToolbarSelectedCount] = useState(0);
 	const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
 
@@ -444,6 +469,11 @@ export function PreviewTabs({
 		return isEditorModeActive ? editorXmlRef.current || xml : xml;
 	}, [isEditorModeActive, xml]);
 
+	// The editor's text for the Advisories tab (#97), a moment after typing stops
+	const [editorText, setEditorText] = useState("");
+	const editorTextTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	useEffect(() => () => clearTimeout(editorTextTimer.current), []);
+
 	const handleEditorStateChange = useCallback((isActive: boolean, editorXml: string) => {
 		editorXmlRef.current = editorXml;
 		setIsEditorModeActive((prev) => (prev !== isActive ? isActive : prev));
@@ -453,10 +483,51 @@ export function PreviewTabs({
 		if (!isActive) {
 			setEditorValidationError(null);
 		}
+		clearTimeout(editorTextTimer.current);
+		editorTextTimer.current = setTimeout(() => setEditorText(isActive ? editorXml : ""), 300);
 	}, []);
 
+	// ---- Advisories (#97): what the user is looking at, the editor's FetchXML in editor mode
+	const advisorySubject = useMemo(() => {
+		if (!isEditorModeActive) return { fetch: fetchQuery ?? null, key: xml, inTree: true, editorInvalid: false };
+		const parsed = parseForAdvisories(editorText);
+		if (!parsed) return { fetch: null, key: editorText, inTree: false, editorInvalid: editorText.trim() !== "" };
+		// The editor means the same as the tree: use the tree's nodes, so locations and fixes work
+		if (fetchQuery && parsed.canonical === xml) return { fetch: fetchQuery, key: xml, inTree: true, editorInvalid: false };
+		return { fetch: parsed.fetchNode, key: parsed.canonical, inTree: false, editorInvalid: false };
+	}, [isEditorModeActive, editorText, fetchQuery, xml]);
+	const advisorMetadata = useAdvisorMetadata(advisorySubject.fetch);
+	const dataverseCheck = useDataverseCheck();
+	const checkResult = dataverseCheck.result;
+	const { advisories, added } = useMemo((): { advisories: Advisory[]; added: number } => {
+		const subject = advisorySubject.fetch;
+		if (!subject) return { advisories: [], added: 0 };
+		const own = collectAdvisories(subject, advisorMetadata);
+		return checkResult ? mergeDataverseCheck(subject, own, checkResult.check) : { advisories: own, added: 0 };
+	}, [advisorySubject.fetch, advisorMetadata, checkResult]);
+	const checkStale = !!checkResult && checkResult.key !== advisorySubject.key;
+	const checkDisabledReason = !isDataverseAvailable()
+		? "Dataverse isn't available here. Open FetchXML Studio in Power Platform ToolBox."
+		: connectionKey === ""
+			? "Connect to an environment to check with Dataverse."
+			: undefined;
+	/** Check the FetchXML the user is looking at: the editor's text in editor mode, otherwise the tree's */
+	const handleCheckWithDataverse = () => {
+		if (isEditorModeActive) {
+			const text = editorXmlRef.current;
+			void dataverseCheck.run(text, parseForAdvisories(text)?.canonical ?? text);
+		} else {
+			void dataverseCheck.run(xml, xml);
+		}
+	};
+	const handleAdvisoryFix = (advisory: Advisory) => {
+		if (advisory.fix?.kind === "add-root-order" && fetchQuery && advisorySubject.inTree) {
+			onAddOrder?.(fetchQuery.entity.id, advisory.fix.attribute);
+		}
+	};
+
 	const handleTabSelect = (_event: SelectTabEvent, data: SelectTabData) => {
-		setSelectedTab(data.value as "xml" | "layout" | "results" | "code");
+		setSelectedTab(data.value as PreviewTab);
 		// Clear the editor validation error when returning to the XML tab so it
 		// doesn't linger as a banner on top of the editor.
 		if (data.value === "xml") {
@@ -589,6 +660,9 @@ export function PreviewTabs({
 						<Tab value="xml">FetchXML</Tab>
 						<Tab value="layout">LayoutXML</Tab>
 						<Tab value="results">Results</Tab>
+						<Tab value="advisories" aria-label={`Advisories (${advisories.length})`}>
+							Advisories <CounterBadge count={advisories.length} size="small" appearance="ghost" color="brand" />
+						</Tab>
 						<Tab value="code" icon={<Code20Regular />}>
 							Code
 						</Tab>
@@ -754,8 +828,28 @@ export function PreviewTabs({
 							onParseToTree={onParseToTree}
 							onEditorStateChange={handleEditorStateChange}
 							replaceRequest={editorReplace}
+							onViewAdvisories={() => setSelectedTab("advisories")}
 						/>
 					</div>
+					{selectedTab === "advisories" && (
+						<AdvisoriesPanel
+							advisories={advisories}
+							noQuery={!fetchQuery}
+							editorInvalid={advisorySubject.editorInvalid}
+							inTree={advisorySubject.inTree}
+							selectedNodeId={selectedNodeId}
+							onSelectNode={onSelectNode}
+							onFix={handleAdvisoryFix}
+							checking={dataverseCheck.checking}
+							checkedAt={checkResult?.checkedAt}
+							stale={checkStale}
+							added={added}
+							checkError={dataverseCheck.error}
+							onDismissCheckError={dataverseCheck.dismissError}
+							onCheck={handleCheckWithDataverse}
+							checkDisabledReason={checkDisabledReason}
+						/>
+					)}
 					{selectedTab === "layout" && (
 						<div className={styles.codeCard}>
 							<LayoutXmlViewer layoutXml={layoutXml || ""} />

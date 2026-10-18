@@ -32,6 +32,39 @@ export interface RuleFinding {
 	kind: RuleKind;
 	/** Tree node the finding is about, so editors can show it on that node */
 	nodeId: string;
+	/**
+	 * Query Advisor rule (#97), for the Advisories tab: its title and Learn link, and matching the
+	 * finding to what Dataverse's ValidateFetchXmlExpression reports. Undefined for other rules.
+	 */
+	rule?: AdvisorRuleId;
+	/** The attribute logical name the finding is about, when there is one (matched with Dataverse) */
+	target?: string;
+	/** A quick fix the Advisories tab offers (#97) */
+	fix?: AdvisorFix;
+}
+
+/** Query Advisor rules (#97); see queryAdvisor.ts */
+export type AdvisorRuleId =
+	| "leading-wildcard"
+	| "all-attributes"
+	| "no-attributes"
+	| "order-link"
+	| "distinct-order"
+	| "simple-paging-limit"
+	| "aggregate-limit"
+	| "no-lock"
+	| "link-entity-limit"
+	| "condition-limit"
+	| "url-length"
+	| "order-choice"
+	| "large-text"
+	| "calculated-filter"
+	| "paging-order";
+
+/** Add an order on the root entity's attribute, after its other orders (#97) */
+export interface AdvisorFix {
+	kind: "add-root-order";
+	attribute: string;
 }
 
 type Container = EntityNode | LinkEntityNode;

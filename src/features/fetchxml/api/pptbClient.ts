@@ -81,6 +81,11 @@ export interface AttributeMetadata {
 	/** Logical attributes include composite ones (address1_composite), which can't be grouped or aggregated */
 	IsLogical?: boolean;
 	IsPrimaryId?: boolean;
+	/**
+	 * 0 simple, 1 calculated, 2 rollup, 3 formula, 4 prompt; null for types that can't be one (#97)
+	 * https://learn.microsoft.com/power-apps/developer/data-platform/specialized-columns#common-elements-and-characteristics
+	 */
+	SourceType?: number | null;
 	MaxLength?: number;
 	Precision?: number;
 	// For Integer, BigInt, Decimal, Double attributes
@@ -291,7 +296,7 @@ export async function getEntityAttributes(
 	}
 
 	// Build OData query with server-side filtering
-	let query = `EntityDefinitions(LogicalName='${odataString(logicalName)}')/Attributes?$select=LogicalName,SchemaName,DisplayName,AttributeType,AttributeTypeName,MetadataId,IsValidForAdvancedFind,IsValidForRead,IsLogical,IsPrimaryId`;
+	let query = `EntityDefinitions(LogicalName='${odataString(logicalName)}')/Attributes?$select=LogicalName,SchemaName,DisplayName,AttributeType,AttributeTypeName,MetadataId,IsValidForAdvancedFind,IsValidForRead,IsLogical,IsPrimaryId,SourceType`;
 
 	// Add server-side filter for IsValidForAdvancedFind
 	if (advancedFindOnly) {
@@ -318,6 +323,22 @@ export async function getEntityAttributes(
 	});
 
 	return attributes;
+}
+
+/**
+ * MaxLength of every String attribute of an entity (#97: conditions on String attributes longer
+ * than 850 characters are slow). MaxLength is only on the String / Memo types, so it's read with
+ * the StringAttributeMetadata cast; only LogicalName and MaxLength are returned.
+ * https://learn.microsoft.com/power-apps/developer/data-platform/webapi/query-metadata-web-api
+ */
+export async function getStringAttributeMaxLengths(logicalName: string): Promise<AttributeMetadata[]> {
+	if (!isDataverseAvailable()) {
+		throw new Error("PPTB Dataverse API not available");
+	}
+	const query = `EntityDefinitions(LogicalName='${odataString(logicalName)}')/Attributes/Microsoft.Dynamics.CRM.StringAttributeMetadata?$select=LogicalName,MaxLength`;
+	debugLog("metadataAPI", `📡 GET String MaxLength for '${logicalName}': ${query}`);
+	const result = await window.dataverseAPI!.queryData(query);
+	return result.value as unknown as AttributeMetadata[];
 }
 
 /**
