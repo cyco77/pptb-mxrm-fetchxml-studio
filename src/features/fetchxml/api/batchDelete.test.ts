@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	CONNECTION_CHANGED_MESSAGE,
+	STATE_CONNECTION_CHANGED_MESSAGE,
 	batchResultError,
+	buildStatePatchRequest,
+	updateRecordStatesInBatches,
 	deleteRecordsInBatches,
 	isRecordNotFound,
 	recordUrl,
@@ -131,5 +134,71 @@ describe("deleteRecordsInBatches", () => {
 		expect(result.succeeded).toBe(2);
 		expect(result.failed).toBe(2);
 		expect(result.errors).toEqual([`${all[2]}: ${CONNECTION_CHANGED_MESSAGE}`, `${all[3]}: ${CONNECTION_CHANGED_MESSAGE}`]);
+	});
+});
+
+// #143: Activate / Deactivate through the same runner: PATCH { statecode, statuscode }
+describe("updateRecordStatesInBatches", () => {
+	const target = { statecode: 1, statuscode: 2 };
+
+	it("builds a PATCH of statecode and statuscode to the record URL", () => {
+		expect(buildStatePatchRequest("accounts", "{ABC}", target)).toEqual({
+			method: "PATCH",
+			url: "accounts(ABC)",
+			body: { statecode: 1, statuscode: 2 },
+		});
+	});
+
+	it("sends PATCH requests in batches and reports progress", async () => {
+		const executeBatch = vi.fn(async (requests: BatchRequest[]) => requests.map(ok));
+		const progress = vi.fn();
+		const all = ids(3);
+		const result = await updateRecordStatesInBatches("accounts", all, target, { executeBatch, batchSize: 2, onProgress: progress, wait: noWait });
+		expect(result).toEqual({ succeeded: 3, failed: 0, errors: [] });
+		expect(executeBatch.mock.calls[0][0]).toEqual([
+			{ method: "PATCH", url: `accounts(${all[0]})`, body: target },
+			{ method: "PATCH", url: `accounts(${all[1]})`, body: target },
+		]);
+		expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ completed: 3, total: 3, totalBatches: 2 }));
+	});
+
+	it("formats per-record Dataverse errors with the code (verified 0x80048408 message)", async () => {
+		const [a, b] = ids(2);
+		const message = `1 is not a valid status code for state code AccountState.Inactive on account with Id ${b}.`;
+		const executeBatch = vi.fn(async () => [ok(), fail(400, "0x80048408", message)]);
+		const result = await updateRecordStatesInBatches("accounts", [a, b], target, { executeBatch, wait: noWait });
+		expect(result.failed).toBe(1);
+		expect(result.errors[0]).toBe(`${b}: 0x80048408: ${message}`);
+	});
+
+	it("redoes a stopped batch one record at a time; a 404 still fails for a PATCH", async () => {
+		const [a, b, c] = ids(3);
+		const executeBatch = vi.fn(async (requests: BatchRequest[]) => {
+			if (requests.length > 1) throw new Error("Malformed Dataverse batch response: invalid content ID correlation");
+			if (requests[0].url.includes(b)) return [notFound(b)];
+			return [ok()];
+		});
+		const result = await updateRecordStatesInBatches("accounts", [a, b, c], target, { executeBatch, wait: noWait });
+		expect(executeBatch).toHaveBeenCalledTimes(4);
+		expect(result.succeeded).toBe(2);
+		expect(result.failed).toBe(1);
+		// Known codes get their guidance first (formatDataverseError, #96)
+		expect(result.errors[0]).toMatch(new RegExp(`^${b}: The record or object wasn.t found.* Details: 0x80040217: `));
+	});
+
+	it("stops when the connection changes and reports the rest as not changed (#66)", async () => {
+		const all = ids(3);
+		const executeBatch = vi.fn(async (requests: BatchRequest[]) => requests.map(ok));
+		const result = await updateRecordStatesInBatches("accounts", all, target, {
+			executeBatch,
+			batchSize: 1,
+			shouldContinue: (() => {
+				let n = 0;
+				return () => ++n <= 2;
+			})(),
+			wait: noWait,
+		});
+		expect(result.succeeded).toBe(2);
+		expect(result.errors).toEqual([`${all[2]}: ${STATE_CONNECTION_CHANGED_MESSAGE}`]);
 	});
 });

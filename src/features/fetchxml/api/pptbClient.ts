@@ -32,7 +32,13 @@ import { memoizeForSession } from "./sessionCache";
 export { resetDataverseSessionCache } from "./sessionCache";
 import { readManagedPropertyValue, sortViewsByQueryType } from "../model/savedViews";
 import { canExecuteBatch, connectionGuard, getPrimaryConnection } from "./host";
-import { deleteRecordsInBatches, type ExecuteBatch } from "./batchDelete";
+import {
+	deleteRecordsInBatches,
+	updateRecordStatesInBatches,
+	STATE_CONNECTION_CHANGED_MESSAGE,
+	type ExecuteBatch,
+} from "./batchDelete";
+import { statePatchBody, toEntityStateModel, type EntityStateModel, type StateTarget } from "../model/recordState";
 
 import { odataString } from "./odata";
 export interface EntityMetadata {
@@ -2655,4 +2661,179 @@ export async function submitBulkDeleteFromFetchXml(
 		console.error("submitBulkDeleteFromFetchXml: Failed:", error);
 		throw error;
 	}
+}
+
+// ============================================================================
+// ACTIVATE / DEACTIVATE (#143)
+// ============================================================================
+
+interface StateOptionsResponse {
+	OptionSet?: { Options?: Parameters<typeof toEntityStateModel>[0] };
+}
+
+/** Dataverse's answer when the entity has no such attribute (the statecode lookup) */
+const isMissingAttributeError = (error: unknown) =>
+	/0x80040217|could not find|does not exist|not found/i.test(error instanceof Error ? error.message : String(error));
+
+/**
+ * The entity's state model (#143): statecode options (StateAttributeMetadata, with DefaultStatus
+ * and InvariantName), statuscode options (StatusAttributeMetadata, with State and TransitionData)
+ * and EnforceStateTransitions. Null when the entity has no statecode. Memoized per connection.
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/webapi/query-metadata-web-api
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/define-custom-state-model-transitions
+ */
+export function getEntityStateModel(logicalName: string): Promise<EntityStateModel | null> {
+	return memoizeForSession(`stateModel:${logicalName}`, async () => {
+		if (!isDataverseAvailable()) throw new Error("PPTB Dataverse API not available");
+		const entity = `EntityDefinitions(LogicalName='${odataString(logicalName)}')`;
+		let states: StateOptionsResponse;
+		try {
+			states = (await window.dataverseAPI!.queryData(
+				`${entity}/Attributes(LogicalName='statecode')/Microsoft.Dynamics.CRM.StateAttributeMetadata?$select=LogicalName&$expand=OptionSet($select=Options)`,
+			)) as unknown as StateOptionsResponse;
+		} catch (error) {
+			if (isMissingAttributeError(error)) return null;
+			throw error;
+		}
+		const [statuses, definition] = await Promise.all([
+			window.dataverseAPI!.queryData(
+				`${entity}/Attributes(LogicalName='statuscode')/Microsoft.Dynamics.CRM.StatusAttributeMetadata?$select=LogicalName&$expand=OptionSet($select=Options)`,
+			) as unknown as Promise<StateOptionsResponse>,
+			window.dataverseAPI!.queryData(`${entity}?$select=EnforceStateTransitions`) as unknown as Promise<{
+				EnforceStateTransitions?: boolean;
+			}>,
+		]);
+		const model = toEntityStateModel(
+			states.OptionSet?.Options ?? [],
+			statuses.OptionSet?.Options ?? [],
+			definition.EnforceStateTransitions === true,
+		);
+		debugLog("metadataAPI", `State model for ${logicalName}:`, model);
+		return model.states.length > 0 ? model : null;
+	});
+}
+
+/**
+ * Whether the user has the entity's Write privilege (#143). The privilege name comes from the
+ * entity's metadata (Privileges, PrivilegeType "Write"): activities share prvWriteActivity, orders
+ * use prvWriteOrder (verified on a sandbox). Undefined when it can't be determined: the action is
+ * then allowed and Dataverse answers with its own error.
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/webapi/reference/retrieveuserprivilegebyprivilegename
+ */
+export async function checkWritePrivilege(logicalName: string): Promise<boolean | undefined> {
+	if (!isDataverseAvailable()) return undefined;
+	try {
+		const user = await whoAmI();
+		if (!user) return undefined;
+		const definition = await memoizeForSession(
+			`privileges:${logicalName}`,
+			() =>
+				window.dataverseAPI!.queryData(
+					`EntityDefinitions(LogicalName='${odataString(logicalName)}')?$select=Privileges`,
+				) as unknown as Promise<{ Privileges?: { Name?: string; PrivilegeType?: string }[] }>,
+		);
+		const name = definition.Privileges?.find((p) => p.PrivilegeType === "Write")?.Name;
+		if (!name) return undefined;
+		// Same session key as checkPrivilegeByName; a failed call isn't kept (#71)
+		return await memoizeForSession(`privilege:${user.UserId}:${name}`, () => retrieveUserPrivilege(user.UserId, name));
+	} catch (error) {
+		console.warn(`checkWritePrivilege(${logicalName}): couldn't determine, allowing:`, error);
+		return undefined;
+	}
+}
+
+/**
+ * The current statuscode of each record (#143), for status reason transitions. Undefined when it
+ * can't be read. Filters by primary key in groups of 50 (short URLs).
+ */
+export async function getRecordStatuses(
+	logicalName: string,
+	primaryIdAttribute: string,
+	recordIds: string[],
+): Promise<number[] | undefined> {
+	try {
+		const entitySet = (await resolveEntitySet(logicalName))?.entitySetName;
+		if (!entitySet) return undefined;
+		const statuses: number[] = [];
+		for (let i = 0; i < recordIds.length; i += 50) {
+			const filter = recordIds
+				.slice(i, i + 50)
+				.map((id) => `${primaryIdAttribute} eq ${id.replace(/[{}]/g, "")}`)
+				.join(" or ");
+			const result = await window.dataverseAPI!.queryData(
+				`${entitySet}?$select=statuscode&$filter=${encodeURIComponent(filter)}`,
+			);
+			for (const row of result.value) {
+				if (typeof row.statuscode === "number") statuses.push(row.statuscode);
+			}
+		}
+		return statuses;
+	} catch (error) {
+		console.warn(`getRecordStatuses(${logicalName}) failed:`, error);
+		return undefined;
+	}
+}
+
+/**
+ * Activate / Deactivate (#143): sets `statecode` and `statuscode` on each record with
+ * `PATCH {EntitySetName}(id)`. PPTB ≥ 1.2.7: $batch requests through executeBatch with the
+ * metadata EntitySetName (like delete, #61), retried while throttled and stopped if the connection
+ * changes (#66). Older hosts: one dataverseAPI.update per record, retried after service protection
+ * errors (#96).
+ * @see https://learn.microsoft.com/power-apps/developer/data-platform/special-update-operation-behavior
+ */
+export async function setRecordsState(
+	entityLogicalName: string,
+	recordIds: string[],
+	target: StateTarget,
+	onProgress?: (progress: BatchDeleteProgress) => void,
+): Promise<BatchDeleteResult> {
+	if (!isDataverseAvailable()) throw new Error("PPTB Dataverse API not available");
+	const shouldContinue = await connectionGuard();
+	const entitySetName = await deleteEntitySet(entityLogicalName);
+	debugLog(
+		"recordAPI",
+		`📡 Setting state ${target.statecode}/${target.statuscode} on ${recordIds.length} ${entityLogicalName} records`,
+	);
+	if (entitySetName) {
+		return updateRecordStatesInBatches(entitySetName, recordIds, target, {
+			executeBatch: hostExecuteBatch,
+			onProgress,
+			shouldContinue,
+		});
+	}
+
+	const result: BatchDeleteResult = { succeeded: 0, failed: 0, errors: [] };
+	const started = Date.now();
+	for (const [index, recordId] of recordIds.entries()) {
+		if (!(await shouldContinue())) {
+			for (const id of recordIds.slice(index)) {
+				result.failed++;
+				result.errors.push(`${id}: ${STATE_CONNECTION_CHANGED_MESSAGE}`);
+			}
+			break;
+		}
+		try {
+			await withThrottleRetry(() =>
+				window.dataverseAPI!.update(entityLogicalName, recordId, statePatchBody(target)),
+			);
+			result.succeeded++;
+		} catch (error) {
+			result.failed++;
+			result.errors.push(`${recordId}: ${formatDataverseError(error)}`);
+		}
+		const completed = index + 1;
+		const average = (Date.now() - started) / completed;
+		onProgress?.({
+			completed,
+			total: recordIds.length,
+			succeeded: result.succeeded,
+			failed: result.failed,
+			batchesCompleted: completed,
+			totalBatches: recordIds.length,
+			estimatedSecondsRemaining:
+				completed >= 2 ? Math.ceil((average * (recordIds.length - completed)) / 1000) : undefined,
+		});
+	}
+	return result;
 }

@@ -280,6 +280,10 @@ interface PreviewTabsProps {
 	onActivateRecords?: (recordIds: string[]) => void;
 	/** Callback when user clicks Deactivate */
 	onDeactivateRecords?: (recordIds: string[]) => void;
+	/** Why Activate is off for this entity (#143) */
+	activateDisabledReason?: string;
+	/** Why Deactivate is off for this entity (#143) */
+	deactivateDisabledReason?: string;
 	/** Callback when user wants to run a specific workflow directly */
 	onRunSpecificWorkflow?: (workflow: WorkflowInfo, recordIds: string[]) => void;
 	/** Whether user can delete records */
@@ -358,6 +362,8 @@ export function PreviewTabs({
 	onBulkDeleteRecords,
 	onActivateRecords,
 	onDeactivateRecords,
+	activateDisabledReason,
+	deactivateDisabledReason,
 	onRunSpecificWorkflow,
 	canDelete,
 	canBulkDelete,
@@ -748,18 +754,20 @@ export function PreviewTabs({
 											onCopyRecordUrl(ids);
 										}
 									}}
-									onActivate={() => {
+									onActivate={onActivateRecords && (() => {
 										const ids = getSelectedIds();
 										if (ids?.length && onActivateRecords) {
 											onActivateRecords(ids);
 										}
-									}}
-									onDeactivate={() => {
+									})}
+									onDeactivate={onDeactivateRecords && (() => {
 										const ids = getSelectedIds();
 										if (ids?.length && onDeactivateRecords) {
 											onDeactivateRecords(ids);
 										}
-									}}
+									})}
+									activateDisabledReason={activateDisabledReason}
+									deactivateDisabledReason={deactivateDisabledReason}
 									onDelete={() => {
 										const ids = getSelectedIds();
 										// For delete, we allow empty selection to trigger "delete all" dialog
