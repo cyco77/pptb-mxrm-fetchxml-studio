@@ -128,7 +128,7 @@ export function SaveViewButton({
 	);
 
 	// Primary button text based on state
-	const primaryText = loadedView ? "Save" : "Save As";
+	const primaryText = loadedView ? "Save" : "Save as";
 	const primaryIcon = loadedView ? <SaveRegular /> : <SaveArrowRightRegular />;
 
 	return (
@@ -166,14 +166,14 @@ export function SaveViewButton({
 							icon={<SaveArrowRightRegular className={styles.menuIcon} />}
 							onClick={handleSaveAs}
 						>
-							<span className={styles.menuItem}>Save As...</span>
+							<span className={styles.menuItem}>Save as…</span>
 						</MenuItem>
 						{loadedView?.type === "system" && (
 							<MenuItem
 								icon={<SendRegular className={styles.menuIcon} />}
 								onClick={handleSaveAndPublish}
 							>
-								<span className={styles.menuItem}>Save and Publish</span>
+								<span className={styles.menuItem}>Save and publish</span>
 							</MenuItem>
 						)}
 					</MenuList>

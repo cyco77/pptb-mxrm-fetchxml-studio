@@ -349,7 +349,7 @@ export function CodePanel({ fetchXml }: CodePanelProps) {
 				{/* Spinner for async tabs */}
 				{isAsyncLoading && (
 					<div className={styles.centerBox}>
-						<Spinner size="medium" label="Generating..." />
+						<Spinner size="medium" label="Generating…" />
 					</div>
 				)}
 

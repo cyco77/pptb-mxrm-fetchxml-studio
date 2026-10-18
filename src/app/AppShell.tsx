@@ -1600,6 +1600,8 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 						onNewQuery={builder.newQuery}
 						entityScopeMode={displaySettings.entityScopeMode}
 						advancedFindOnly={displaySettings.advancedFindOnly}
+						collapsed={displaySettings.scopeCollapsed}
+						onCollapsedChange={(scopeCollapsed) => setDisplaySettings({ ...displaySettings, scopeCollapsed })}
 						onViewLoad={(viewInfo: LoadedViewInfo) => {
 							// Load the view's FetchXML into the tree while preserving view info
 							// Pass layoutxml for column configuration if available

@@ -19,6 +19,8 @@ export function useSolutionFilter() {
 	const [solutions, setSolutions] = useState<Solution[]>([]);
 	const [solutionsLoading, setSolutionsLoading] = useState(false);
 	const [solutionsError, setSolutionsError] = useState<string | null>(null);
+	// The solution request has finished (or came from the cache), for restoring a selection (#25)
+	const [solutionsLoaded, setSolutionsLoaded] = useState(false);
 
 	// Selected solutions
 	const [selectedSolutionIds, setSelectedSolutionIds] = useState<string[]>([]);
@@ -38,6 +40,7 @@ export function useSolutionFilter() {
 			const cached = metadataCache.getSolutions([]);
 			if (cached) {
 				setSolutions(cached);
+				setSolutionsLoaded(true);
 				return;
 			}
 
@@ -58,6 +61,7 @@ export function useSolutionFilter() {
 			} finally {
 				if (mounted) {
 					setSolutionsLoading(false);
+					setSolutionsLoaded(true);
 				}
 			}
 		}
@@ -152,6 +156,7 @@ export function useSolutionFilter() {
 		solutions,
 		solutionsLoading,
 		solutionsError,
+		solutionsLoaded,
 		selectedSolutionIds,
 		updateSelectedSolutions,
 

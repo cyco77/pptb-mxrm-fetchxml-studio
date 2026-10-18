@@ -1,7 +1,7 @@
 /**
  * Monaco editor for FetchXML with Editor Mode toggle
  * - Read-only mode: Shows generated XML with Copy button
- * - Editor mode: Editable with Paste, Load File, Reset, Validate, Parse to Tree buttons
+ * - Editor mode: Editable with Paste, Load File, Reset, Validate, Parse to tree buttons
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
@@ -152,7 +152,7 @@ export function FetchXmlEditor({
 	const [isEditorMode, setIsEditorMode] = useState(false);
 	const [editedXml, setEditedXml] = useState("");
 	const [messages, setMessages] = useState<Message[]>([]);
-	// Parse to Tree awaiting confirmation because it would change the query (#89)
+	// Parse to tree awaiting confirmation because it would change the query (#89)
 	const [pendingParse, setPendingParse] = useState<{
 		xml: string;
 		changes: ParseWarning[];
@@ -217,7 +217,7 @@ export function FetchXmlEditor({
 							id: messageIdRef.current++,
 							intent: "warning" as const,
 							title: TREE_CHANGED_TITLE,
-							body: "Execute, Save and Send to Tool use the editor's FetchXML and will replace the tree's changes. Use Reset to take the tree's FetchXML instead.",
+							body: "Execute, Save and Send to tool use the editor's FetchXML and will replace the tree's changes. Use Reset to take the tree's FetchXML instead.",
 						},
 						...prev,
 					].slice(0, 5),
@@ -322,7 +322,7 @@ export function FetchXmlEditor({
 		// First check syntax
 		const syntaxResult = validateFetchXmlSyntax(editedXml);
 		if (!syntaxResult.valid) {
-			addMessage("error", "Syntax Error", syntaxResult.error || "Invalid XML syntax");
+			addMessage("error", "Syntax error", syntaxResult.error || "Invalid XML syntax");
 			return;
 		}
 
@@ -360,7 +360,7 @@ export function FetchXmlEditor({
 			}
 
 			const changes = new Set(getParseToTreeChanges(result));
-			// Kept as written by Parse to Tree, so still a problem in the tree
+			// Kept as written by Parse to tree, so still a problem in the tree
 			const stillInvalid = result.warnings.filter((w) => w.kind === "invalid");
 			const stillErrors = stillInvalid.filter((w) => w.severity === "error");
 			const stillWarnings = stillInvalid.filter((w) => w.severity === "warning");
@@ -456,7 +456,7 @@ export function FetchXmlEditor({
 									onClick={handleParseToTree}
 									disabled={!onParseToTree}
 								>
-									Parse to Tree
+									Parse to tree
 								</ToolbarButton>
 							</Tooltip>
 						</Toolbar>
@@ -472,7 +472,7 @@ export function FetchXmlEditor({
 					<Switch
 						checked={isEditorMode}
 						onChange={(_, data) => handleToggleEditorMode(data.checked)}
-						label={<span className={styles.switchLabel}>Editor Mode</span>}
+						label={<span className={styles.switchLabel}>Editor mode</span>}
 						labelPosition="before"
 					/>
 				</div>
@@ -504,7 +504,7 @@ export function FetchXmlEditor({
 					}
 					loading={
 						<div className={styles.loadingContainer}>
-							<Spinner size="medium" label="Loading editor..." />
+							<Spinner size="medium" label="Loading editor…" />
 						</div>
 					}
 					options={{
@@ -554,7 +554,7 @@ export function FetchXmlEditor({
 				</div>
 			)}
 
-			{/* Parse to Tree confirmation (#89) */}
+			{/* Parse to tree confirmation (#89) */}
 			<ParseChangesDialog
 				action={pendingParse ? "parse" : null}
 				changes={pendingParse?.changes ?? []}

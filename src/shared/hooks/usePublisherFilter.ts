@@ -23,6 +23,8 @@ export function usePublisherFilter() {
 	);
 	const [publishersLoading, setPublishersLoading] = useState(false);
 	const [publishersError, setPublishersError] = useState<string | null>(null);
+	// The publisher request has finished (or came from the cache), for restoring a selection (#25)
+	const [publishersLoaded, setPublishersLoaded] = useState(false);
 
 	// Selected publishers
 	const [selectedPublisherIds, setSelectedPublisherIds] = useState<string[]>([]);
@@ -48,6 +50,7 @@ export function usePublisherFilter() {
 			const cached = metadataCache.getPublishersWithSolutions();
 			if (cached) {
 				setPublishersWithSolutions(cached);
+				setPublishersLoaded(true);
 				return;
 			}
 
@@ -68,6 +71,7 @@ export function usePublisherFilter() {
 			} finally {
 				if (mounted) {
 					setPublishersLoading(false);
+					setPublishersLoaded(true);
 				}
 			}
 		}
@@ -199,6 +203,9 @@ export function usePublisherFilter() {
 		publishers: publishersWithSolutions.map((pws) => pws.publisher),
 		publishersLoading,
 		publishersError,
+		publishersLoaded,
+		/** Every publisher with its solutions */
+		publishersWithSolutions,
 		selectedPublisherIds,
 		updateSelectedPublishers,
 

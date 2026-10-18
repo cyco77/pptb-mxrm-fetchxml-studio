@@ -2,7 +2,7 @@
 
 A powerful, modern FetchXML query builder and data explorer for [Power Platform ToolBox](https://github.com/PowerPlatformToolBox/desktop-app). Inspired by the XrmToolBox FetchXML Builder, reimagined with React 18, Fluent UI v9, and seamless Dataverse integration.
 
-![Version](https://img.shields.io/badge/version-1.5.0--beta.9-blue)
+![Version](https://img.shields.io/badge/version-1.5.0--beta.10-blue)
 [![npm](https://img.shields.io/npm/v/@mohsinonxrm/pptb-fetchxml-studio?label=npm)](https://www.npmjs.com/package/@mohsinonxrm/pptb-fetchxml-studio)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
@@ -13,6 +13,9 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 
 ### 🔧 Visual Query Builder
 - **Tree-based hierarchy** — Build FetchXML queries visually with entities, attributes, filters, orders, and link-entities
+  - **Add menus and right-click** — Each row's + menu offers All attributes, Select attributes…, Blank attribute, Order by, Filter and Link-entity, with the tree's icons. Right-click (or Shift+F10) a row for the same items plus **Delete**. Deleting a node with items inside asks first.
+  - **Readable rows** — Rows with nothing inside have no chevron. A link-entity that can return attributes but has none says "(no attributes)". A link-entity without an alias is labelled by its lookup, e.g. "contact via primarycontactid (outer)".
+- **Query scope** — Publishers, Solutions, Entity and Load view sit in a section that collapses to one line (entity · view · solutions), with **New** always visible. Your publisher and solution selection is remembered for each environment. Solutions show their unique name and version, grouped Unmanaged / Managed.
 - **Property panel for every node** — Fetch options, entity, attributes, all-attributes, sorts, filters, conditions and link-entities each have an editor covering the full FetchXML reference. Every field explains itself in an info popover with a link to Microsoft Learn.
   - **Metadata-driven** — Attribute pickers, operators, value pickers, aggregate functions, date grouping, sortable attributes and compare-to-attribute choices follow each attribute's metadata, so the panel only offers what Dataverse accepts.
   - **Shows problems where they are** — Rule errors appear on the field they're about and as an **Error** badge in the tree; settings Dataverse ignores are listed with a **Remove** button.
@@ -20,7 +23,7 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
   - **Safe mode changes** — Turning off aggregate, or switching a link-entity to a type that returns no attributes, lists what has to change and asks first.
 - **Full FetchXML support** — Aggregate queries, grouping, distinct, top/count, paging, and advanced hints
 - **Nested filters** — Create complex AND/OR filter groups with unlimited nesting
-- **Link-entity relationships** — Browse and add 1:N, N:1, and N:N relationships with inner/outer joins; N:N relationships join through their intersect entity, as documented; intersect entities (such as `systemuserroles` or `teammembership`) can be joined to each side of their N:N relationship
+- **Link-entity relationships** — Browse and add 1:N, N:1, and N:N relationships with inner/outer joins. Each option shows the related entity, then "via {lookup} · {schema name}", and search matches any part; N:N relationships join through their intersect entity, as documented; intersect entities (such as `systemuserroles` or `teammembership`) can be joined to each side of their N:N relationship
 
 ### 📊 Results Grid
 - **Virtualized DataGrid** — Handle large result sets with smooth scrolling (powered by react-window)
