@@ -47,6 +47,26 @@ describe("metadataCache.clear", () => {
 	});
 });
 
+describe("metadataCache String MaxLength (#97)", () => {
+	it("has its own cache, separate from the attributes, cleared with the rest", () => {
+		metadataCache.setStringMaxLengths("contact", new Map([["fullname", 160]]));
+		metadataCache.setStringMaxLengthsPromise("account", new Promise(() => {}));
+		expect(metadataCache.getStringMaxLengths("contact")?.get("fullname")).toBe(160);
+		expect(metadataCache.getEntityAttributes("contact")).toBeUndefined();
+		expect(metadataCache.getEntityAttributes("contact__stringlengths")).toBeUndefined();
+
+		metadataCache.clear();
+		expect(metadataCache.getStringMaxLengths("contact")).toBeUndefined();
+		expect(metadataCache.getStringMaxLengthsPromise("account")).toBeUndefined();
+	});
+
+	it("clearEntity forgets the entity's MaxLength values", () => {
+		metadataCache.setStringMaxLengths("contact", new Map([["fullname", 160]]));
+		metadataCache.clearEntity("contact");
+		expect(metadataCache.getStringMaxLengths("contact")).toBeUndefined();
+	});
+});
+
 describe("metadataCache.generationGuard", () => {
 	it("tells a request started before a clear that its answer is stale", () => {
 		const isCurrent = metadataCache.generationGuard();

@@ -58,6 +58,12 @@ function canonicalFetchXml(xmlText: string): string | null {
 
 const TREE_CHANGED_TITLE = "The tree changed while you were editing";
 
+/**
+ * Whether the Advisories tab lists this finding (advisories.ts collectAdvisories): a query-rule
+ * finding (they carry a nodeId) that's an error, a warning or advice, not a setting Dataverse ignores.
+ */
+const listedInAdvisories = (w: ParseWarning) => w.nodeId !== undefined && (w.severity !== "info" || w.kind === "advice");
+
 const useStyles = makeStyles({
 	container: {
 		display: "flex",
@@ -115,6 +121,8 @@ interface Message {
 	title: string;
 	/** Text, or a list of findings rendered as bullets */
 	body: string | ParseIssueItem[];
+	/** Validate's findings: offer "View all in Advisories" (#97) */
+	advisories?: boolean;
 }
 
 const INVALID_TITLE = "Invalid FetchXML";
@@ -134,6 +142,8 @@ interface FetchXmlEditorProps {
 	 * FetchXML into the tree and the tree changed it (#102). A new `id` triggers the replacement.
 	 */
 	replaceRequest?: { xml: string; id: number } | null;
+	/** Switch to the Advisories tab, from Validate's message bars (#97) */
+	onViewAdvisories?: () => void;
 }
 
 export function FetchXmlEditor({
@@ -141,6 +151,7 @@ export function FetchXmlEditor({
 	onParseToTree,
 	onEditorStateChange,
 	replaceRequest,
+	onViewAdvisories,
 }: FetchXmlEditorProps) {
 	const styles = useStyles();
 	const { isDark } = useTheme();
@@ -163,12 +174,13 @@ export function FetchXmlEditor({
 
 	// Add a message
 	const addMessage = useCallback(
-		(intent: Message["intent"], title: string, body: Message["body"]) => {
+		(intent: Message["intent"], title: string, body: Message["body"], advisories?: boolean) => {
 		const newMessage: Message = {
 			id: messageIdRef.current++,
 			intent,
 			title,
 			body,
+			advisories,
 		};
 			setMessages((prev) => [newMessage, ...prev].slice(0, 5)); // Keep max 5 messages
 		},
@@ -337,9 +349,10 @@ export function FetchXmlEditor({
 		const notes = parseResult.warnings.filter((w) => w.severity === "info");
 		const blocking = getBlockingWarnings(parseResult);
 		const executionErrors = getExecutionErrors(parseResult);
-		if (notes.length > 0) addMessage("info", "Notes", notes);
-		if (blocking.length > 0) addMessage("warning", MIGHT_REJECT_TITLE, blocking);
-		if (executionErrors.length > 0) addMessage("error", INVALID_TITLE, executionErrors);
+		// A bar offers "View all in Advisories" when the tab lists one of its findings (#97)
+		if (notes.length > 0) addMessage("info", "Notes", notes, notes.some(listedInAdvisories));
+		if (blocking.length > 0) addMessage("warning", MIGHT_REJECT_TITLE, blocking, blocking.some(listedInAdvisories));
+		if (executionErrors.length > 0) addMessage("error", INVALID_TITLE, executionErrors, executionErrors.some(listedInAdvisories));
 		if (blocking.length === 0 && executionErrors.length === 0) {
 			addMessage("success", "Valid", "Dataverse should accept this FetchXML.");
 		}
@@ -547,7 +560,13 @@ export function FetchXmlEditor({
 											size="small"
 										/>
 									}
-								/>
+								>
+									{msg.advisories && onViewAdvisories && (
+										<Button size="small" onClick={onViewAdvisories}>
+											View all in Advisories
+										</Button>
+									)}
+								</MessageBarActions>
 							</MessageBar>
 						))}
 					</MessageBarGroup>

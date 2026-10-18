@@ -25,7 +25,8 @@ export interface BuilderContextValue extends BuilderState {
 	/** Update attributes for an entity or link-entity (bulk add/remove) */
 	updateAttributes: (parentId: NodeId, attributeNames: string[]) => void;
 	addAllAttributes: (parentId: NodeId) => void;
-	addOrder: (parentId: NodeId) => void;
+	/** Add an order to an entity or link-entity: on `attribute` when given, else a placeholder to edit */
+	addOrder: (parentId: NodeId, attribute?: string) => void;
 	addFilter: (parentId: NodeId) => void;
 	addSubfilter: (filterId: NodeId) => void;
 	addCondition: (filterId: NodeId) => void;

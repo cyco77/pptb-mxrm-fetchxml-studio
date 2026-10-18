@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - A batch that stops early doesn't resend the records it already closed.
     - Items are off without Write on the entity or Create on activities.
 - **Activate reopens** closed opportunities, cases, orders and invoices (back to statecode 0; verified live). It stays off for quotes and contracts.
+- **Query Advisor: Advisories tab and Check with Dataverse (#97, verified live, read-only):**
+  - **Advisories tab** between Results and Code, with a count on the tab. One list of what Dataverse will reject, might reject, and performance advice, with filters. Each row has an explanation, a Microsoft Learn link, and its location, which selects the node in the tree. Advice never blocks Execute. Validate's messages get **View all in Advisories**; the tree, the properties panel and Validate are unchanged.
+  - **New checks that use metadata** (skipped while metadata isn't loaded):
+    - order on a choice, status, status reason or Yes/No attribute (not with `useraworderby`);
+    - any condition on a large text attribute: multiline text, or text longer than 850 characters;
+    - a condition on a calculated or formula attribute (not rollup);
+    - a paged query without the primary key in its orders, with the quick fix **Add {primary key} as the last order**. It isn't offered when link-entities have orders, because Dataverse applies those after the entity's orders.
+  - **Check with Dataverse**, on demand only: sends the FetchXML you're looking at to `ValidateFetchXmlExpression`. Matching findings get **Dataverse agrees**; anything else gets a **From Dataverse** row quoting Dataverse's message. The status line says when the query has changed since the check. Off without a connection.
+  - Attribute metadata now includes `SourceType`, and String `MaxLength` is read once per entity (cached).
 
 ### 🏗️ Technical
 

@@ -310,14 +310,15 @@ export function AppShell() {
 		<FluentProvider theme={isDark ? webDarkTheme : webLightTheme}>
 			<ThemeProvider isDark={isDark}>
 				<BuilderProvider key={session}>
-					<AppContent carryOver={carryOver.current} />
+					<AppContent carryOver={carryOver.current} connectionKey={connectionKey} />
 				</BuilderProvider>
 			</ThemeProvider>
 		</FluentProvider>
 	);
 }
 
-function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
+/** connectionKey: "" with no connection, undefined until the host answers (usePptbContext) */
+function AppContent({ carryOver, connectionKey }: { carryOver: ConnectionCarryOver; connectionKey?: string }) {
 	const styles = useStyles();
 	const builder = useBuilder();
 	const { loadAttributes, loadEntityMetadata, loadRelationships } = useLazyMetadata();
@@ -1915,6 +1916,10 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 					attributeMetadata={attributeMetadata}
 					fetchQuery={builder.fetchQuery}
 					primaryIdAttribute={entityMetadata?.PrimaryIdAttribute}
+					connectionKey={connectionKey}
+					selectedNodeId={builder.selectedNodeId}
+					onSelectNode={builder.selectNode}
+					onAddOrder={builder.addOrder}
 					columnConfig={builder.columnConfig}
 					onColumnResize={builder.updateColumnWidth}
 					onLoadMore={handleLoadMore}

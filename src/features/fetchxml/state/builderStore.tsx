@@ -111,7 +111,7 @@ type BuilderAction =
 	| { type: "ADD_ATTRIBUTE_BY_NAME"; parentId: NodeId; attributeName: string }
 	| { type: "UPDATE_ATTRIBUTES"; parentId: NodeId; attributeNames: string[] }
 	| { type: "ADD_ALL_ATTRIBUTES"; parentId: NodeId }
-	| { type: "ADD_ORDER"; parentId: NodeId }
+	| { type: "ADD_ORDER"; parentId: NodeId; attribute?: string }
 	| { type: "ADD_FILTER"; parentId: NodeId }
 	| { type: "ADD_SUBFILTER"; filterId: NodeId }
 	| { type: "ADD_CONDITION"; filterId: NodeId }
@@ -633,10 +633,11 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
 			}
 
 			// Create new order node
+			// A named attribute comes from the Advisories tab's quick fix (#97)
 			const newOrder: OrderNode = {
 				id: generateId(),
 				type: "order",
-				attribute: "new_attribute",
+				attribute: action.attribute ?? "new_attribute",
 				descending: false,
 			};
 
@@ -1091,7 +1092,7 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
 			updateAttributes: (parentId: NodeId, attributeNames: string[]) =>
 				dispatch({ type: "UPDATE_ATTRIBUTES", parentId, attributeNames }),
 			addAllAttributes: (parentId: NodeId) => dispatch({ type: "ADD_ALL_ATTRIBUTES", parentId }),
-			addOrder: (parentId: NodeId) => dispatch({ type: "ADD_ORDER", parentId }),
+			addOrder: (parentId: NodeId, attribute?: string) => dispatch({ type: "ADD_ORDER", parentId, attribute }),
 			addFilter: (parentId: NodeId) => dispatch({ type: "ADD_FILTER", parentId }),
 			addSubfilter: (filterId: NodeId) => dispatch({ type: "ADD_SUBFILTER", filterId }),
 			addCondition: (filterId: NodeId) => dispatch({ type: "ADD_CONDITION", filterId }),

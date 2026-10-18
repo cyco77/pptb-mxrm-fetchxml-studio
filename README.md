@@ -76,6 +76,16 @@ A powerful, modern FetchXML query builder and data explorer for [Power Platform 
 - **No silent changes** — If Parse to Tree must correct something Dataverse would reject (for example an invalid alias), a confirmation dialog lists every change first
 - **LayoutXML preview** — See the column layout configuration
 
+### 💡 Query Advisor (Advisories tab)
+- **One list of everything worth knowing about the query** — The **Advisories** tab (between Results and Code) shows a count on the tab and lists every finding: what Dataverse **will reject**, what it **might reject**, and **performance advice**, with filters for each. Each row has a title, an explanation, a **Microsoft Learn** link and its location; select the location to show that node in the tree. **Advice never blocks Execute.** The tree, the properties panel and Validate keep showing their findings, and Validate's messages have **View all in Advisories**.
+- **Documented anti-patterns and limits, before the query runs** — leading wildcards (including ends-with), returning all attributes, orders on link-entity attributes, distinct without an order, simple paging past 50,000 records, aggregate queries without a filter, legacy `no-lock`, and the hard limits (15 link-entities, 500 conditions, the URL length) — each citing [query anti-patterns](https://learn.microsoft.com/power-apps/developer/data-platform/query-antipatterns) or the FetchXML article it comes from.
+- **Checks that use metadata** (from the metadata cache; skipped, never guessed, while it isn't loaded):
+  - **Order on a choice attribute** (choice, status, status reason, Yes/No): Dataverse sorts by the label in the user's language, which is slower. Not reported with "Sort option sets by value" (`useraworderby`).
+  - **Condition on a large text attribute**: multiline text, or text with a maximum length over 850 characters, which is too long to index — whatever the operator.
+  - **Condition on a calculated or formula attribute**: calculated for every record, so the query is slow and may be throttled. Rollup attributes are stored and aren't reported.
+  - **Paging without a unique order**: a paged query (`count` / `page`) whose orders don't include the primary key, so records can repeat or go missing between pages ([order rows › ordering and paging](https://learn.microsoft.com/power-apps/developer/data-platform/fetchxml/order-rows#ordering-and-paging)). The quick fix **Add {primary key} as the last order** adds the order in the tree. When link-entities have orders, Dataverse applies them after the entity's orders, so the fix isn't offered and the advice explains why. With no order at all, Dataverse orders by the primary key itself, so there's nothing to report.
+- **Check with Dataverse** — On demand only, the tab sends the FetchXML you're looking at (the editor's text in editor mode) to Dataverse's [`ValidateFetchXmlExpression`](https://learn.microsoft.com/power-apps/developer/data-platform/webapi/reference/validatefetchxmlexpression). Findings Dataverse also reports get **Dataverse agrees**; anything only Dataverse reports gets a **From Dataverse** row quoting its message. The result stays until the next check, and the status line says when the query has changed since. It reads only; nothing is saved. It needs a connection.
+
 ### 📥 Load & Save Views
 - **Load system/personal views** — Browse and load existing Dataverse views of every query type. Personal views shared with you show "Shared by {owner}", and system views show their type or "Default view"
 - **Optimized view execution** — An unmodified loaded view runs by its ID (SavedQuery/UserQuery). Quick find views run as FetchXML with the test value you enter for `{0}`; the query keeps `{0}`
@@ -169,7 +179,7 @@ Nothing else writes to Dataverse:
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  [Entity Selector ▼]  [Load View ▼]  [Save View] [Send to Tool ▼]  [⚙] │
 ├──────────────────────┬──────────────────────────────────────────────────┤
-│                      │  [FetchXML]  [LayoutXML]  [Results]  [Code]  [▶ Execute]│
+│                      │ [FetchXML] [Layout] [Results] [Advisories] [Code]│
 │   Query Tree         ├──────────────────────────────────────────────────┤
 │                      │                                                   │
 │   📁 fetch           │   Results Grid / Monaco Editor                   │
