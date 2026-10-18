@@ -22,6 +22,7 @@ import {
 	Popover,
 	PopoverSurface,
 	Button,
+	Link,
 	Text,
 	Tooltip,
 	TagGroup,
@@ -55,7 +56,10 @@ import {
 	Filter20Regular,
 	FilterDismiss20Regular,
 } from "@fluentui/react-icons";
-import type { AttributeMetadata, EntityMetadata } from "../../api/pptbClient";
+import { retrieveTotalRecordCount, type AttributeMetadata, type EntityMetadata } from "../../api/pptbClient";
+import { formatDataverseError } from "../../api/dataverseErrors";
+import { adviseCondition } from "../../model/queryAdvisor";
+import { entityTotalText, totalCountText } from "./totalCount";
 import { getCellRenderer } from "./getCellRenderer";
 import { buildRowIdentity } from "./rowIdentity";
 import { getFormattedValue } from "./FormattedValueUtils";
@@ -164,6 +168,8 @@ const useStyles = makeStyles({
 	},
 	infoBar: {
 		display: "flex",
+		flexWrap: "wrap",
+		columnGap: tokens.spacingHorizontalL,
 		alignItems: "center",
 		justifyContent: "space-between",
 		padding: "8px 16px",
@@ -277,7 +283,10 @@ export interface QueryResult {
 	/** The query that produced the rows; the columns come from the query (resultColumns.ts, #91) */
 	query?: FetchNode | null;
 	rows: Record<string, unknown>[];
+	/** returntotalrecordcount: matching records up to the limit, -1 when not requested (totalCount.ts, #98) */
 	totalRecordCount?: number;
+	/** More records match than totalRecordCount counts (5,000, or 500 for elastic entities) */
+	totalRecordCountLimitExceeded?: boolean;
 	moreRecords?: boolean;
 	pagingCookie?: string;
 	entityLogicalName?: string; // NEW: for loading attribute metadata
@@ -880,6 +889,27 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 		[onSortChange, sortStateMap, queryKeyOf],
 	);
 
+	// ---- Total record count (#98): the query's count from returntotalrecordcount, and on request the
+	// entity's unfiltered total (RetrieveTotalRecordCount) when the count reaches its limit. The
+	// unfiltered total is kept per entity: it ignores the query, so it holds for any query on it.
+	const [entityTotal, setEntityTotal] = useState<{ entity: string; status: "loading" | "done" | "error"; text: string } | null>(null);
+	const countEntityTotal = useCallback((entity: string) => {
+		setEntityTotal({ entity, status: "loading", text: `Counting all ${entity} records…` });
+		retrieveTotalRecordCount(entity).then(
+			(total) =>
+				setEntityTotal(
+					total === undefined
+						? { entity, status: "error", text: `Dataverse returned no total for ${entity}.` }
+						: { entity, status: "done", text: entityTotalText(entity, total) },
+				),
+			(error: unknown) =>
+				setEntityTotal({ entity, status: "error", text: `Couldn't count all ${entity} records. ${formatDataverseError(error)}` }),
+		);
+	}, []);
+	const totalText = result
+		? totalCountText(result.totalRecordCount, result.totalRecordCountLimitExceeded, result.rows.length)
+		: undefined;
+
 	// ---- Quick search over the loaded rows (#23) ----
 	const search = searchText.trim();
 	const visibleRows = useMemo(() => {
@@ -1342,10 +1372,30 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 				</div>
 				<div className={styles.infoBar}>
 					<span>
-						Rows: {search ? `${visibleRows.length} of ${result.rows.length} loaded match the search` : result.rows.length}
+						Rows:{" "}
+						{search
+							? `${visibleRows.length} of ${result.rows.length} loaded match the search${totalText ? ` (${totalText})` : ""}`
+							: totalText
+								? `${result.rows.length} of ${totalText}`
+								: result.rows.length}
 						{result.moreRecords && !isLoadingMore && " (more available)"}
 						{isLoadingMore && " (loading more...)"}
 						{result.executionTimeMs !== undefined && ` | Executed in ${result.executionTimeMs}ms`}
+						{result.totalRecordCountLimitExceeded && result.entityLogicalName && (
+							<>
+								{" | "}
+								{entityTotal?.entity === result.entityLogicalName && entityTotal.status !== "error" ? (
+									entityTotal.text
+								) : (
+									<>
+										{entityTotal?.entity === result.entityLogicalName && `${entityTotal.text} `}
+										<Link as="button" inline onClick={() => countEntityTotal(result.entityLogicalName!)}>
+											{`Count all ${result.entityLogicalName} records (unfiltered snapshot)`}
+										</Link>
+									</>
+								)}
+							</>
+						)}
 					</span>
 					<span>
 						Selected: {selectedItems.size}
@@ -1448,7 +1498,7 @@ export const ResultsGrid = forwardRef<ResultsGridHandle, ResultsGridProps>(funct
 								node={draftCondition}
 								entityName={filterFor.target.entityName}
 								fetchQuery={fetchQuery}
-								findings={[]}
+								findings={adviseCondition(draftCondition)}
 								onUpdate={(updates) => setDraftCondition((d) => (d ? { ...d, ...updates } : d))}
 							/>
 							<Text size={200} className={styles.filterNote}>

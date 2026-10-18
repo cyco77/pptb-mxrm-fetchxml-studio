@@ -70,13 +70,37 @@ const ENDS_WITH_OPERATORS = new Set(["ends-with", "not-end-with"]);
 /**
  * Whether a pattern can't use an index: it starts with a wildcard (%, _ or [), or with hyphens or
  * apostrophes followed by a wildcard ("-%", "'%751"), which collation rules make behave the same.
- * begins-with values get an implicit trailing % (so begins-with "-" is "-%").
+ * begins-with values get an implicit trailing % (so begins-with "-" is "-%"). A bracket escape
+ * ([%], [_], [[]) is a literal character, not a wildcard (wildcard-characters, #98).
  * https://learn.microsoft.com/power-apps/developer/data-platform/query-antipatterns#avoid-leading-wild-cards-in-filter-conditions
  */
 export function hasLeadingWildcard(operator: string, value: unknown): boolean {
 	if (!PATTERN_OPERATORS.has(operator) || typeof value !== "string" || value === "") return false;
-	const pattern = operator === "begins-with" || operator === "not-begin-with" ? `${value}%` : value;
-	return /^[-']*[%_[]/.test(pattern);
+	const pattern = (operator === "begins-with" || operator === "not-begin-with" ? `${value}%` : value).replace(/^[-']*/, "");
+	return /^[%_[]/.test(pattern) && !/^\[[%_[]\]/.test(pattern);
+}
+
+/**
+ * Leading-wildcard advice for one condition (#97). Also used for a results-grid column filter's
+ * condition (#98), which isn't in the tree yet.
+ * https://learn.microsoft.com/power-apps/developer/data-platform/query-antipatterns#avoid-leading-wild-cards-in-filter-conditions
+ * https://learn.microsoft.com/power-apps/developer/data-platform/wildcard-characters#dont-use-leading-wild-cards
+ */
+export function adviseCondition(condition: ConditionNode): RuleFinding[] {
+	if (condition.valueof) return [];
+	const slow = "so Dataverse can't use an index: the query can be slow and may be throttled (0x80048644)";
+	const base = { element: "condition", nodeId: condition.id, severity: "info", kind: "advice" } as const;
+	if (ENDS_WITH_OPERATORS.has(condition.operator)) {
+		return [{ ...base, attribute: "operator",
+			message: `The '${condition.operator}' operator works like a leading wildcard, ${slow}. Use begins-with where you can, or Dataverse search.` }];
+	}
+	if (hasLeadingWildcard(condition.operator, condition.value)) {
+		const value = String(condition.value);
+		const start = /^[-']/.test(value) ? "starts with a hyphen or apostrophe before a wildcard, which works like a leading wildcard," : "starts with a wildcard,";
+		return [{ ...base, attribute: "value",
+			message: `The value '${value}' ${start} ${slow}. Start the value with literal text, or use Dataverse search.` }];
+	}
+	return [];
 }
 
 export function adviseQuery(fetch: FetchNode): RuleFinding[] {
@@ -88,22 +112,7 @@ export function adviseQuery(fetch: FetchNode): RuleFinding[] {
 	const links = containers.flatMap(({ container, inFilter }) => (container.type === "link-entity" ? [{ link: container, inFilter }] : []));
 
 	// ---- leading wildcards: Dataverse can't use an index and throttles these queries (0x80048644)
-	// https://learn.microsoft.com/power-apps/developer/data-platform/query-antipatterns#avoid-leading-wild-cards-in-filter-conditions
-	// https://learn.microsoft.com/power-apps/developer/data-platform/wildcard-characters#dont-use-leading-wild-cards
-	const slow = "so Dataverse can't use an index: the query can be slow and may be throttled (0x80048644)";
-	for (const condition of conditions) {
-		if (condition.valueof) continue;
-		const base = { element: "condition", nodeId: condition.id, severity: "info", kind: "advice" } as const;
-		if (ENDS_WITH_OPERATORS.has(condition.operator)) {
-			push({ ...base, attribute: "operator",
-				message: `The '${condition.operator}' operator works like a leading wildcard, ${slow}. Use begins-with where you can, or Dataverse search.` });
-		} else if (hasLeadingWildcard(condition.operator, condition.value)) {
-			const value = String(condition.value);
-			const start = /^[-']/.test(value) ? "starts with a hyphen or apostrophe before a wildcard, which works like a leading wildcard," : "starts with a wildcard,";
-			push({ ...base, attribute: "value",
-				message: `The value '${value}' ${start} ${slow}. Start the value with literal text, or use Dataverse search.` });
-		}
-	}
+	for (const condition of conditions) adviseCondition(condition).forEach(push);
 
 	// ---- columns: "We strongly discourage returning all columns" (select-columns; query-antipatterns
 	// LargeAmountOfAttributes). With no attribute and no all-attributes, the root returns all columns.

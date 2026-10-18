@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Quick find views:** enter a test value for `{0}`, with an optional trailing `%`, to execute them. The value is used only in the FetchXML that runs; the tree, the editor and saved views keep `{0}`. A loaded quick find view runs as FetchXML, not by ID, because by ID it matches nothing (verified live).
   - **Set as default view** for public system views.
   - **Description:** pre-filled when you overwrite a view, and clearing it clears the view's description.
+- **Docs-driven helpers (#98):**
+  - **Wildcard helper** for `like` / `not-like` values: Contains (`%x%`), Begins with (`x%`), Ends with (`%x`) or a custom pattern. **Match literally** escapes `%` → `[%]`, `_` → `[_]` and `[` → `[[]`, per "Wildcard characters".
+    - begins-with and ends-with warn when a typed character would act as a wildcard.
+    - Stored values read back into the helper, and switching operators keeps the text.
+    - The Query Advisor's leading-wildcard advice ignores escaped characters, and now also appears in the results-grid column filter.
+  - **Total record count:** with *Return total record count*, the info bar shows "Rows: 50 of 1,234 total", or "5,000+ total" (500+ on elastic entities) when the limit is exceeded. **Count all {entity} records (unfiltered snapshot)** calls `RetrieveTotalRecordCount` and says plainly that it ignores the query's filters.
+  - **Hierarchy picker:** under / not-under / above / eq-or-under / eq-or-above on the primary key pick a record by name (`startswith` search, so no leading wildcard). The record's name is resolved back from its ID, and **Enter an ID instead** gives a GUID field with validation. The hint names the hierarchical relationship and the 100-level limit.
+  - **GUID values:** Lookup, Customer, Owner and Uniqueidentifier condition values that aren't GUIDs are flagged. Verified live: Dataverse rejects them with 0x80040203.
+  - **Undocumented settings:** "UTC offset (undocumented)" shows only when the query sets it, and the condition aggregate leftover reads "Aggregate (undocumented)".
 
 ### 🏗️ Technical
 

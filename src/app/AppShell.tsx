@@ -1012,6 +1012,7 @@ function AppContent({ carryOver }: { carryOver: ConnectionCarryOver }) {
 				query,
 				rows: result.records.map((record) => ({ ...record })),
 				totalRecordCount: result.totalRecordCount,
+				totalRecordCountLimitExceeded: result.totalRecordCountLimitExceeded,
 				moreRecords,
 				pagingCookie: result.pagingCookie,
 				entityLogicalName,
