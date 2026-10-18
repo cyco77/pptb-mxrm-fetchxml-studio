@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🏗️ Technical
 
+- **`dompurify` 3.4.15 → 3.4.16 for monaco-editor, through an npm override.** This clears the two low advisories (GHSA-6688-9rhm-gjv2, GHSA-p98j-92pf-mc4p) and the failing Dependabot security job: monaco-editor 0.57 pins `dompurify` exactly, so Dependabot couldn't update it. Nothing that ships changes: Monaco bundles its own copy of DOMPurify and never imports the npm package, so the built Monaco chunk is byte-identical. `npm audit --omit=dev` now reports 0 findings.
 - **Release branches (`RELEASING.md`).** A minor release now stabilizes on its own `release/X.Y` branch, cut from `dev` at the feature freeze, so `dev` is never frozen. Betas (`-beta.N`, `-rc.N`) are tagged there and publish to npm `beta`. A stable release merges `release/X.Y` → `main` and is tagged there (npm `latest`). Fixes go to the oldest supported branch that has the bug and merge forward (`main` → `release/*` → `dev`).
 - **Supported versions (`SECURITY.md`):** the current stable release gets fixes. The previous minor gets critical and security fixes for 30 days after the next minor ships, from a `support/X.Y` branch that publishes to npm `support-X.Y`, never `latest`.
 - **`release.yml` chooses the channel from the tag:** `-beta.N` / `-rc.N` → `beta` (pre-release); a stable tag on `main` → `latest`; a stable tag on `support/X.Y` → `support-X.Y` (not marked as the latest GitHub Release). Any other tag fails before publishing. CI also runs on pushes to `release/**` and `support/**`.
