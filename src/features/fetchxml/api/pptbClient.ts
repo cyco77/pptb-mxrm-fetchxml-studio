@@ -30,7 +30,7 @@ import { memoizeForSession } from "./sessionCache";
 
 // Connection-change hook (#71): forget the memoized WhoAmI and privilege answers
 export { resetDataverseSessionCache } from "./sessionCache";
-import { readManagedPropertyValue, sortViewsByQueryType } from "../model/savedViews";
+import { hasWriteAccess, readManagedPropertyValue, sortViewsByQueryType } from "../model/savedViews";
 import { canExecuteBatch, connectionGuard, getPrimaryConnection } from "./host";
 import {
 	deleteRecordsInBatches,
@@ -1178,6 +1178,13 @@ export interface SavedView {
 	queryType?: number;
 	/** System views: the iscustomizable managed property; false means it can't be overwritten (#93) */
 	isCustomizable?: boolean;
+	/** System views: part of a managed solution (ismanaged), so saving adds an unmanaged layer (#142) */
+	isManaged?: boolean;
+	/** System views: the solution the view belongs to (solutionid), named in the managed warning (#142) */
+	solutionId?: string;
+	/** Personal views: the owner (ownerid) and its formatted value, for views shared with the user (#142) */
+	ownerId?: string;
+	ownerName?: string;
 }
 
 /**
@@ -1202,6 +1209,16 @@ export interface LoadedViewInfo {
 	queryType?: number;
 	/** System views: false when the view isn't customizable, so it can't be overwritten (#93) */
 	isCustomizable?: boolean;
+	/** The view's description, pre-filled when it's overwritten (#142) */
+	description?: string;
+	/** System views: the default view of its query type (isdefault, #142) */
+	isDefault?: boolean;
+	/** System views: managed (ismanaged) and its solution, for the overwrite warning (#142) */
+	isManaged?: boolean;
+	solutionId?: string;
+	/** Personal views: the owner, for views shared with the user (#142) */
+	ownerId?: string;
+	ownerName?: string;
 }
 
 // LayoutXML parsing and generation live in model/layoutxml.ts (#81: the copies here were unused)
@@ -1232,7 +1249,7 @@ export async function getSystemViews(entityLogicalName: string): Promise<SavedVi
 		// componentstate = 0: Published (not unpublished/deleted)
 		// statecode = 0: Active views only
 		const query =
-			`savedqueries?$select=savedqueryid,name,fetchxml,layoutxml,isdefault,querytype,iscustomizable` +
+			`savedqueries?$select=savedqueryid,name,description,fetchxml,layoutxml,isdefault,querytype,iscustomizable,ismanaged,solutionid` +
 			`&$filter=(returnedtypecode eq '${odataString(entityLogicalName)}' and componentstate eq 0 and statecode eq 0)` +
 			`&$orderby=name asc`;
 
@@ -1247,9 +1264,12 @@ export async function getSystemViews(entityLogicalName: string): Promise<SavedVi
 				fetchxml: record.fetchxml as string,
 				layoutxml: record.layoutxml as string | undefined,
 				type: "system" as const,
+				description: (record.description as string | null) ?? undefined,
 				isDefault: record.isdefault as boolean | undefined,
 				queryType: record.querytype as number | undefined,
 				isCustomizable: readManagedPropertyValue(record.iscustomizable),
+				isManaged: record.ismanaged as boolean | undefined,
+				solutionId: (record.solutionid as string | null) ?? undefined,
 			})),
 		);
 
@@ -1286,7 +1306,7 @@ export async function getPersonalViews(entityLogicalName: string): Promise<Saved
 		// returnedtypecode: Entity logical name as string
 		// statecode = 0: Active views only
 		const query =
-			`userqueries?$select=userqueryid,name,fetchxml,layoutxml,querytype` +
+			`userqueries?$select=userqueryid,name,description,fetchxml,layoutxml,querytype,_ownerid_value` +
 			`&$filter=(statecode eq 0 and returnedtypecode eq '${odataString(entityLogicalName)}')` +
 			`&$orderby=name asc`;
 
@@ -1301,7 +1321,14 @@ export async function getPersonalViews(entityLogicalName: string): Promise<Saved
 				fetchxml: record.fetchxml as string,
 				layoutxml: record.layoutxml as string | undefined,
 				type: "personal" as const,
+				description: (record.description as string | null) ?? undefined,
 				queryType: record.querytype as number | undefined,
+				// The owner's name is the lookup's formatted value: the host asks for all annotations
+				// (Prefer: odata.include-annotations="*"), verified live (#142)
+				// https://learn.microsoft.com/power-apps/developer/data-platform/webapi/query/select-columns#formatted-values
+				ownerId: (record._ownerid_value as string | null) ?? undefined,
+				ownerName:
+					(record["_ownerid_value@OData.Community.Display.V1.FormattedValue"] as string | undefined) ?? undefined,
 			})),
 		);
 
@@ -1520,6 +1547,74 @@ export async function checkUserQueryPrivileges(): Promise<{
 }
 
 /**
+ * Whether the current user can write a personal view (#142): RetrievePrincipalAccess, bound to the
+ * user, with the userquery as Target. A view shared with the user without write access returns
+ * "ReadAccess" only (verified live). Undefined when it can't be determined: saving is then allowed
+ * and Dataverse answers with its own error.
+ * https://learn.microsoft.com/power-apps/developer/data-platform/webapi/reference/retrieveprincipalaccess
+ * https://learn.microsoft.com/power-apps/developer/data-platform/webapi/use-web-api-functions#pass-record-reference-to-a-function
+ */
+export async function checkUserQueryWriteAccess(userQueryId: string): Promise<boolean | undefined> {
+	if (!isDataverseAvailable()) return undefined;
+	try {
+		const user = await whoAmI();
+		if (!user) return undefined;
+		const response = (await window.dataverseAPI!.queryData(
+			`systemusers(${user.UserId})/Microsoft.Dynamics.CRM.RetrievePrincipalAccess(Target=@tid)?@tid={'@odata.id':'userqueries(${userQueryId})'}`,
+		)) as unknown as { AccessRights?: unknown };
+		debugLog("viewAPI", `RetrievePrincipalAccess(userquery ${userQueryId}): ${String(response?.AccessRights)}`);
+		return hasWriteAccess(response?.AccessRights);
+	} catch (error) {
+		console.warn("checkUserQueryWriteAccess: couldn't determine, allowing:", error);
+		return undefined;
+	}
+}
+
+/**
+ * Display and unique name of the solution a managed view belongs to (savedquery.solutionid), for
+ * the managed view warning (#142). Null when it can't be read. Memoized per connection.
+ */
+export function getSolutionLabel(solutionId: string): Promise<{ friendlyName: string; uniqueName: string } | null> {
+	return memoizeForSession(
+		`solutionLabel:${solutionId}`,
+		async () => {
+			if (!isDataverseAvailable()) return null;
+			try {
+				const solution = (await window.dataverseAPI!.queryData(
+					`solutions(${solutionId})?$select=friendlyname,uniquename`,
+				)) as unknown as { friendlyname?: string; uniquename?: string };
+				if (!solution?.uniquename) return null;
+				return { friendlyName: solution.friendlyname || solution.uniquename, uniqueName: solution.uniquename };
+			} catch (error) {
+				console.warn(`getSolutionLabel(${solutionId}) failed:`, error);
+				return null;
+			}
+		},
+		(label) => label !== null,
+	);
+}
+
+/**
+ * The entity's default public view (savedquery isdefault, querytype 0), named in the "Set as
+ * default view" hint (#142). There's one: "You can set only one active public view as the default
+ * view" (verified live: one default per query type). Null when there's none or it can't be read.
+ * https://learn.microsoft.com/power-apps/developer/model-driven-apps/customize-entity-views#set-a-public-view-as-the-default-view
+ */
+export async function getDefaultPublicView(entityLogicalName: string): Promise<{ id: string; name: string } | null> {
+	if (!isDataverseAvailable()) return null;
+	try {
+		const result = await window.dataverseAPI!.queryData(
+			`savedqueries?$select=savedqueryid,name&$filter=returnedtypecode eq '${odataString(entityLogicalName)}' and querytype eq 0 and isdefault eq true and statecode eq 0&$top=1`,
+		);
+		const view = result.value?.[0];
+		return view ? { id: view.savedqueryid as string, name: view.name as string } : null;
+	} catch (error) {
+		console.warn(`getDefaultPublicView(${entityLogicalName}) failed:`, error);
+		return null;
+	}
+}
+
+/**
  * Get unmanaged solutions that can receive components
  * Used for the solution picker when saving system views
  */
@@ -1558,8 +1653,11 @@ export interface CreateSavedQueryData {
 	fetchxml: string;
 	layoutxml: string;
 	returnedtypecode: string; // Entity logical name
-	description?: string;
+	/** On update, null clears it (#142) */
+	description?: string | null;
 	querytype?: number; // 0 = Main/Public view
+	/** Public views: make it the entity's default view (#142, savedViews.ts canSetDefaultView) */
+	isdefault?: boolean;
 }
 
 /**
@@ -1570,7 +1668,8 @@ export interface CreateUserQueryData {
 	fetchxml: string;
 	layoutxml: string;
 	returnedtypecode: string; // Entity logical name
-	description?: string;
+	/** On update, null clears it (#142) */
+	description?: string | null;
 	querytype?: number; // 0 = Saved view
 }
 
@@ -1593,6 +1692,7 @@ export async function createSavedQuery(data: CreateSavedQueryData): Promise<stri
 			returnedtypecode: data.returnedtypecode,
 			description: data.description || null,
 			querytype: data.querytype ?? 0,
+			...(data.isdefault ? { isdefault: true } : {}),
 		};
 
 		const result = await window.dataverseAPI!.create("savedquery", record);
@@ -1624,6 +1724,7 @@ export async function updateSavedQuery(
 		if (data.fetchxml !== undefined) record.fetchxml = data.fetchxml;
 		if (data.layoutxml !== undefined) record.layoutxml = data.layoutxml;
 		if (data.description !== undefined) record.description = data.description;
+		if (data.isdefault !== undefined) record.isdefault = data.isdefault;
 
 		await window.dataverseAPI!.update("savedquery", savedQueryId, record);
 
