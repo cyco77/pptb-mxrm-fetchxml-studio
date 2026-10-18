@@ -53,8 +53,8 @@ const useStyles = makeStyles({
 		padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalS}`,
 		borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
 	},
-	status: { color: tokens.colorNeutralForeground3, minWidth: 0 },
-	grow: { flex: 1 },
+	status: { color: tokens.colorNeutralForeground3, minWidth: 0, flex: "1 1 240px" },
+	filters: { display: "flex", alignItems: "center", flexWrap: "nowrap", gap: tokens.spacingHorizontalXXS, marginLeft: "auto" },
 	messageBar: { padding: `${tokens.spacingVerticalS} ${tokens.spacingHorizontalS} 0` },
 	scroll: { flex: 1, overflowY: "auto", minHeight: 0 },
 	empty: {
@@ -252,12 +252,14 @@ export function AdvisoriesPanel(props: AdvisoriesPanelProps) {
 				<Text size={200} className={s.status} aria-live="polite">
 					{statusText(props)}
 				</Text>
-				<span className={s.grow} />
-				{toggle("all", "All", advisories.length)}
-				<ToolbarDivider />
-				{toggle("error", LEVEL_LABELS.error, counts.error)}
-				{toggle("warning", LEVEL_LABELS.warning, counts.warning)}
-				{toggle("advice", LEVEL_LABELS.advice, counts.advice)}
+				{/* The filters wrap together, so they never split across lines */}
+				<div className={s.filters} role="group" aria-label="Show">
+					{toggle("all", "All", advisories.length)}
+					<ToolbarDivider />
+					{toggle("error", LEVEL_LABELS.error, counts.error)}
+					{toggle("warning", LEVEL_LABELS.warning, counts.warning)}
+					{toggle("advice", LEVEL_LABELS.advice, counts.advice)}
+				</div>
 			</Toolbar>
 			{props.checkError && (
 				<div className={s.messageBar}>
