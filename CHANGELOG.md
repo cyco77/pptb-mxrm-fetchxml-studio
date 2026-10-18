@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0-beta.1] - 2026-10-17
+
+### 🔧 Fixed
+
+- **Cross-apply columns stay filled when they're filtered (#91 follow-up, verified live).**
+  - A `matchfirstrowusingcrossapply` link-entity normally returns its attributes by schema name (`FullName`).
+  - A condition with `entityname` targeting that link-entity, such as a column filter from the grid, makes Dataverse join it normally. It then returns `mc.fullname` instead.
+  - The grid now uses whichever key Dataverse returned, including for cross-apply `<all-attributes />`, so a filtered cross-apply column no longer shows as empty.
+- **Two cross-apply queries Dataverse rejects are now flagged before they run (verified live 2026-10-17).**
+  - An order inside a `matchfirstrowusingcrossapply` link-entity (0x80041121). Order from the entity with `entityname` instead; that works.
+  - An aliased attribute in one, which fails with a generic SQL error (0x80044150) unless a condition with `entityname` targets the link-entity. With such a condition the alias works, so that case isn't flagged.
+
 ## [1.4.2] - 2026-10-17
 
 The v1.4.2 milestone: the features other users asked for, a results grid that works from the query, saved views that behave as documented, operators that follow the docs, and the CI/CD and release setup shared with Command Bar Studio and Dataverse Request Studio. It was iterated through `1.4.2-beta.1` to `1.4.2-beta.7` (detailed below). Behaviour follows Microsoft Learn and the live operator matrix. Valid FetchXML is never refused, and a Dataverse error is shown as it is.
